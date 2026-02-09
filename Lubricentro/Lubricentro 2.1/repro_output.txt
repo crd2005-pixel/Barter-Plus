@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/app/tests/repro_issue_link.py", line 19, in <module>
+    BaseProv = _ns["Base"]
+               ~~~^^^^^^^^
+KeyError: 'Base'

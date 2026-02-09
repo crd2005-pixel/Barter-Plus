@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "/app/tests/test_product_editor_bulk.py", line 15, in <module>
+    from productos.edicion import ProductoEditorDialog
+  File "/app/productos/__init__.py", line 1, in <module>
+    from .main_tab import ProductosTab
+  File "/app/productos/main_tab.py", line 5, in <module>
+    from .precios_tab import PreciosTab
+  File "/app/productos/precios_tab.py", line 28, in <module>
+    from PyQt5.QtPrintSupport import QPrinter
+ModuleNotFoundError: No module named 'PyQt5.QtPrintSupport'; 'PyQt5' is not a package
