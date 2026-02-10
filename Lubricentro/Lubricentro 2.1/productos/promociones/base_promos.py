@@ -113,9 +113,10 @@ def _precio_final_base(p: Producto, total_fijos: float, denom_total: float, gana
     except Exception:
         stk = 0.0
 
+    # Prorrateo desactivado por solicitud
     prorr = 0.0
-    if denom_total > 0 and mas_iva > 0 and stk > 0:
-        prorr = total_fijos * ((mas_iva * stk) / denom_total)
+    # if denom_total > 0 and mas_iva > 0 and stk > 0:
+    #     prorr = total_fijos * ((mas_iva * stk) / denom_total)
 
     precio_cp = mas_iva + prorr
     gan = max(0.0, min(500.0, float(ganancia_pct))) / 100.0

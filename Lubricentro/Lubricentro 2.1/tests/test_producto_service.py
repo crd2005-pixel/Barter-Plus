@@ -72,6 +72,3 @@ class TestProductoService(unittest.TestCase):
     # Since the service does dynamic import, we can try to inject it if possible,
     # or trust the logic flow if we can't easily mock the module-level variable in this context without patching.
     # For now, legacy path coverage is good, and relational path is standard ORM query.
-
-if __name__ == '__main__':
-    unittest.main()
