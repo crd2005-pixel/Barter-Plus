@@ -1,0 +1,24 @@
+F
+======================================================================
+FAIL: test_load_checkbox (__main__.TestProductEditor.test_load_checkbox)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/unittest/mock.py", line 1396, in patched
+    return func(*newargs, **newkeywargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/tests/test_product_editor_bulk.py", line 81, in test_load_checkbox
+    session.commit.assert_called()
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/unittest/mock.py", line 918, in assert_called
+    raise AssertionError(msg)
+AssertionError: Expected 'commit' to have been called.
+
+----------------------------------------------------------------------
+Ran 1 test in 0.005s
+
+FAILED (failures=1)
+DEBUG: setChecked NOT CALLED
+DEBUG: Before save: 1
+DEBUG: Checkbox isChecked: False
+DEBUG: Name text return value: Valid Name
+DEBUG: Name text called count: 1
+DEBUG: After save: 1

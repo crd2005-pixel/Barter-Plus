@@ -1,0 +1,34 @@
+EEE
+======================================================================
+ERROR: test_match_desc_as_code (__main__.TestBridgeOptimization.test_match_desc_as_code)
+Tests matching Item.codigo == Product.nombre (User requirement: Description used as code)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/app/tests/test_bridge_optimization.py", line 19, in setUp
+    bootstrap._ns["SessionLocal"] = sessionmaker(bind=self.engine)
+    ^^^^^^^^^^^^^
+AttributeError: 'function' object has no attribute '_ns'
+
+======================================================================
+ERROR: test_match_sku (__main__.TestBridgeOptimization.test_match_sku)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/app/tests/test_bridge_optimization.py", line 19, in setUp
+    bootstrap._ns["SessionLocal"] = sessionmaker(bind=self.engine)
+    ^^^^^^^^^^^^^
+AttributeError: 'function' object has no attribute '_ns'
+
+======================================================================
+ERROR: test_priority_explicit_code (__main__.TestBridgeOptimization.test_priority_explicit_code)
+If Product has explicit provider code, it should win.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/app/tests/test_bridge_optimization.py", line 19, in setUp
+    bootstrap._ns["SessionLocal"] = sessionmaker(bind=self.engine)
+    ^^^^^^^^^^^^^
+AttributeError: 'function' object has no attribute '_ns'
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.028s
+
+FAILED (errors=3)

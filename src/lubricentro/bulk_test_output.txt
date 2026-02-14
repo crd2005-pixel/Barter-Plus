@@ -1,0 +1,2 @@
+Drum Price: 20000. Qty: 200. Result Unit Price: 100.0
+PASS: Bridge divides by quantity.
