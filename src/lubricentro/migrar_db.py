@@ -58,6 +58,7 @@ def run_migrations():
     ensure_column(DB_PATH, "productos", "subrubro", "TEXT")
     ensure_column(DB_PATH, "productos", "proveedor_id", "INTEGER") # Relación directa con tabla proveedores
     ensure_column(DB_PATH, "productos", "codigo_proveedor", "TEXT") # Código en lista proveedor
+    ensure_column(DB_PATH, "productos", "codigo_equivalencia", "TEXT") # Código de equivalencia (marca cruzada)
     ensure_column(DB_PATH, "productos", "precio_manual", "REAL NOT NULL DEFAULT 0") # Override manual de precio final
 
     ensure_column(DB_PATH, "ventas", "tarjeta_nombre", "TEXT NOT NULL DEFAULT ''")

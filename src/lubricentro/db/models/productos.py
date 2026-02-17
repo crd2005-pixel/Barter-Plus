@@ -27,6 +27,7 @@ class Producto(Base):
     marca_id = Column(Integer, ForeignKey('marcas.id'), nullable=True)
     proveedor_id = Column(Integer, ForeignKey('proveedores.id'), nullable=True) # NUEVO: Relación directa
     codigo_proveedor = Column(String, index=True, nullable=True) # Código del producto en la lista del proveedor
+    codigo_equivalencia = Column(String, index=True, nullable=True) # Código de equivalencia (marca cruzada)
     precio_minorista = Column(Float, default=0)
     precio_mayorista = Column(Float, default=0)
     stock_minimo = Column(Float, default=0)

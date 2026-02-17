@@ -140,6 +140,10 @@ class ProductoEditorDialog(QDialog):
         self.inp_cod_prov.setPlaceholderText("Código exacto en lista proveedor")
         self.inp_cod_prov.textChanged.connect(self._schedule_auto_check)
 
+        self.inp_equivalencia = QLineEdit()
+        self.inp_equivalencia.setPlaceholderText("Código compartido (agrupa stock para pedidos)")
+        self.inp_equivalencia.textChanged.connect(self._schedule_auto_check)
+
         self.inp_nombre = QLineEdit()
         self.inp_nombre.setPlaceholderText("Descripción del producto")
         self.inp_nombre.textChanged.connect(self._schedule_auto_check)
@@ -164,6 +168,7 @@ class ProductoEditorDialog(QDialog):
         f.addRow("Código Barras (ID):", self.inp_cod_barras)
         f.addRow("Código Interno (SKU):", self.inp_sku)
         f.addRow("Código Proveedor:", self.inp_cod_prov)
+        f.addRow("Cod. Equivalencia:", self.inp_equivalencia)
         f.addRow("Descripción / Nombre:", self.inp_nombre)
         f.addRow("Marca:", self.cmb_marca)
         f.addRow("Rubro:", self.cmb_rubro)
@@ -420,6 +425,7 @@ class ProductoEditorDialog(QDialog):
 
             self.inp_cod_barras.setText(p.codigo_barras or "")
             self.inp_sku.setText(p.sku or "")
+            self.inp_equivalencia.setText(getattr(p, "codigo_equivalencia", "") or "")
             self.inp_nombre.setText(p.nombre or "")
             self.cmb_rubro.setEditText(p.rubro or "")
             self.cmb_subrubro.setEditText(p.subrubro or "")
@@ -475,6 +481,7 @@ class ProductoEditorDialog(QDialog):
             p.codigo_barras = self.inp_cod_barras.text().strip() or None
             p.sku = self.inp_sku.text().strip() or None
             p.codigo_proveedor = self.inp_cod_prov.text().strip() or None
+            p.codigo_equivalencia = self.inp_equivalencia.text().strip() or None
             p.nombre = nombre
             p.rubro = self.cmb_rubro.currentText().strip() or None
             p.subrubro = self.cmb_subrubro.currentText().strip() or None

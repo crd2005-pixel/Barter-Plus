@@ -134,6 +134,21 @@ def generar_sugerencias_pedido():
         except Exception:
             prods = []
 
+        # Pre-calculo de stocks agrupados por equivalencia
+        equivalencia_stock = {}
+        # Primero necesitamos el stock de todos para sumar
+        # Optimizacion: cachear stock individual
+        cache_stock = {}
+        for p in prods:
+            st = _stock_total(s, p.id)
+            cache_stock[p.id] = st
+
+            eq = getattr(p, "codigo_equivalencia", None)
+            if eq:
+                eq = eq.strip().upper()
+                if eq:
+                    equivalencia_stock[eq] = equivalencia_stock.get(eq, 0.0) + st
+
         for p in prods:
             smin = _as_float(_get(p, "stock_minimo","stock_min","minimo", default=0), 0)
             smax = _as_float(_get(p, "stock_maximo","stock_max","maximo", default=0), 0)
@@ -142,7 +157,22 @@ def generar_sugerencias_pedido():
             if smin <= 0 and smax <= 0:
                 continue
 
-            st = _stock_total(s, p.id)
+            st = cache_stock.get(p.id, 0.0)
+
+            # Chequeo de equivalencia: si la suma total del grupo cubre el minimo de ESTE producto, no pedir.
+            eq = getattr(p, "codigo_equivalencia", None)
+            skip_pedido = False
+            if eq:
+                eq = eq.strip().upper()
+                if eq and eq in equivalencia_stock:
+                    total_grupo = equivalencia_stock[eq]
+                    # Si el stock total del grupo es suficiente para cubrir el minimo de este producto,
+                    # asumimos que la necesidad está cubierta con las otras marcas.
+                    if total_grupo >= smin:
+                        skip_pedido = True
+
+            if skip_pedido:
+                continue
 
             # Condición: stock estrictamente menor al mínimo (st < smin)
             # El usuario pide: "si es igual o mayor al stock mínimo que no aparezca en la lista"
