@@ -128,9 +128,17 @@ class MainWindow(QMainWindow):
             # Log a consola y muestra en status bar
             traceback.print_exc()
             self.status.setText(f"Sin '{title}': {e.__class__.__name__}")
+
+            # Acumular error para mostrar al final
+            if not hasattr(self, "_load_errors"):
+                self._load_errors = []
+            self._load_errors.append(f"<b>{title}</b>: {e}<br><small>{e.__class__.__name__}</small>")
             return False
 
     def _load_tabs_safe(self):
+        # Inicializar lista de errores
+        self._load_errors = []
+
         # Orden recomendado. Carga “mejor esfuerzo”.
         self._try_add("Ventas", "from ventas.main_tab import VentasTab", "VentasTab")
         self._try_add("Productos", "from productos.main_tab import ProductosTab", "ProductosTab")
@@ -148,6 +156,17 @@ class MainWindow(QMainWindow):
         except Exception as e:
             traceback.print_exc()
             self.status.setText(f"Sin Configuración: {e}")
+            self._load_errors.append(f"<b>Configuración</b>: {e}")
+
+        # Mostrar errores si los hubo (Plus: reporte de salud al inicio)
+        if self._load_errors:
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Warning)
+            msg.setWindowTitle("Advertencia de Carga")
+            msg.setText("Algunos módulos no se pudieron cargar.")
+            msg.setInformativeText("El programa funcionará, pero faltarán las siguientes pestañas:")
+            msg.setDetailedText("\n".join(self._load_errors).replace("<br>", "\n").replace("<b>", "").replace("</b>", "").replace("<small>", "").replace("</small>", ""))
+            msg.exec_()
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_F5:
