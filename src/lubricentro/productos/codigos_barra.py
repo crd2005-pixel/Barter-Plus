@@ -133,10 +133,8 @@ class CodigosBarraTab(QWidget):
             rows = []
             for row in prods:
                 if Marca:
-                    if isinstance(row, tuple): # Result is tuple (Producto, Marca.nombre)
-                        p, m_nombre = row
-                    else:
-                        p = row; m_nombre = ""
+                    # row is (Producto, Marca.nombre), either tuple or SQLAlchemy Row (unpackable)
+                    p, m_nombre = row
                 else:
                     p = row
                     m_nombre = ""

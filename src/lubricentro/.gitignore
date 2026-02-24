@@ -1,7 +1,6 @@
-/env
-/venv
-.venv
-__pycache__
+__pycache__/
 *.pyc
+*.log
 *.sqlite
-*.sqlite3
+test_output_*.txt
+reproduce_issue.py
