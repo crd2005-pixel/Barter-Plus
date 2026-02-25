@@ -5,11 +5,11 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
     QTableWidgetItem, QMessageBox, QHeaderView, QLabel, QCheckBox,
     QDialog, QFormLayout, QDoubleSpinBox, QComboBox, QFileDialog,
-    QGroupBox, QScrollArea
+    QGroupBox, QSplitter, QFrame, QSpinBox, QAbstractItemView
 )
-from PyQt5.QtCore import Qt, QSettings, QSizeF, QRectF
-from PyQt5.QtGui import QColor, QPainter, QFont, QPen, QBrush
-from PyQt5.QtPrintSupport import QPrinter, QPrintDialog, QPrintPreviewDialog
+from PyQt5.QtCore import Qt, QSettings, QSizeF, QRectF, QTimer
+from PyQt5.QtGui import QColor, QPainter, QFont, QPen, QBrush, QPageLayout, QPageSize
+from PyQt5.QtPrintSupport import QPrinter, QPrintDialog, QPrintPreviewWidget
 
 from db import SessionLocal, Producto
 try:
@@ -19,105 +19,444 @@ except ImportError:
 
 from .barcode_utils import get_code128_pattern
 
-class LabelConfigDialog(QDialog):
-    def __init__(self, parent=None):
+# =============================================================================
+# Custom Dialog: Configuration + Preview + Quantity Selection
+# =============================================================================
+class EtiquetasPreviewDialog(QDialog):
+    def __init__(self, items, parent=None):
+        """
+        items: list of dicts with {id, marca, nombre, code, equivalencia, sku, cod_prov, precio}
+        """
         super().__init__(parent)
-        self.setWindowTitle("Configuración de Etiquetas")
-        self.resize(450, 400)
+        self.setWindowTitle("Configuración e Impresión de Etiquetas")
+        self.resize(1100, 700)
         self.settings = QSettings("BarterPlus", "LabelConfig")
 
-        lay = QVBoxLayout(self)
+        # Internal state
+        self.items = items # Original items
+        # Augment items with 'cantidad'
+        for it in self.items:
+            it['cantidad'] = 1
 
-        # --- Dimensiones ---
-        gb_dim = QGroupBox("Dimensiones y Modo")
-        form_dim = QFormLayout(gb_dim)
+        self.printer = QPrinter(QPrinter.HighResolution)
+
+        # Main Layout
+        main_layout = QHBoxLayout(self)
+        splitter = QSplitter(Qt.Horizontal)
+        main_layout.addWidget(splitter)
+
+        # --- LEFT PANEL: Config & Items ---
+        left_widget = QWidget()
+        left_lay = QVBoxLayout(left_widget)
+        left_lay.setContentsMargins(0,0,0,0)
+
+        # 1. Configuration Controls (Scrollable if needed, but fixed is fine)
+        config_group = QGroupBox("Configuración de Etiqueta")
+        form = QFormLayout(config_group)
 
         self.cmb_mode = QComboBox()
         self.cmb_mode.addItems(["A4 (Grilla)", "Rollo / Térmica (Individual)"])
 
-        self.sp_width = QDoubleSpinBox(); self.sp_width.setRange(10, 300); self.sp_width.setSuffix(" mm")
-        self.sp_height = QDoubleSpinBox(); self.sp_height.setRange(10, 300); self.sp_height.setSuffix(" mm")
+        # Dimensions
+        hb_dim = QHBoxLayout()
+        self.sp_width = QDoubleSpinBox(); self.sp_width.setRange(10, 300); self.sp_width.setSuffix(" mm"); self.sp_width.setToolTip("Ancho")
+        self.sp_height = QDoubleSpinBox(); self.sp_height.setRange(10, 300); self.sp_height.setSuffix(" mm"); self.sp_height.setToolTip("Alto")
+        hb_dim.addWidget(QLabel("W:")); hb_dim.addWidget(self.sp_width)
+        hb_dim.addWidget(QLabel("H:")); hb_dim.addWidget(self.sp_height)
 
-        form_dim.addRow("Modo Impresión:", self.cmb_mode)
-        form_dim.addRow("Ancho Etiqueta:", self.sp_width)
-        form_dim.addRow("Alto Etiqueta:", self.sp_height)
-        lay.addWidget(gb_dim)
+        # Font Scale
+        self.sp_font_scale = QDoubleSpinBox(); self.sp_font_scale.setRange(0.1, 5.0); self.sp_font_scale.setSingleStep(0.1)
 
-        # --- Contenido ---
-        gb_cont = QGroupBox("Contenido Visible")
-        v_cont = QVBoxLayout(gb_cont)
-
+        # Fields
         self.chk_marca = QCheckBox("Marca")
-        self.chk_nombre = QCheckBox("Nombre Producto")
-        self.chk_codigo = QCheckBox("Código de Barras (Gráfico + Texto)")
-        self.chk_equivalencia = QCheckBox("Código Equivalencia")
-        self.chk_sku = QCheckBox("SKU / Código Interno")
-        self.chk_cod_prov = QCheckBox("Código Proveedor")
-        self.chk_precio = QCheckBox("Precio Final")
+        self.chk_nombre = QCheckBox("Nombre")
+        self.chk_codigo = QCheckBox("Código Barras")
+        self.chk_equivalencia = QCheckBox("Equivalencia")
+        self.chk_sku = QCheckBox("SKU")
+        self.chk_precio = QCheckBox("Precio")
 
-        v_cont.addWidget(self.chk_marca)
-        v_cont.addWidget(self.chk_nombre)
-        v_cont.addWidget(self.chk_codigo)
-        v_cont.addWidget(self.chk_equivalencia)
-        v_cont.addWidget(self.chk_sku)
-        v_cont.addWidget(self.chk_cod_prov)
-        v_cont.addWidget(self.chk_precio)
-        lay.addWidget(gb_cont)
+        # Layout Config
+        form.addRow("Modo:", self.cmb_mode)
+        form.addRow("Tamaño:", hb_dim)
+        form.addRow("Escala Fuente:", self.sp_font_scale)
 
-        # --- Ajustes ---
-        gb_adj = QGroupBox("Ajustes")
-        form_adj = QFormLayout(gb_adj)
+        # Grid for checkboxes
+        gl = QHBoxLayout() # flow
+        gl.addWidget(self.chk_marca); gl.addWidget(self.chk_nombre)
+        gl.addWidget(self.chk_codigo); gl.addWidget(self.chk_precio)
+        form.addRow(gl)
+        gl2 = QHBoxLayout()
+        gl2.addWidget(self.chk_equivalencia); gl2.addWidget(self.chk_sku)
+        form.addRow(gl2)
 
-        self.sp_font_scale = QDoubleSpinBox(); self.sp_font_scale.setRange(0.5, 3.0); self.sp_font_scale.setSingleStep(0.1)
-        self.sp_margin = QDoubleSpinBox(); self.sp_margin.setRange(0, 20); self.sp_margin.setSuffix(" mm")
+        left_lay.addWidget(config_group)
 
-        form_adj.addRow("Escala Fuente:", self.sp_font_scale)
-        form_adj.addRow("Margen Interno:", self.sp_margin)
-        lay.addWidget(gb_adj)
+        # 2. Items Table (Qty)
+        left_lay.addWidget(QLabel("<b>Items a Imprimir:</b>"))
+        self.tbl_items = QTableWidget()
+        self.tbl_items.setColumnCount(3)
+        self.tbl_items.setHorizontalHeaderLabels(["Producto", "Cant.", ""])
+        self.tbl_items.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.tbl_items.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.tbl_items.setSelectionBehavior(QAbstractItemView.SelectRows)
+        left_lay.addWidget(self.tbl_items)
 
-        # Defaults
-        mode = self.settings.value("mode", "A4 (Grilla)")
-        w = float(self.settings.value("width", 50.0))
-        h = float(self.settings.value("height", 30.0))
+        # 3. Action Buttons
+        btn_box = QHBoxLayout()
+        self.btn_print_dialog = QPushButton("Seleccionar Impresora / Imprimir")
+        self.btn_print_dialog.setStyleSheet("font-weight:bold; height: 40px; background-color: #e0f7fa;")
+        self.btn_print_dialog.clicked.connect(self._print_dialog)
 
-        self.cmb_mode.setCurrentText(mode)
-        self.sp_width.setValue(w)
-        self.sp_height.setValue(h)
+        self.btn_pdf = QPushButton("Exportar PDF")
+        self.btn_pdf.clicked.connect(self._export_pdf)
+
+        btn_box.addWidget(self.btn_print_dialog)
+        btn_box.addWidget(self.btn_pdf)
+        left_lay.addLayout(btn_box)
+
+        # --- RIGHT PANEL: Preview ---
+        self.preview = QPrintPreviewWidget(self.printer)
+        self.preview.paintRequested.connect(self._paint_preview)
+
+        splitter.addWidget(left_widget)
+        splitter.addWidget(self.preview)
+        splitter.setStretchFactor(1, 2) # Give preview more space
+
+        # Load Settings
+        self._load_settings()
+        self._populate_table()
+
+        # Connect signals
+        for w in [self.cmb_mode, self.sp_width, self.sp_height, self.sp_font_scale,
+                  self.chk_marca, self.chk_nombre, self.chk_codigo,
+                  self.chk_equivalencia, self.chk_sku, self.chk_precio]:
+            if isinstance(w, QDoubleSpinBox) or isinstance(w, QSpinBox):
+                w.valueChanged.connect(self._trigger_update)
+            elif isinstance(w, QComboBox):
+                w.currentIndexChanged.connect(self._trigger_update)
+            elif isinstance(w, QCheckBox):
+                w.toggled.connect(self._trigger_update)
+
+        # Initial update
+        QTimer.singleShot(100, self._trigger_update)
+
+    def _load_settings(self):
+        self.cmb_mode.setCurrentText(self.settings.value("mode", "A4 (Grilla)"))
+        self.sp_width.setValue(float(self.settings.value("width", 50.0)))
+        self.sp_height.setValue(float(self.settings.value("height", 30.0)))
+        self.sp_font_scale.setValue(float(self.settings.value("font_scale", 1.0)))
 
         self.chk_marca.setChecked(self.settings.value("show_marca", True, type=bool))
         self.chk_nombre.setChecked(self.settings.value("show_nombre", True, type=bool))
         self.chk_codigo.setChecked(self.settings.value("show_codigo", True, type=bool))
         self.chk_equivalencia.setChecked(self.settings.value("show_equivalencia", False, type=bool))
         self.chk_sku.setChecked(self.settings.value("show_sku", False, type=bool))
-        self.chk_cod_prov.setChecked(self.settings.value("show_cod_prov", False, type=bool))
         self.chk_precio.setChecked(self.settings.value("show_precio", False, type=bool))
 
-        self.sp_font_scale.setValue(float(self.settings.value("font_scale", 1.0)))
-        self.sp_margin.setValue(float(self.settings.value("margin_mm", 1.0)))
-
-        btns = QHBoxLayout()
-        btn_ok = QPushButton("Guardar"); btn_ok.clicked.connect(self._save)
-        btn_cancel = QPushButton("Cancelar"); btn_cancel.clicked.connect(self.reject)
-        btns.addWidget(btn_ok); btns.addWidget(btn_cancel)
-        lay.addLayout(btns)
-
-    def _save(self):
+    def _save_settings(self):
         self.settings.setValue("mode", self.cmb_mode.currentText())
         self.settings.setValue("width", self.sp_width.value())
         self.settings.setValue("height", self.sp_height.value())
+        self.settings.setValue("font_scale", self.sp_font_scale.value())
 
         self.settings.setValue("show_marca", self.chk_marca.isChecked())
         self.settings.setValue("show_nombre", self.chk_nombre.isChecked())
         self.settings.setValue("show_codigo", self.chk_codigo.isChecked())
         self.settings.setValue("show_equivalencia", self.chk_equivalencia.isChecked())
         self.settings.setValue("show_sku", self.chk_sku.isChecked())
-        self.settings.setValue("show_cod_prov", self.chk_cod_prov.isChecked())
         self.settings.setValue("show_precio", self.chk_precio.isChecked())
 
-        self.settings.setValue("font_scale", self.sp_font_scale.value())
-        self.settings.setValue("margin_mm", self.sp_margin.value())
+    def _populate_table(self):
+        self.tbl_items.setRowCount(len(self.items))
+        for r, item in enumerate(self.items):
+            # Name
+            lbl = f"{item['nombre']}"
+            if item['marca']: lbl = f"[{item['marca']}] {lbl}"
+            self.tbl_items.setItem(r, 0, QTableWidgetItem(lbl))
 
-        self.accept()
+            # Qty Spinbox
+            sb = QSpinBox()
+            sb.setRange(0, 999)
+            sb.setValue(item['cantidad'])
+            sb.valueChanged.connect(lambda val, idx=r: self._update_qty(idx, val))
+            self.tbl_items.setCellWidget(r, 1, sb)
+
+            # Remove btn
+            btn_del = QPushButton("X")
+            btn_del.setFixedWidth(24)
+            btn_del.setStyleSheet("color:red; font-weight:bold;")
+            btn_del.clicked.connect(lambda _, idx=r: self._remove_row(idx))
+            self.tbl_items.setCellWidget(r, 2, btn_del)
+
+    def _update_qty(self, row, val):
+        if 0 <= row < len(self.items):
+            self.items[row]['cantidad'] = val
+            self._trigger_update()
+
+    def _remove_row(self, row):
+        if 0 <= row < len(self.items):
+            self.items[row]['cantidad'] = 0 # Just mark 0 to skip printing
+            self.tbl_items.hideRow(row) # Hide visually
+            self._trigger_update()
+
+    def _trigger_update(self):
+        self.preview.updatePreview()
+
+    def _paint_preview(self, printer):
+        # Applies to actual print or preview
+        self._save_settings() # Save current UI state to settings so drawing logic can read it if needed, or pass explicitly
+
+        # Configure printer page size based on settings
+        mode = self.cmb_mode.currentText()
+        w_mm = self.sp_width.value()
+        h_mm = self.sp_height.value()
+
+        if mode.startswith("Rollo"):
+            # Set custom page size for thermal printer
+            size = QPageSize(QSizeF(w_mm, h_mm), QPageSize.Millimeter)
+            printer.setPageSize(size)
+            # Minimal margins
+            printer.setPageMargins(QMarginsF(0,0,0,0), QPageLayout.Millimeter)
+        else:
+            # A4
+            printer.setPageSize(QPageSize(QPageSize.A4))
+            printer.setFullPage(False)
+
+        painter = QPainter()
+        if painter.begin(printer):
+            self._draw_labels(painter, printer)
+            painter.end()
+
+    def _draw_labels(self, painter, printer):
+        # Generate flat list of items to print based on quantity
+        print_queue = []
+        for it in self.items:
+            qty = it.get('cantidad', 1)
+            for _ in range(qty):
+                print_queue.append(it)
+
+        if not print_queue:
+            return
+
+        mode = self.cmb_mode.currentText()
+
+        # Coordinate system setup
+        # We want to draw in Millimeters to be resolution independent?
+        # QPainter doesn't support 'setUnit(Millimeter)' directly, but we can set Window/Viewport.
+        # Alternatively, calculate pixels per mm.
+
+        dpi = printer.resolution()
+        # 1 inch = 25.4 mm
+        # pixels_per_mm = dpi / 25.4
+        ppm = dpi / 25.4
+
+        # Settings
+        w_mm = self.sp_width.value()
+        h_mm = self.sp_height.value()
+
+        w_px = w_mm * ppm
+        h_px = h_mm * ppm
+
+        # Font scaling factor
+        # If we use setPixelSize, it depends on DPI.
+        # If we use setPointSize, it depends on LogicalDPI which might differ.
+        # Let's use coordinate scaling.
+
+        painter.save()
+
+        # Draw Logic
+        if mode.startswith("Rollo"):
+            rect = QRectF(0, 0, w_px, h_px)
+            for i, item in enumerate(print_queue):
+                if i > 0:
+                    printer.newPage()
+                self._draw_single_label(painter, rect, item, ppm)
+        else:
+            # A4 Grid
+            page_rect = printer.pageRect(QPrinter.DevicePixel)
+
+            cols = int(page_rect.width() / w_px)
+            rows = int(page_rect.height() / h_px)
+            if cols < 1: cols = 1
+            if rows < 1: rows = 1
+
+            items_per_page = cols * rows
+
+            for i, item in enumerate(print_queue):
+                if i > 0 and i % items_per_page == 0:
+                    printer.newPage()
+
+                idx_on_page = i % items_per_page
+                c = idx_on_page % cols
+                r = idx_on_page // cols
+
+                x = c * w_px
+                y = r * h_px
+
+                # Draw only if within page
+                if (y + h_px) <= page_rect.height():
+                    rect = QRectF(x, y, w_px, h_px)
+                    self._draw_single_label(painter, rect, item, ppm)
+
+        painter.restore()
+
+    def _draw_single_label(self, painter, rect, item, ppm):
+        # Draw white background (helpful for some contexts)
+        painter.fillRect(rect, Qt.white)
+
+        # Padding (approx 1mm or 2mm)
+        pad = 1.0 * ppm
+        inner = rect.adjusted(pad, pad, -pad, -pad)
+
+        if inner.width() <= 0 or inner.height() <= 0: return
+
+        # Settings
+        font_scale = self.sp_font_scale.value()
+
+        # Font setup
+        # Base font size: 8pt ~ 2.8mm
+        # Adjusted by ppm and scale
+        # 1 pt = 1/72 inch.
+        # pixels = pts * (dpi/72)
+
+        dpi = ppm * 25.4
+        def get_font(pts, bold=False, family="Arial"):
+            px_size = pts * (dpi / 72.0) * font_scale
+            f = QFont(family)
+            f.setPixelSize(int(px_size))
+            f.setBold(bold)
+            return f, int(px_size)
+
+        y_cursor = inner.y()
+
+        # 1. Marca
+        if self.chk_marca.isChecked() and item['marca']:
+            f, px = get_font(10, True)
+            painter.setFont(f)
+            fm = painter.fontMetrics()
+            txt = item['marca'].upper()
+            rect_txt = QRectF(inner.x(), y_cursor, inner.width(), fm.height())
+            painter.drawText(rect_txt, Qt.AlignCenter, txt)
+            y_cursor += fm.height()
+
+        # 2. Nombre
+        if self.chk_nombre.isChecked() and item['nombre']:
+            # Multiline?
+            f, px = get_font(9, False)
+            painter.setFont(f)
+            fm = painter.fontMetrics()
+
+            # Max 2 lines
+            line_h = fm.height()
+            max_h = line_h * 2
+
+            # We can use drawText with WordWrap to rect
+            rect_txt = QRectF(inner.x(), y_cursor, inner.width(), max_h)
+
+            # Measure actual height needed
+            bounding = painter.boundingRect(rect_txt, Qt.AlignCenter | Qt.TextWordWrap, item['nombre'])
+
+            painter.drawText(rect_txt, Qt.AlignCenter | Qt.TextWordWrap, item['nombre'])
+            y_cursor += min(bounding.height(), max_h) + (1 * ppm) # small spacing
+
+        # 3. Extras line (Code, SKU, Price)
+        extras = []
+        if self.chk_equivalencia.isChecked() and item['equivalencia']:
+            extras.append(f"Eq:{item['equivalencia']}")
+        if self.chk_sku.isChecked() and item['sku']:
+            extras.append(f"SKU:{item['sku']}")
+        if self.chk_precio.isChecked():
+            extras.append(f"${item['precio']:.2f}")
+
+        if extras:
+            line = " ".join(extras)
+            f, px = get_font(7, False)
+            painter.setFont(f)
+            fm = painter.fontMetrics()
+            rect_txt = QRectF(inner.x(), y_cursor, inner.width(), fm.height())
+            painter.drawText(rect_txt, Qt.AlignCenter, line)
+            y_cursor += fm.height() + (1 * ppm)
+
+        # 4. Barcode
+        if self.chk_codigo.isChecked() and item['code']:
+            # Remaining height
+            remaining = inner.bottom() - y_cursor
+
+            # Text part of barcode
+            f_code, px_code = get_font(8, False, "Courier New")
+            painter.setFont(f_code)
+            fm_code = painter.fontMetrics()
+            h_text = fm_code.height()
+
+            h_bars = remaining - h_text
+
+            if h_bars > (2 * ppm): # Draw bars if at least 2mm space
+                # Draw bars
+                self._draw_bars(painter, inner.x(), y_cursor, inner.width(), h_bars, item['code'])
+                y_cursor += h_bars
+
+                # Draw Text
+                rect_txt = QRectF(inner.x(), y_cursor, inner.width(), h_text)
+                painter.drawText(rect_txt, Qt.AlignCenter, item['code'])
+
+    def _draw_bars(self, painter, x, y, w, h, code):
+        pattern = get_code128_pattern(code)
+        if not pattern: return
+
+        total_units = sum(int(c) for c in pattern)
+        if total_units == 0: return
+
+        unit_w = w / total_units
+
+        curr_x = x
+        is_bar = True
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(Qt.black))
+
+        for char in pattern:
+            width_units = int(char)
+            width_px = width_units * unit_w
+
+            if is_bar:
+                # To prevent anti-aliasing gaps, round to nearest pixel or overlap slightly?
+                # Floating point rects usually fine in QPainter high-res.
+                painter.drawRect(QRectF(curr_x, y, width_px, h))
+
+            curr_x += width_px
+            is_bar = not is_bar
+
+    def _print_dialog(self):
+        # Open standard print dialog to select printer
+        dlg = QPrintDialog(self.printer, self)
+        if dlg.exec_() == QPrintDialog.Accepted:
+            # Print
+            painter = QPainter()
+            if painter.begin(self.printer):
+                self._draw_labels(painter, self.printer)
+                painter.end()
+            self.accept()
+
+    def _export_pdf(self):
+        filename, _ = QFileDialog.getSaveFileName(self, "Exportar PDF", "", "PDF Files (*.pdf)")
+        if filename:
+            if not filename.endswith(".pdf"): filename += ".pdf"
+
+            self.printer.setOutputFormat(QPrinter.PdfFormat)
+            self.printer.setOutputFileName(filename)
+
+            painter = QPainter()
+            if painter.begin(self.printer):
+                self._draw_labels(painter, self.printer)
+                painter.end()
+            QMessageBox.information(self, "PDF", f"Guardado en {filename}")
+
+
+# =============================================================================
+# Main Tab
+# =============================================================================
+
+from PyQt5.QtCore import QMarginsF # Import needed
 
 class CodigosBarraTab(QWidget):
     def __init__(self):
@@ -141,27 +480,17 @@ class CodigosBarraTab(QWidget):
 
         bar.addStretch()
 
-        self.btn_config = QPushButton("Config. Etiquetas")
-        self.btn_config.clicked.connect(self._config_labels)
-        bar.addWidget(self.btn_config)
+        # Combined button as requested
+        self.btn_imprimir = QPushButton("Imprimir / Vista Previa")
+        self.btn_imprimir.setStyleSheet("font-weight: bold; color: blue; padding: 6px 12px;")
+        self.btn_imprimir.clicked.connect(self._open_print_preview)
+        bar.addWidget(self.btn_imprimir)
+
+        # Removed individual config/export buttons
 
         self.btn_generar = QPushButton("Asignar Códigos Auto")
-        self.btn_generar.setToolTip("Genera códigos 'INT-ID' para productos sin código")
         self.btn_generar.clicked.connect(self._asignar_codigos_faltantes)
         bar.addWidget(self.btn_generar)
-
-        self.btn_preview = QPushButton("Vista Previa")
-        self.btn_preview.clicked.connect(self._preview)
-        bar.addWidget(self.btn_preview)
-
-        self.btn_exportar = QPushButton("Exportar PDF")
-        self.btn_exportar.clicked.connect(self._exportar_pdf)
-        bar.addWidget(self.btn_exportar)
-
-        self.btn_imprimir = QPushButton("Imprimir")
-        self.btn_imprimir.setStyleSheet("font-weight: bold; color: blue;")
-        self.btn_imprimir.clicked.connect(self._imprimir)
-        bar.addWidget(self.btn_imprimir)
 
         layout.addLayout(bar)
 
@@ -193,16 +522,10 @@ class CodigosBarraTab(QWidget):
             rows = []
             for row in prods:
                 if Marca:
-                    # Fix: Handle Row object unpacking manually or safely
-                    # SQLAlchemy Row behaves like tuple but let's be safe
-                    try:
-                        p, m_nombre = row
-                    except:
-                        # Fallback if unpacking fails (should not happen with query(P, M.name))
-                        p = row[0]; m_nombre = row[1]
+                    try: p, m_nombre = row
+                    except: p = row[0]; m_nombre = row[1]
                 else:
-                    p = row
-                    m_nombre = ""
+                    p = row; m_nombre = ""
 
                 cb = (p.codigo_barras or "").strip()
                 if solo_sin and cb:
@@ -244,9 +567,6 @@ class CodigosBarraTab(QWidget):
             else:
                 QMessageBox.information(self, "Generar", "No había productos sin código.")
 
-    def _config_labels(self):
-        LabelConfigDialog(self).exec_()
-
     def _get_selected_ids(self):
         ids = []
         for r in range(self.tbl.rowCount()):
@@ -255,72 +575,13 @@ class CodigosBarraTab(QWidget):
                 ids.append(pid)
         return ids
 
-    def _preview(self):
+    def _open_print_preview(self):
         ids = self._get_selected_ids()
         if not ids:
-            QMessageBox.warning(self, "Vista Previa", "No hay items seleccionados.")
+            QMessageBox.warning(self, "Imprimir", "Seleccione al menos un producto.")
             return
 
-        printer = QPrinter(QPrinter.HighResolution)
-        self._configure_printer(printer)
-
-        dlg = QPrintPreviewDialog(printer, self)
-        dlg.paintRequested.connect(self._print_preview_slot)
-        dlg.exec_()
-
-    def _print_preview_slot(self, printer):
-        self._run_printing_logic(printer, is_preview=True)
-
-    def _imprimir(self):
-        ids = self._get_selected_ids()
-        if not ids:
-            QMessageBox.warning(self, "Imprimir", "No hay items seleccionados.")
-            return
-
-        printer = QPrinter(QPrinter.HighResolution)
-        self._configure_printer(printer)
-
-        dlg = QPrintDialog(printer, self)
-        if dlg.exec_() == QPrintDialog.Accepted:
-            self._run_printing_logic(printer, is_preview=False)
-
-    def _exportar_pdf(self):
-        ids = self._get_selected_ids()
-        if not ids:
-            QMessageBox.warning(self, "Exportar", "No hay items seleccionados.")
-            return
-
-        filename, _ = QFileDialog.getSaveFileName(self, "Exportar Etiquetas PDF", "", "PDF Files (*.pdf)")
-        if not filename:
-            return
-        if not filename.endswith(".pdf"):
-            filename += ".pdf"
-
-        printer = QPrinter(QPrinter.HighResolution)
-        printer.setOutputFormat(QPrinter.PdfFormat)
-        printer.setOutputFileName(filename)
-        self._configure_printer(printer)
-
-        self._run_printing_logic(printer, is_preview=False)
-        QMessageBox.information(self, "Exportar", f"PDF guardado en: {filename}")
-
-    def _configure_printer(self, printer):
-        settings = QSettings("BarterPlus", "LabelConfig")
-        mode = settings.value("mode", "A4 (Grilla)")
-
-        if mode == "Rollo / Térmica (Individual)":
-            try:
-                w_mm = float(settings.value("width", 50.0))
-                h_mm = float(settings.value("height", 30.0))
-                printer.setPaperSize(QSizeF(w_mm, h_mm), QPrinter.Millimeter)
-                printer.setPageMargins(1.0, 1.0, 1.0, 1.0, QPrinter.Millimeter) # Minimal margins
-            except: pass
-        else:
-            printer.setPageSize(QPrinter.A4)
-
-    def _run_printing_logic(self, printer, is_preview=False):
-        # Fetch fresh data
-        ids = self._get_selected_ids()
+        # Fetch data
         items = []
         with SessionLocal() as s:
             if Marca:
@@ -346,247 +607,9 @@ class CodigosBarraTab(QWidget):
                     "equivalencia": p.codigo_equivalencia,
                     "sku": p.sku,
                     "cod_prov": p.codigo_proveedor,
-                    "precio": p.precio_minorista # Assuming simple retail price for label
+                    "precio": p.precio_minorista
                 })
 
-        painter = QPainter()
-        if not painter.begin(printer):
-            if not is_preview:
-                QMessageBox.critical(self, "Error", "No se pudo iniciar la impresión.")
-            return
-
-        try:
-            settings = QSettings("BarterPlus", "LabelConfig")
-            mode = settings.value("mode", "A4 (Grilla)")
-
-            if mode.startswith("Rollo"):
-                self._print_roll(painter, printer, items, settings)
-            else:
-                self._print_a4(painter, printer, items, settings)
-        except Exception as e:
-            if not is_preview:
-                QMessageBox.critical(self, "Error", f"Error imprimiendo: {e}")
-            import traceback; traceback.print_exc()
-        finally:
-            painter.end()
-
-    def _print_roll(self, painter, printer, items, settings):
-        rect = printer.pageRect(QPrinter.DevicePixel)
-        for i, item in enumerate(items):
-            if i > 0:
-                printer.newPage()
-            self._draw_label_content(painter, rect, item, settings)
-
-    def _print_a4(self, painter, printer, items, settings):
-        page_rect = printer.pageRect(QPrinter.DevicePixel)
-
-        # Determine grid size based on label size (approx) or fixed?
-        # A4 is approx 210x297mm.
-        # Use settings w/h if valid, else default.
-        w_mm = float(settings.value("width", 50.0))
-        h_mm = float(settings.value("height", 30.0))
-
-        # Convert mm to pixels (approx, based on printer resolution)
-        # But QPrinter handles coordinate system if we set paper size correctly.
-        # However, for A4 grid, we need to know how many fit.
-
-        # Logic:
-        # page_rect.width() is in DevicePixels.
-        # We need to know how many pixels is w_mm.
-        # We can use logic: w_px = (w_mm / 210) * page_rect.width() ? No, A4 width is 210mm.
-
-        # Better: define cols/rows fixed for standard label sheets (e.g. 3x8) OR dynamic.
-        # Dynamic is better.
-
-        # DPI calculation
-        # 1 inch = 25.4 mm
-        # dpi = printer.resolution()
-        # px = (mm / 25.4) * dpi
-
-        dpi = printer.resolution()
-        w_px = (w_mm / 25.4) * dpi
-        h_px = (h_mm / 25.4) * dpi
-
-        cols = int(page_rect.width() / w_px)
-        rows = int(page_rect.height() / h_px)
-
-        if cols < 1: cols = 1
-        if rows < 1: rows = 1
-
-        items_per_page = cols * rows
-
-        idx = 0
-        for item in items:
-            if idx > 0 and idx % items_per_page == 0:
-                printer.newPage()
-
-            page_idx = idx % items_per_page
-            c = page_idx % cols
-            r = page_idx // cols
-
-            x = c * w_px
-            y = r * h_px
-
-            rect = QRectF(x, y, w_px, h_px)
-            # Add margin between labels? For now, assume contiguous.
-
-            self._draw_label_content(painter, rect, item, settings)
-            idx += 1
-
-    def _draw_label_content(self, painter, rect, item, settings):
-        # Config
-        show_marca = settings.value("show_marca", True, type=bool)
-        show_nombre = settings.value("show_nombre", True, type=bool)
-        show_codigo = settings.value("show_codigo", True, type=bool)
-        show_equiv = settings.value("show_equivalencia", False, type=bool)
-        show_sku = settings.value("show_sku", False, type=bool)
-        show_cod_prov = settings.value("show_cod_prov", False, type=bool)
-        show_precio = settings.value("show_precio", False, type=bool)
-
-        font_scale = float(settings.value("font_scale", 1.0))
-        margin_mm = float(settings.value("margin_mm", 1.0))
-
-        # Margin in pixels
-        # Estimate ratio based on rect size vs mm size?
-        # Hard to know DPI inside here easily without printer ref, but rect is what we have.
-        # Use relative margin.
-
-        # If rect is small (A4 grid), 1mm is small.
-        # Let's assume standard density.
-
-        margin = rect.width() * 0.02 * margin_mm # Heuristic
-        inner = rect.adjusted(margin, margin, -margin, -margin)
-
-        h = inner.height()
-        w = inner.width()
-
-        # Helper for drawing text lines
-        # Stack elements: Marca -> Nombre -> Extra Fields -> Barcode
-
-        elements = []
-
-        if show_marca and item["marca"]:
-            elements.append({"type": "text", "text": item["marca"].upper(), "bold": True, "size_factor": 0.14})
-
-        if show_nombre and item["nombre"]:
-            elements.append({"type": "text", "text": item["nombre"], "bold": False, "size_factor": 0.12, "wrap": True})
-
-        # Extra fields (small)
-        extras = []
-        if show_equiv and item["equivalencia"]:
-            extras.append(f"Eq: {item['equivalencia']}")
-        if show_sku and item["sku"]:
-            extras.append(f"SKU: {item['sku']}")
-        if show_cod_prov and item["cod_prov"]:
-            extras.append(f"Prov: {item['cod_prov']}")
-        if show_precio:
-            extras.append(f"${item['precio']:.2f}")
-
-        if extras:
-            elements.append({"type": "text", "text": " | ".join(extras), "bold": False, "size_factor": 0.08})
-
-        if show_codigo:
-            elements.append({"type": "barcode", "code": item["code"], "size_factor": 0.35})
-
-        # Layout calculation
-        # Distribute available height? Or just stack from top?
-        # Stacking from top with fixed spacing is safer.
-
-        y_cursor = inner.y()
-
-        painter.setPen(Qt.black)
-
-        for el in elements:
-            # Check remaining space
-            if y_cursor >= inner.bottom(): break
-
-            base_size = h * el["size_factor"] * font_scale
-            if base_size < 6: base_size = 6 # Min legible size
-
-            font = QFont("Arial", 10)
-            if el.get("bold"): font.setBold(True)
-            if el["type"] == "barcode": font = QFont("Courier New", 10)
-
-            font.setPointSizeF(base_size) # This is approximate in QPainter coordinate system?
-            # Better to setPixelSize if we want strict control relative to rect height
-            # font.setPixelSize(int(base_size)) # Use pixel size for robustness
-            # But point size is better for printing generally.
-
-            painter.setFont(font)
-            fm = painter.fontMetrics()
-
-            if el["type"] == "text":
-                flags = Qt.AlignCenter
-                if el.get("wrap"):
-                    flags |= Qt.TextWordWrap
-                    # Limit height for wrapped text (e.g. 2 lines)
-                    line_h = fm.height()
-                    allowed_h = line_h * 2.2
-                    draw_rect = QRectF(inner.x(), y_cursor, w, allowed_h)
-
-                    # Calculate actual needed height
-                    needed_rect = fm.boundingRect(QRectF(0,0,w,1000), flags, el["text"])
-                    actual_h = min(needed_rect.height(), allowed_h)
-
-                    painter.drawText(draw_rect, flags, el["text"])
-                    y_cursor += actual_h + (h * 0.02)
-                else:
-                    line_h = fm.height()
-                    draw_rect = QRectF(inner.x(), y_cursor, w, line_h)
-                    painter.drawText(draw_rect, flags, el["text"])
-                    y_cursor += line_h + (h * 0.02)
-
-            elif el["type"] == "barcode":
-                # Barcode takes remaining space or fixed ratio?
-                # Let's give it fixed ratio but push it to bottom if possible?
-                # Current logic stacks.
-
-                # Draw text below barcode?
-                # The 'code' text is part of barcode element usually.
-
-                code_h = fm.height()
-
-                # Barcode bars height
-                bars_h = (h * el["size_factor"]) - code_h
-                if bars_h < 10: bars_h = 10
-
-                # Check if we have space
-                needed = bars_h + code_h
-                if (y_cursor + needed) > inner.bottom():
-                    # Shrink bars if needed
-                    bars_h = inner.bottom() - y_cursor - code_h
-
-                if bars_h > 2:
-                    self._draw_barcode_bars(painter, inner.x(), y_cursor, w, bars_h, el["code"])
-
-                # Draw code text
-                y_text = y_cursor + bars_h
-                rect_text = QRectF(inner.x(), y_text, w, code_h)
-                painter.drawText(rect_text, Qt.AlignCenter, el["code"])
-
-                y_cursor += needed + (h * 0.02)
-
-    def _draw_barcode_bars(self, painter, x, y, w, h, code):
-        pattern = get_code128_pattern(code)
-        if not pattern: return
-
-        total_units = sum(int(c) for c in pattern)
-        if total_units == 0: return
-
-        unit_w = w / total_units
-
-        curr_x = x
-        is_bar = True
-
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QBrush(Qt.black))
-
-        for char in pattern:
-            width_units = int(char)
-            width_px = width_units * unit_w
-
-            if is_bar:
-                painter.drawRect(QRectF(curr_x, y, width_px, h))
-
-            curr_x += width_px
-            is_bar = not is_bar
+        # Open the new Unified Dialog
+        dlg = EtiquetasPreviewDialog(items, self)
+        dlg.exec_()
