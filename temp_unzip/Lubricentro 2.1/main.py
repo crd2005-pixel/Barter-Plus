@@ -26,23 +26,8 @@ def global_exception_hook(exctype, value, traceback_obj):
     """
     Global exception handler to capture unhandled exceptions and show them in a dialog.
     """
-    import os
-    import datetime
-
     txt = "".join(traceback.format_exception(exctype, value, traceback_obj))
     print("Capturada excepción global:", txt)
-
-    # Try to log to file manually to ensure capture
-    try:
-        log_dir = os.path.join(os.path.dirname(__file__), "logs")
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir, exist_ok=True)
-        log_file = os.path.join(log_dir, "errores_BarterPlus.log")
-        with open(log_file, "a", encoding="utf-8") as f:
-            f.write(f"\n[{datetime.datetime.now()}] CRITICAL ERROR:\n{txt}\n")
-    except Exception as e:
-        print(f"Error writing to log: {e}")
-
     try:
         msg = QMessageBox()
         msg.setIcon(QMessageBox.Critical)
@@ -50,8 +35,6 @@ def global_exception_hook(exctype, value, traceback_obj):
         msg.setInformativeText(str(value))
         msg.setDetailedText(txt)
         msg.setWindowTitle("Error Crítico")
-        # Force styles to ensure visibility
-        msg.setStyleSheet("QLabel{color: black;} QTextEdit{color: black; background-color: white;} QMessageBox{background-color: #f0f0f0;}")
         msg.exec_()
     except Exception:
         # Fallback if Qt fails
@@ -145,17 +128,9 @@ class MainWindow(QMainWindow):
             # Log a consola y muestra en status bar
             traceback.print_exc()
             self.status.setText(f"Sin '{title}': {e.__class__.__name__}")
-
-            # Acumular error para mostrar al final
-            if not hasattr(self, "_load_errors"):
-                self._load_errors = []
-            self._load_errors.append(f"<b>{title}</b>: {e}<br><small>{e.__class__.__name__}</small>")
             return False
 
     def _load_tabs_safe(self):
-        # Inicializar lista de errores
-        self._load_errors = []
-
         # Orden recomendado. Carga “mejor esfuerzo”.
         self._try_add("Ventas", "from ventas.main_tab import VentasTab", "VentasTab")
         self._try_add("Productos", "from productos.main_tab import ProductosTab", "ProductosTab")
@@ -173,17 +148,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             traceback.print_exc()
             self.status.setText(f"Sin Configuración: {e}")
-            self._load_errors.append(f"<b>Configuración</b>: {e}")
-
-        # Mostrar errores si los hubo (Plus: reporte de salud al inicio)
-        if self._load_errors:
-            msg = QMessageBox(self)
-            msg.setIcon(QMessageBox.Warning)
-            msg.setWindowTitle("Advertencia de Carga")
-            msg.setText("Algunos módulos no se pudieron cargar.")
-            msg.setInformativeText("El programa funcionará, pero faltarán las siguientes pestañas:")
-            msg.setDetailedText("\n".join(self._load_errors).replace("<br>", "\n").replace("<b>", "").replace("</b>", "").replace("<small>", "").replace("</small>", ""))
-            msg.exec_()
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_F5:

@@ -1,0 +1,9 @@
+Created Provider 1, List 1, Item 1 (Code='', Desc='Producto Sin Codigo')
+
+Test 1 (Match by Name, Empty CodProv):
+Found: True
+Desc: Producto Sin Codigo
+Code:
+
+Test 2 (Match by CodProv=Desc, Name changed):
+Found: False

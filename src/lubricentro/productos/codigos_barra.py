@@ -246,6 +246,8 @@ class EtiquetasPreviewDialog(QDialog):
         # Alternatively, calculate pixels per mm.
 
         dpi = printer.resolution()
+        if dpi <= 0: dpi = 96 # Fallback if invalid printer resolution
+
         # 1 inch = 25.4 mm
         # pixels_per_mm = dpi / 25.4
         ppm = dpi / 25.4
@@ -256,6 +258,9 @@ class EtiquetasPreviewDialog(QDialog):
 
         w_px = w_mm * ppm
         h_px = h_mm * ppm
+
+        if w_px <= 0: w_px = 100 # Prevent division by zero
+        if h_px <= 0: h_px = 50
 
         # Font scaling factor
         # If we use setPixelSize, it depends on DPI.
@@ -330,17 +335,20 @@ class EtiquetasPreviewDialog(QDialog):
         y_cursor = inner.y()
 
         # 1. Marca
-        if self.chk_marca.isChecked() and item['marca']:
+        if self.chk_marca.isChecked() and item.get('marca'):
             f, px = get_font(10, True)
             painter.setFont(f)
             fm = painter.fontMetrics()
-            txt = item['marca'].upper()
+            try:
+                txt = str(item['marca']).upper()
+            except:
+                txt = ""
             rect_txt = QRectF(inner.x(), y_cursor, inner.width(), fm.height())
             painter.drawText(rect_txt, Qt.AlignCenter, txt)
             y_cursor += fm.height()
 
         # 2. Nombre
-        if self.chk_nombre.isChecked() and item['nombre']:
+        if self.chk_nombre.isChecked() and item.get('nombre'):
             # Multiline?
             f, px = get_font(9, False)
             painter.setFont(f)
@@ -591,10 +599,24 @@ class CodigosBarraTab(QWidget):
 
             for row in q.all():
                 if Marca:
-                    try: p, m_nombre = row
-                    except: p = row[0]; m_nombre = row[1]
+                    try:
+                        p, m_nombre = row
+                    except:
+                        # Fallback for unexpected row structure
+                        try:
+                            p = row[0]
+                            m_nombre = row[1]
+                        except:
+                            # If all else fails, assume row is just Producto?
+                            # Or skip to avoid crash
+                            p = row
+                            m_nombre = ""
                 else:
                     p = row; m_nombre = ""
+
+                if not hasattr(p, 'codigo_barras'):
+                     # If p is not a Producto (e.g. row structure failed completely), skip
+                     continue
 
                 code = (p.codigo_barras or "").strip()
                 if not code: code = f"INT{p.id:06d}"
