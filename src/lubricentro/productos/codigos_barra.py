@@ -216,7 +216,8 @@ class EtiquetasPreviewDialog(QDialog):
             size = QPageSize(QSizeF(w_mm, h_mm), QPageSize.Millimeter)
             printer.setPageSize(size)
             # Minimal margins
-            printer.setPageMargins(QMarginsF(0,0,0,0), QPageLayout.Millimeter)
+            # Using older signature for compatibility: setPageMargins(left, top, right, bottom, unit)
+            printer.setPageMargins(0.0, 0.0, 0.0, 0.0, QPrinter.Millimeter)
         else:
             # A4
             printer.setPageSize(QPageSize(QPageSize.A4))
