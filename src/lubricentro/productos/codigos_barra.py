@@ -307,6 +307,12 @@ class EtiquetasPreviewDialog(QDialog):
         painter.restore()
 
     def _draw_single_label(self, painter, rect, item, ppm):
+        painter.save() # Isolate state for each label
+
+        # Reset pen and brush before drawing text to ensure visibility
+        painter.setPen(QPen(Qt.black))
+        painter.setBrush(Qt.NoBrush)
+
         # Draw white background (helpful for some contexts)
         painter.fillRect(rect, Qt.white)
 
@@ -314,7 +320,9 @@ class EtiquetasPreviewDialog(QDialog):
         pad = 1.0 * ppm
         inner = rect.adjusted(pad, pad, -pad, -pad)
 
-        if inner.width() <= 0 or inner.height() <= 0: return
+        if inner.width() <= 0 or inner.height() <= 0:
+            painter.restore()
+            return
 
         # Settings
         font_scale = self.sp_font_scale.value()
@@ -345,7 +353,7 @@ class EtiquetasPreviewDialog(QDialog):
             except:
                 txt = ""
             rect_txt = QRectF(inner.x(), y_cursor, inner.width(), fm.height())
-            painter.drawText(rect_txt, Qt.AlignCenter, txt)
+            painter.drawText(rect_txt, Qt.AlignHCenter | Qt.AlignTop, txt)
             y_cursor += fm.height()
 
         # 2. Nombre
@@ -363,9 +371,9 @@ class EtiquetasPreviewDialog(QDialog):
             rect_txt = QRectF(inner.x(), y_cursor, inner.width(), max_h)
 
             # Measure actual height needed
-            bounding = painter.boundingRect(rect_txt, Qt.AlignCenter | Qt.TextWordWrap, item['nombre'])
+            bounding = painter.boundingRect(rect_txt, Qt.AlignHCenter | Qt.AlignTop | Qt.TextWordWrap, item['nombre'])
 
-            painter.drawText(rect_txt, Qt.AlignCenter | Qt.TextWordWrap, item['nombre'])
+            painter.drawText(rect_txt, Qt.AlignHCenter | Qt.AlignTop | Qt.TextWordWrap, item['nombre'])
             y_cursor += min(bounding.height(), max_h) + (1 * ppm) # small spacing
 
         # 3. Extras line (Code, SKU, Price)
@@ -383,7 +391,7 @@ class EtiquetasPreviewDialog(QDialog):
             painter.setFont(f)
             fm = painter.fontMetrics()
             rect_txt = QRectF(inner.x(), y_cursor, inner.width(), fm.height())
-            painter.drawText(rect_txt, Qt.AlignCenter, line)
+            painter.drawText(rect_txt, Qt.AlignHCenter | Qt.AlignTop, line)
             y_cursor += fm.height() + (1 * ppm)
 
         # 4. Barcode
@@ -404,9 +412,15 @@ class EtiquetasPreviewDialog(QDialog):
                 self._draw_bars(painter, inner.x(), y_cursor, inner.width(), h_bars, item['code'])
                 y_cursor += h_bars
 
+                # Reset pen and brush after drawing bars, so text is visible
+                painter.setPen(QPen(Qt.black))
+                painter.setBrush(Qt.NoBrush)
+
                 # Draw Text
                 rect_txt = QRectF(inner.x(), y_cursor, inner.width(), h_text)
-                painter.drawText(rect_txt, Qt.AlignCenter, item['code'])
+                painter.drawText(rect_txt, Qt.AlignHCenter | Qt.AlignTop, item['code'])
+
+        painter.restore()
 
     def _draw_bars(self, painter, x, y, w, h, code):
         pattern = get_code128_pattern(code)
