@@ -102,16 +102,24 @@ class EtiquetasPreviewDialog(QDialog):
         left_lay.addWidget(self.tbl_items)
 
         # 3. Action Buttons
-        btn_box = QHBoxLayout()
-        self.btn_print_dialog = QPushButton("Seleccionar Impresora / Imprimir")
-        self.btn_print_dialog.setStyleSheet("font-weight:bold; height: 40px; background-color: #e0f7fa;")
+        btn_box = QVBoxLayout()
+        hb_print = QHBoxLayout()
+        self.btn_print_direct = QPushButton("Imprimir Directo (Por Defecto)")
+        self.btn_print_direct.setStyleSheet("font-weight:bold; height: 40px; background-color: #c8e6c9;")
+        self.btn_print_direct.clicked.connect(self._print_direct)
+
+        self.btn_print_dialog = QPushButton("Seleccionar Impresora...")
+        self.btn_print_dialog.setStyleSheet("height: 40px; background-color: #e0f7fa;")
         self.btn_print_dialog.clicked.connect(self._print_dialog)
+
+        hb_print.addWidget(self.btn_print_direct)
+        hb_print.addWidget(self.btn_print_dialog)
+        btn_box.addLayout(hb_print)
 
         self.btn_pdf = QPushButton("Exportar PDF")
         self.btn_pdf.clicked.connect(self._export_pdf)
-
-        btn_box.addWidget(self.btn_print_dialog)
         btn_box.addWidget(self.btn_pdf)
+
         left_lay.addLayout(btn_box)
 
         # --- RIGHT PANEL: Preview ---
@@ -202,11 +210,8 @@ class EtiquetasPreviewDialog(QDialog):
     def _trigger_update(self):
         self.preview.updatePreview()
 
-    def _paint_preview(self, printer):
-        # Applies to actual print or preview
-        self._save_settings() # Save current UI state to settings so drawing logic can read it if needed, or pass explicitly
-
-        # Configure printer page size based on settings
+    def _apply_printer_config(self, printer):
+        """Applies page size and margins to the given printer based on UI settings."""
         mode = self.cmb_mode.currentText()
         w_mm = self.sp_width.value()
         h_mm = self.sp_height.value()
@@ -222,6 +227,12 @@ class EtiquetasPreviewDialog(QDialog):
             # A4
             printer.setPageSize(QPageSize(QPageSize.A4))
             printer.setFullPage(False)
+
+    def _paint_preview(self, printer):
+        # Applies to actual print or preview
+        self._save_settings() # Save current UI state to settings so drawing logic can read it if needed, or pass explicitly
+
+        self._apply_printer_config(printer)
 
         painter = QPainter()
         if painter.begin(printer):
@@ -449,16 +460,29 @@ class EtiquetasPreviewDialog(QDialog):
             curr_x += width_px
             is_bar = not is_bar
 
+    def _print_direct(self):
+        self.printer.setOutputFormat(QPrinter.NativeFormat)
+        self._apply_printer_config(self.printer)
+        painter = QPainter()
+        if painter.begin(self.printer):
+            self._draw_labels(painter, self.printer)
+            painter.end()
+        # Not calling self.accept() so the dialog stays open
+        QMessageBox.information(self, "Impresión", "Enviado a la impresora por defecto.")
+
     def _print_dialog(self):
         # Open standard print dialog to select printer
+        self.printer.setOutputFormat(QPrinter.NativeFormat)
         dlg = QPrintDialog(self.printer, self)
         if dlg.exec_() == QPrintDialog.Accepted:
+            # Re-apply config in case dialog changed something or reset it
+            self._apply_printer_config(self.printer)
             # Print
             painter = QPainter()
             if painter.begin(self.printer):
                 self._draw_labels(painter, self.printer)
                 painter.end()
-            self.accept()
+            # Not calling self.accept() to allow multiple prints
 
     def _export_pdf(self):
         filename, _ = QFileDialog.getSaveFileName(self, "Exportar PDF", "", "PDF Files (*.pdf)")
