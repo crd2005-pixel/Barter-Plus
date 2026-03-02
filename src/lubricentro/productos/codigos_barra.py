@@ -64,6 +64,13 @@ class EtiquetasPreviewDialog(QDialog):
         hb_dim.addWidget(QLabel("W:")); hb_dim.addWidget(self.sp_width)
         hb_dim.addWidget(QLabel("H:")); hb_dim.addWidget(self.sp_height)
 
+        # Offsets
+        hb_off = QHBoxLayout()
+        self.sp_off_x = QDoubleSpinBox(); self.sp_off_x.setRange(-50, 50); self.sp_off_x.setSuffix(" mm"); self.sp_off_x.setToolTip("Desfase Horizontal (X)")
+        self.sp_off_y = QDoubleSpinBox(); self.sp_off_y.setRange(-50, 50); self.sp_off_y.setSuffix(" mm"); self.sp_off_y.setToolTip("Desfase Vertical (Y)")
+        hb_off.addWidget(QLabel("X:")); hb_off.addWidget(self.sp_off_x)
+        hb_off.addWidget(QLabel("Y:")); hb_off.addWidget(self.sp_off_y)
+
         # Font Scale
         self.sp_font_scale = QDoubleSpinBox(); self.sp_font_scale.setRange(0.1, 5.0); self.sp_font_scale.setSingleStep(0.1)
 
@@ -78,6 +85,7 @@ class EtiquetasPreviewDialog(QDialog):
         # Layout Config
         form.addRow("Modo:", self.cmb_mode)
         form.addRow("Tamaño:", hb_dim)
+        form.addRow("Desfase (Centro):", hb_off)
         form.addRow("Escala Fuente:", self.sp_font_scale)
 
         # Grid for checkboxes
@@ -136,6 +144,7 @@ class EtiquetasPreviewDialog(QDialog):
 
         # Connect signals
         for w in [self.cmb_mode, self.sp_width, self.sp_height, self.sp_font_scale,
+                  self.sp_off_x, self.sp_off_y,
                   self.chk_marca, self.chk_nombre, self.chk_codigo,
                   self.chk_equivalencia, self.chk_sku, self.chk_precio]:
             if isinstance(w, QDoubleSpinBox) or isinstance(w, QSpinBox):
@@ -152,6 +161,8 @@ class EtiquetasPreviewDialog(QDialog):
         self.cmb_mode.setCurrentText(self.settings.value("mode", "A4 (Grilla)"))
         self.sp_width.setValue(float(self.settings.value("width", 50.0)))
         self.sp_height.setValue(float(self.settings.value("height", 30.0)))
+        self.sp_off_x.setValue(float(self.settings.value("offset_x", 0.0)))
+        self.sp_off_y.setValue(float(self.settings.value("offset_y", 0.0)))
         self.sp_font_scale.setValue(float(self.settings.value("font_scale", 1.0)))
 
         self.chk_marca.setChecked(self.settings.value("show_marca", True, type=bool))
@@ -165,6 +176,8 @@ class EtiquetasPreviewDialog(QDialog):
         self.settings.setValue("mode", self.cmb_mode.currentText())
         self.settings.setValue("width", self.sp_width.value())
         self.settings.setValue("height", self.sp_height.value())
+        self.settings.setValue("offset_x", self.sp_off_x.value())
+        self.settings.setValue("offset_y", self.sp_off_y.value())
         self.settings.setValue("font_scale", self.sp_font_scale.value())
 
         self.settings.setValue("show_marca", self.chk_marca.isChecked())
@@ -223,6 +236,7 @@ class EtiquetasPreviewDialog(QDialog):
             # Minimal margins
             # Using older signature for compatibility: setPageMargins(left, top, right, bottom, unit)
             printer.setPageMargins(0.0, 0.0, 0.0, 0.0, QPrinter.Millimeter)
+            printer.setFullPage(True) # Force full page drawing for roll printers to avoid driver margins
         else:
             # A4
             printer.setPageSize(QPageSize(QPageSize.A4))
@@ -267,9 +281,13 @@ class EtiquetasPreviewDialog(QDialog):
         # Settings
         w_mm = self.sp_width.value()
         h_mm = self.sp_height.value()
+        off_x_mm = self.sp_off_x.value()
+        off_y_mm = self.sp_off_y.value()
 
         w_px = w_mm * ppm
         h_px = h_mm * ppm
+        off_x_px = off_x_mm * ppm
+        off_y_px = off_y_mm * ppm
 
         if w_px <= 0: w_px = 100 # Prevent division by zero
         if h_px <= 0: h_px = 50
@@ -283,7 +301,12 @@ class EtiquetasPreviewDialog(QDialog):
 
         # Draw Logic
         if mode.startswith("Rollo"):
-            rect = QRectF(0, 0, w_px, h_px)
+            # Use pageRect() origin to respect physical margins and apply user offsets
+            page_rect = printer.pageRect(QPrinter.DevicePixel)
+            start_x = page_rect.x() + off_x_px
+            start_y = page_rect.y() + off_y_px
+            rect = QRectF(start_x, start_y, w_px, h_px)
+
             for i, item in enumerate(print_queue):
                 if i > 0:
                     printer.newPage()
@@ -291,6 +314,8 @@ class EtiquetasPreviewDialog(QDialog):
         else:
             # A4 Grid
             page_rect = printer.pageRect(QPrinter.DevicePixel)
+            start_x = page_rect.x() + off_x_px
+            start_y = page_rect.y() + off_y_px
 
             cols = int(page_rect.width() / w_px)
             rows = int(page_rect.height() / h_px)
@@ -307,11 +332,11 @@ class EtiquetasPreviewDialog(QDialog):
                 c = idx_on_page % cols
                 r = idx_on_page // cols
 
-                x = c * w_px
-                y = r * h_px
+                x = start_x + (c * w_px)
+                y = start_y + (r * h_px)
 
-                # Draw only if within page
-                if (y + h_px) <= page_rect.height():
+                # Draw only if within page (using page bounds roughly)
+                if (y + h_px) <= (page_rect.y() + page_rect.height() + max(0, off_y_px)):
                     rect = QRectF(x, y, w_px, h_px)
                     self._draw_single_label(painter, rect, item, ppm)
 
@@ -461,26 +486,30 @@ class EtiquetasPreviewDialog(QDialog):
             is_bar = not is_bar
 
     def _print_direct(self):
-        self.printer.setOutputFormat(QPrinter.NativeFormat)
-        self._apply_printer_config(self.printer)
+        # Use a fresh QPrinter instance so it's not locked by QPrintPreviewWidget
+        print_job = QPrinter(QPrinter.HighResolution)
+        print_job.setOutputFormat(QPrinter.NativeFormat)
+        self._apply_printer_config(print_job)
         painter = QPainter()
-        if painter.begin(self.printer):
-            self._draw_labels(painter, self.printer)
+        if painter.begin(print_job):
+            self._draw_labels(painter, print_job)
             painter.end()
         # Not calling self.accept() so the dialog stays open
         QMessageBox.information(self, "Impresión", "Enviado a la impresora por defecto.")
 
     def _print_dialog(self):
         # Open standard print dialog to select printer
-        self.printer.setOutputFormat(QPrinter.NativeFormat)
-        dlg = QPrintDialog(self.printer, self)
+        # Use a fresh QPrinter instance so it's not locked by QPrintPreviewWidget
+        print_job = QPrinter(QPrinter.HighResolution)
+        print_job.setOutputFormat(QPrinter.NativeFormat)
+        dlg = QPrintDialog(print_job, self)
         if dlg.exec_() == QPrintDialog.Accepted:
             # Re-apply config in case dialog changed something or reset it
-            self._apply_printer_config(self.printer)
+            self._apply_printer_config(print_job)
             # Print
             painter = QPainter()
-            if painter.begin(self.printer):
-                self._draw_labels(painter, self.printer)
+            if painter.begin(print_job):
+                self._draw_labels(painter, print_job)
                 painter.end()
             # Not calling self.accept() to allow multiple prints
 
