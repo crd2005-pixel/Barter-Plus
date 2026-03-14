@@ -58,6 +58,14 @@ class ConsultarPrecioDialog(QDialog):
         if (token_inicial or "").strip():
             self._buscar()
 
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Delete:
+            self.inp_buscar.clear()
+            self.inp_buscar.setFocus()
+        else:
+            super().keyPressEvent(event)
+
     def _buscar(self):
         # Búsquedas y precios (importación tardía para romper ciclo)
         from ventas.precio_busquedas import (
@@ -97,11 +105,15 @@ class ConsultarPrecioDialog(QDialog):
                 "precio": vigente
             }
 
+
             self.lbl_final.setText(_fmt(final_lista))
             if abs(vigente - final_lista) > 1e-9:
                 self.lbl_promo.setText(f"Con descuento: {_fmt(vigente)}")
             else:
                 self.lbl_promo.setText("")
+
+        self.inp_buscar.selectAll()
+        self.inp_buscar.setFocus()
 
 # -----------------------------
 # Autocompletado de productos (para la pestaña de venta)

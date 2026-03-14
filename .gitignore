@@ -1,1 +1,5 @@
-logs/\n__pycache__/\n*.pyc\n*.sqlite3\n*.log
+*.zip
+logs/
+__pycache__/
+*.pyc
+*.sqlite3

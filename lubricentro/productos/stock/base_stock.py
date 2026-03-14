@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
+    QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem, QLabel,
     QPushButton, QFileDialog, QMessageBox, QDialog, QFormLayout,
     QLineEdit, QComboBox, QCompleter, QDoubleSpinBox, QCheckBox
 )
@@ -60,6 +60,14 @@ class StockRubroGroup(QWidget):
         self.btn_borrar = QPushButton("Borrar producto")
         self.chk_bajo_min = QCheckBox("Solo bajo mínimo")
 
+        self.cb_filtro_rubro = QComboBox()
+        self.cb_filtro_rubro.addItem("Todos")
+        self.cb_filtro_rubro.currentIndexChanged.connect(self._apply_filters)
+
+        self.cb_filtro_marca = QComboBox()
+        self.cb_filtro_marca.addItem("Todos")
+        self.cb_filtro_marca.currentIndexChanged.connect(self._apply_filters)
+
         header.addWidget(self.btn_agregar)
         header.addWidget(self.btn_ajustar)
         header.addWidget(self.btn_importar)
@@ -67,7 +75,16 @@ class StockRubroGroup(QWidget):
         header.addWidget(self.btn_editar)
         header.addWidget(self.btn_borrar)
         header.addWidget(self.chk_bajo_min)
+
+        header2 = QHBoxLayout()
+        header2.addWidget(QLabel("Filtrar Rubro:"))
+        header2.addWidget(self.cb_filtro_rubro)
+        header2.addWidget(QLabel("Filtrar Marca:"))
+        header2.addWidget(self.cb_filtro_marca)
+        header2.addStretch(1)
+
         lay.addLayout(header)
+        lay.addLayout(header2)
 
         self.tbl = QTableWidget()
         self.tbl.setColumnCount(15)
@@ -96,6 +113,26 @@ class StockRubroGroup(QWidget):
         super().showEvent(event)
 
     # -------------------- Cargar grilla --------------------
+
+    def _apply_filters(self):
+        rubro_sel = self.cb_filtro_rubro.currentText()
+        marca_sel = self.cb_filtro_marca.currentText()
+
+        for r in range(self.tbl.rowCount()):
+            item_rubro = self.tbl.item(r, 7) # Index for Rubro column is 7
+            item_marca = self.tbl.item(r, 3) # Index for Marca column is 3
+
+            row_rubro = item_rubro.text() if item_rubro else ""
+            row_marca = item_marca.text() if item_marca else ""
+
+            hide = False
+            if rubro_sel != "Todos" and row_rubro != rubro_sel:
+                hide = True
+            if not hide and marca_sel != "Todos" and row_marca != marca_sel:
+                hide = True
+
+            self.tbl.setRowHidden(r, hide)
+
     def load_data(self):
         if not self.SessionLocal or not self.ProductoModel:
             # QMessageBox.critical(self, "Stock", "No se pudo resolver el modelo de Productos.")
@@ -189,6 +226,40 @@ class StockRubroGroup(QWidget):
                             it = self.tbl.item(i, col)
                             if it:
                                 it.setBackground(brush)
+
+                # Recolectar datos para los filtros
+                rubros = set()
+                marcas = set()
+                for r in range(self.tbl.rowCount()):
+                    item_r = self.tbl.item(r, 7)
+                    item_m = self.tbl.item(r, 3)
+                    if item_r and item_r.text(): rubros.add(item_r.text())
+                    if item_m and item_m.text(): marcas.add(item_m.text())
+
+                curr_rubro = self.cb_filtro_rubro.currentText()
+                curr_marca = self.cb_filtro_marca.currentText()
+
+                self.cb_filtro_rubro.blockSignals(True)
+                self.cb_filtro_marca.blockSignals(True)
+
+                self.cb_filtro_rubro.clear()
+                self.cb_filtro_rubro.addItem("Todos")
+                self.cb_filtro_rubro.addItems(sorted(list(rubros)))
+
+                self.cb_filtro_marca.clear()
+                self.cb_filtro_marca.addItem("Todos")
+                self.cb_filtro_marca.addItems(sorted(list(marcas)))
+
+                idx_r = self.cb_filtro_rubro.findText(curr_rubro)
+                if idx_r >= 0: self.cb_filtro_rubro.setCurrentIndex(idx_r)
+
+                idx_m = self.cb_filtro_marca.findText(curr_marca)
+                if idx_m >= 0: self.cb_filtro_marca.setCurrentIndex(idx_m)
+
+                self.cb_filtro_rubro.blockSignals(False)
+                self.cb_filtro_marca.blockSignals(False)
+
+                self._apply_filters()
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo cargar el stock:\n{e}")
