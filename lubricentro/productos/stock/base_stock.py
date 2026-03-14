@@ -96,6 +96,18 @@ class StockRubroGroup(QWidget):
         super().showEvent(event)
 
     # -------------------- Cargar grilla --------------------
+
+    def _apply_filters(self):
+        r_sel = getattr(self, 'cb_filtro_rubro', None) and self.cb_filtro_rubro.currentText() or "Todos"
+        m_sel = getattr(self, 'cb_filtro_marca', None) and self.cb_filtro_marca.currentText() or "Todos"
+        for r in range(self.tbl.rowCount()):
+            row_rubro = self.tbl.item(r, 4).text() if self.tbl.item(r, 4) else ""
+            row_marca = self.tbl.item(r, 3).text() if self.tbl.item(r, 3) else ""
+            hide = False
+            if r_sel != "Todos" and row_rubro != r_sel: hide = True
+            if not hide and m_sel != "Todos" and row_marca != m_sel: hide = True
+            self.tbl.setRowHidden(r, hide)
+
     def load_data(self):
         if not self.SessionLocal or not self.ProductoModel:
             # QMessageBox.critical(self, "Stock", "No se pudo resolver el modelo de Productos.")
@@ -190,6 +202,58 @@ class StockRubroGroup(QWidget):
                             if it:
                                 it.setBackground(brush)
 
+                rubros = set()
+                marcas = set()
+                for r in range(self.tbl.rowCount()):
+                    item_r = self.tbl.item(r, 4)
+                    item_m = self.tbl.item(r, 3)
+                    if item_r and item_r.text(): rubros.add(item_r.text())
+                    if item_m and item_m.text(): marcas.add(item_m.text())
+
+                if hasattr(self, 'cb_filtro_rubro'):
+                    curr_rubro = self.cb_filtro_rubro.currentText()
+                    curr_marca = self.cb_filtro_marca.currentText()
+                    self.cb_filtro_rubro.blockSignals(True)
+                    self.cb_filtro_marca.blockSignals(True)
+                    self.cb_filtro_rubro.clear()
+                    self.cb_filtro_rubro.addItem("Todos")
+                    self.cb_filtro_rubro.addItems(sorted(list(rubros)))
+                    self.cb_filtro_marca.clear()
+                    self.cb_filtro_marca.addItem("Todos")
+                    self.cb_filtro_marca.addItems(sorted(list(marcas)))
+                    idx_r = self.cb_filtro_rubro.findText(curr_rubro)
+                    if idx_r >= 0: self.cb_filtro_rubro.setCurrentIndex(idx_r)
+                    idx_m = self.cb_filtro_marca.findText(curr_marca)
+                    if idx_m >= 0: self.cb_filtro_marca.setCurrentIndex(idx_m)
+                    self.cb_filtro_rubro.blockSignals(False)
+                    self.cb_filtro_marca.blockSignals(False)
+                    self._apply_filters()
+                rubros = set()
+                marcas = set()
+                for r in range(self.tbl.rowCount()):
+                    item_r = self.tbl.item(r, 4)
+                    item_m = self.tbl.item(r, 3)
+                    if item_r and item_r.text(): rubros.add(item_r.text())
+                    if item_m and item_m.text(): marcas.add(item_m.text())
+
+                if hasattr(self, 'cb_filtro_rubro'):
+                    curr_rubro = self.cb_filtro_rubro.currentText()
+                    curr_marca = self.cb_filtro_marca.currentText()
+                    self.cb_filtro_rubro.blockSignals(True)
+                    self.cb_filtro_marca.blockSignals(True)
+                    self.cb_filtro_rubro.clear()
+                    self.cb_filtro_rubro.addItem("Todos")
+                    self.cb_filtro_rubro.addItems(sorted(list(rubros)))
+                    self.cb_filtro_marca.clear()
+                    self.cb_filtro_marca.addItem("Todos")
+                    self.cb_filtro_marca.addItems(sorted(list(marcas)))
+                    idx_r = self.cb_filtro_rubro.findText(curr_rubro)
+                    if idx_r >= 0: self.cb_filtro_rubro.setCurrentIndex(idx_r)
+                    idx_m = self.cb_filtro_marca.findText(curr_marca)
+                    if idx_m >= 0: self.cb_filtro_marca.setCurrentIndex(idx_m)
+                    self.cb_filtro_rubro.blockSignals(False)
+                    self.cb_filtro_marca.blockSignals(False)
+                    self._apply_filters()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo cargar el stock:\n{e}")
 

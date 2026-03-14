@@ -554,6 +554,24 @@ class CodigosBarraTab(QWidget):
         self.chk_solo_sin_codigo.stateChanged.connect(self._load_data)
         bar.addWidget(self.chk_solo_sin_codigo)
 
+        bar.addWidget(QLabel("Rubro:"))
+        self.cb_filtro_rubro = QComboBox()
+        self.cb_filtro_rubro.addItem("Todos")
+        self.cb_filtro_rubro.currentIndexChanged.connect(self._apply_filters)
+        bar.addWidget(self.cb_filtro_rubro)
+
+        bar.addWidget(QLabel("Marca:"))
+        self.cb_filtro_marca = QComboBox()
+        self.cb_filtro_marca.addItem("Todos")
+        self.cb_filtro_marca.currentIndexChanged.connect(self._apply_filters)
+        bar.addWidget(self.cb_filtro_marca)
+
+        bar.addWidget(QLabel("Mostrar:"))
+        self.cb_filtro_recientes = QComboBox()
+        self.cb_filtro_recientes.addItems(["Todos", "Últimos 10", "Últimos 50", "Últimos 100"])
+        self.cb_filtro_recientes.currentIndexChanged.connect(self._apply_filters)
+        bar.addWidget(self.cb_filtro_recientes)
+
         bar.addStretch()
 
         # Combined button as requested
@@ -583,15 +601,54 @@ class CodigosBarraTab(QWidget):
     def refresh(self):
         self._load_data()
 
+    def _apply_filters(self):
+        rubro_sel = getattr(self, 'cb_filtro_rubro', None) and self.cb_filtro_rubro.currentText() or "Todos"
+        marca_sel = getattr(self, 'cb_filtro_marca', None) and self.cb_filtro_marca.currentText() or "Todos"
+        recientes_sel = getattr(self, 'cb_filtro_recientes', None) and self.cb_filtro_recientes.currentText() or "Todos"
+
+        limit = 999999
+        if recientes_sel == "Últimos 10": limit = 10
+        elif recientes_sel == "Últimos 50": limit = 50
+        elif recientes_sel == "Últimos 100": limit = 100
+
+        visible_count = 0
+        for r in range(self.tbl.rowCount()):
+            item_id = self.tbl.item(r, 1) # ID is in col 1
+            if not item_id: continue
+
+            pid_str = item_id.text()
+            if not pid_str.isdigit(): continue
+            pid = int(pid_str)
+
+            p_data = next((x for x in getattr(self, '_all_data', []) if x["id"] == pid), None)
+            if not p_data: continue
+
+            row_rubro = p_data.get("rubro", "")
+            row_marca = p_data.get("marca_nombre", "")
+
+            hide = False
+            if rubro_sel != "Todos" and row_rubro != rubro_sel:
+                hide = True
+            if not hide and marca_sel != "Todos" and row_marca != marca_sel:
+                hide = True
+
+            if not hide:
+                visible_count += 1
+                if visible_count > limit:
+                    hide = True
+
+            self.tbl.setRowHidden(r, hide)
+
     def _load_data(self):
         self.tbl.setRowCount(0)
+        self._all_data = []
         solo_sin = self.chk_solo_sin_codigo.isChecked()
 
         with SessionLocal() as s:
             if Marca:
-                q = s.query(Producto, Marca.nombre).outerjoin(Marca, Producto.marca_id == Marca.id).filter(Producto.activo == True)
+                q = s.query(Producto, Marca.nombre).outerjoin(Marca, Producto.marca_id == Marca.id).filter(Producto.activo == True).order_by(Producto.id.desc())
             else:
-                q = s.query(Producto).filter(Producto.activo == True)
+                q = s.query(Producto).filter(Producto.activo == True).order_by(Producto.id.desc())
 
             prods = q.all()
 
@@ -610,6 +667,12 @@ class CodigosBarraTab(QWidget):
 
             self.tbl.setRowCount(len(rows))
             for r, (p, m_nombre) in enumerate(rows):
+                self._all_data.append({
+                    "id": p.id,
+                    "rubro": getattr(p, "rubro", "") or "",
+                    "marca_nombre": m_nombre or ""
+                })
+
                 ck = QTableWidgetItem()
                 ck.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
                 ck.setCheckState(Qt.Checked if not p.codigo_barras else Qt.Unchecked)

@@ -58,6 +58,16 @@ class ConsultarPrecioDialog(QDialog):
         if (token_inicial or "").strip():
             self._buscar()
 
+
+    def keyPressEvent(self, event):
+        from PyQt5.QtCore import Qt
+        if event.key() == Qt.Key_Delete:
+            if hasattr(self, "inp_buscar"):
+                self.inp_buscar.clear()
+                self.inp_buscar.setFocus()
+        else:
+            super().keyPressEvent(event)
+
     def _buscar(self):
         # Búsquedas y precios (importación tardía para romper ciclo)
         from ventas.precio_busquedas import (

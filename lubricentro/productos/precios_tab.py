@@ -90,6 +90,20 @@ class PreciosTab(QWidget):
         top.addWidget(self.lbl_fijos)
 
         top.addSpacing(20)
+        top.addWidget(QLabel("Rubro:"))
+        self.cb_filtro_rubro = QComboBox()
+        self.cb_filtro_rubro.addItem("Todos")
+        self.cb_filtro_rubro.currentIndexChanged.connect(self._apply_filters)
+        top.addWidget(self.cb_filtro_rubro)
+
+        top.addSpacing(10)
+        top.addWidget(QLabel("Marca:"))
+        self.cb_filtro_marca = QComboBox()
+        self.cb_filtro_marca.addItem("Todos")
+        self.cb_filtro_marca.currentIndexChanged.connect(self._apply_filters)
+        top.addWidget(self.cb_filtro_marca)
+
+        top.addSpacing(20)
         top.addWidget(QLabel("Ganancia (%):"))
         self.sp_gan = QDoubleSpinBox(self)
         self.sp_gan.setRange(0.0, 500.0)
@@ -144,6 +158,25 @@ class PreciosTab(QWidget):
     # ------------------------------------------------------------------
     # Datos
     # ------------------------------------------------------------------
+
+    def _apply_filters(self):
+        r_sel = getattr(self, 'cb_filtro_rubro', None) and self.cb_filtro_rubro.currentText() or "Todos"
+        m_sel = getattr(self, 'cb_filtro_marca', None) and self.cb_filtro_marca.currentText() or "Todos"
+
+        for r in range(self.tbl.rowCount()):
+            item_pk = self.tbl.item(r, 13)
+            if not item_pk: continue
+            pk = item_pk.data(Qt.UserRole)
+
+            row_data = next((x for x in self._rows if x["pk"] == pk), None)
+            if not row_data: continue
+
+            hide = False
+            if r_sel != "Todos" and row_data.get("rubro", "") != r_sel: hide = True
+            if not hide and m_sel != "Todos" and row_data.get("marca", "") != m_sel: hide = True
+
+            self.tbl.setRowHidden(r, hide)
+
     def _load_products(self):
         # Lee productos desde la DB principal
         with AppSession() as s:
@@ -198,8 +231,60 @@ class PreciosTab(QWidget):
             })
 
         self._rows = datos
+        # Populate filters
+        rubros = set()
+        marcas = set()
+        for r in self._rows:
+            if r.get("rubro"): rubros.add(r["rubro"])
+            if r.get("marca"): marcas.add(r["marca"])
+
+        if hasattr(self, 'cb_filtro_rubro'):
+            c_r = self.cb_filtro_rubro.currentText()
+            c_m = self.cb_filtro_marca.currentText()
+            self.cb_filtro_rubro.blockSignals(True)
+            self.cb_filtro_marca.blockSignals(True)
+            self.cb_filtro_rubro.clear()
+            self.cb_filtro_rubro.addItem("Todos")
+            self.cb_filtro_rubro.addItems(sorted(list(rubros)))
+            self.cb_filtro_marca.clear()
+            self.cb_filtro_marca.addItem("Todos")
+            self.cb_filtro_marca.addItems(sorted(list(marcas)))
+            idx_r = self.cb_filtro_rubro.findText(c_r)
+            idx_m = self.cb_filtro_marca.findText(c_m)
+            if idx_r >= 0: self.cb_filtro_rubro.setCurrentIndex(idx_r)
+            if idx_m >= 0: self.cb_filtro_marca.setCurrentIndex(idx_m)
+            self.cb_filtro_rubro.blockSignals(False)
+            self.cb_filtro_marca.blockSignals(False)
+
+        # Populate filters
+        rubros = set()
+        marcas = set()
+        for r in self._rows:
+            if r.get("rubro"): rubros.add(r["rubro"])
+            if r.get("marca"): marcas.add(r["marca"])
+
+        if hasattr(self, 'cb_filtro_rubro'):
+            c_r = self.cb_filtro_rubro.currentText()
+            c_m = self.cb_filtro_marca.currentText()
+            self.cb_filtro_rubro.blockSignals(True)
+            self.cb_filtro_marca.blockSignals(True)
+            self.cb_filtro_rubro.clear()
+            self.cb_filtro_rubro.addItem("Todos")
+            self.cb_filtro_rubro.addItems(sorted(list(rubros)))
+            self.cb_filtro_marca.clear()
+            self.cb_filtro_marca.addItem("Todos")
+            self.cb_filtro_marca.addItems(sorted(list(marcas)))
+            idx_r = self.cb_filtro_rubro.findText(c_r)
+            idx_m = self.cb_filtro_marca.findText(c_m)
+            if idx_r >= 0: self.cb_filtro_rubro.setCurrentIndex(idx_r)
+            if idx_m >= 0: self.cb_filtro_marca.setCurrentIndex(idx_m)
+            self.cb_filtro_rubro.blockSignals(False)
+            self.cb_filtro_marca.blockSignals(False)
+
         self._render_table()
         self._recalc_all()  # primer cálculo automático
+        if hasattr(self, '_apply_filters'): self._apply_filters()
+        if hasattr(self, '_apply_filters'): self._apply_filters()
 
     def _render_table(self):
         # Desconectar señal para evitar bucles al repoblar
@@ -451,7 +536,23 @@ class PreciosTab(QWidget):
             row["precio_cp"] = float(round(precio_cp, 2))
             row["final"] = float(round(final, 2))
 
-        self._render_table()
+        # Lag fix: update just text
+        try: self.tbl.itemChanged.disconnect(self._on_item_changed)
+        except: pass
+        self.tbl.setUpdatesEnabled(False)
+        def _fmt(v): return f"{float(v or 0.0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        for r, row in enumerate(self._rows):
+            item10 = self.tbl.item(r, 10)
+            if item10: item10.setText(_fmt(row["prorr"]))
+            item11 = self.tbl.item(r, 11)
+            if item11: item11.setText(_fmt(row["precio_cp"]))
+            item12 = self.tbl.item(r, 12)
+            if item12: item12.setText(_fmt(row["calculado"]))
+            item13 = self.tbl.item(r, 13)
+            if item13: item13.setText(_fmt(row["final"]))
+        self.tbl.setUpdatesEnabled(True)
+        self.tbl.itemChanged.connect(self._on_item_changed)
+
 
     # ------------------------------------------------------------------
     # Exportar PDF
