@@ -583,31 +583,6 @@ class CodigosBarraTab(QWidget):
     def refresh(self):
         self._load_data()
 
-
-    def _apply_filters(self):
-        rubro_sel = self.cb_filtro_rubro.currentText()
-        marca_sel = self.cb_filtro_marca.currentText()
-
-        for r in range(self.tbl.rowCount()):
-            # Find the original data using item UserRole
-            item = self.tbl.item(r, 0)
-            if not item: continue
-            pid = item.data(Qt.UserRole)
-
-            p_data = next((x for x in self._all_data if x["id"] == pid), None)
-            if not p_data: continue
-
-            row_rubro = p_data.get("rubro", "")
-            row_marca = p_data.get("marca", "")
-
-            hide = False
-            if rubro_sel != "Todos" and row_rubro != rubro_sel:
-                hide = True
-            if not hide and marca_sel != "Todos" and row_marca != marca_sel:
-                hide = True
-
-            self.tbl.setRowHidden(r, hide)
-
     def _load_data(self):
         self.tbl.setRowCount(0)
         solo_sin = self.chk_solo_sin_codigo.isChecked()

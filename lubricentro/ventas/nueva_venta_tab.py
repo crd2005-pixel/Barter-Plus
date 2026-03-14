@@ -142,10 +142,6 @@ class NuevaVentaTab(QWidget):
         if event.key() == Qt.Key_Delete:
             if self.tbl.hasFocus():
                 self._borrar_seleccion()
-            else:
-                self.ed_prod.clear()
-                self.ed_cant.setText("1")
-                self.ed_prod.setFocus()
         else:
             super().keyPressEvent(event)
 
@@ -324,7 +320,6 @@ class NuevaVentaTab(QWidget):
                  self._temp_selected_pid = pid
                  self._temp_selected_price = res.get("precio", 0.0)
 
-                 self.ed_prod.selectAll()
                  self.ed_prod.setFocus()
 
     def _nuevo_cliente(self):

@@ -20,7 +20,7 @@ class TestConfigService(unittest.TestCase):
     def test_get_config(self):
         # Should create defaults if empty
         cfg = ConfigService.get_config(self.session)
-        self.assertIsNone(cfg.nombre_negocio)
+        self.assertEqual(cfg.nombre_negocio, "Barter Plus")
 
         # Modify and retrieve
         cfg.nombre_negocio = "Test Shop"

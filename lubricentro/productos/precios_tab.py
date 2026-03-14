@@ -21,7 +21,7 @@ No pide “gastos variables” manuales. Los gastos variables son las listas mis
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QDoubleSpinBox,
-    QPushButton, QComboBox, QFormLayout, QTableWidget, QTableWidgetItem, QHeaderView,
+    QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
     QDialog, QDialogButtonBox, QMessageBox, QMenu, QInputDialog
 )
 from PyQt5.QtCore import Qt, QSettings
@@ -90,20 +90,6 @@ class PreciosTab(QWidget):
         top.addWidget(self.lbl_fijos)
 
         top.addSpacing(20)
-        top.addWidget(QLabel("Rubro:"))
-        self.cb_filtro_rubro = QComboBox()
-        self.cb_filtro_rubro.addItem("Todos")
-        self.cb_filtro_rubro.currentIndexChanged.connect(self._apply_filters)
-        top.addWidget(self.cb_filtro_rubro)
-
-        top.addSpacing(10)
-        top.addWidget(QLabel("Marca:"))
-        self.cb_filtro_marca = QComboBox()
-        self.cb_filtro_marca.addItem("Todos")
-        self.cb_filtro_marca.currentIndexChanged.connect(self._apply_filters)
-        top.addWidget(self.cb_filtro_marca)
-
-        top.addSpacing(20)
         top.addWidget(QLabel("Ganancia (%):"))
         self.sp_gan = QDoubleSpinBox(self)
         self.sp_gan.setRange(0.0, 500.0)
@@ -116,8 +102,6 @@ class PreciosTab(QWidget):
         top.addSpacing(20)
         self.btn_calc = QPushButton("Recalcular")
         top.addWidget(self.btn_calc)
-        self.btn_ajuste_masivo = QPushButton("Ajustar Plus Masivo...")
-        top.addWidget(self.btn_ajuste_masivo)
         self.btn_pdf = QPushButton("Exportar PDF")
         top.addWidget(self.btn_pdf)
         top.addStretch(1)
@@ -144,7 +128,6 @@ class PreciosTab(QWidget):
         lay.addWidget(self.tbl)
 
         self.btn_calc.clicked.connect(self._on_recalc_clicked)  # guarda y recalcula
-        self.btn_ajuste_masivo.clicked.connect(self._on_ajuste_masivo_clicked)
         self.btn_pdf.clicked.connect(self._export_pdf)
 
         self.setLayout(lay)
@@ -152,29 +135,6 @@ class PreciosTab(QWidget):
     # ------------------------------------------------------------------
     # Persistencia de ganancia
     # ------------------------------------------------------------------
-
-    def _apply_filters(self):
-        rubro_sel = self.cb_filtro_rubro.currentText()
-        marca_sel = self.cb_filtro_marca.currentText()
-
-        for r in range(self.tbl.rowCount()):
-            item_pk = self.tbl.item(r, 13)
-            if not item_pk: continue
-            pk = item_pk.data(Qt.UserRole)
-
-            row_dict = next((x for x in self._rows if x["pk"] == pk), None)
-            if not row_dict:
-                self.tbl.setRowHidden(r, False)
-                continue
-
-            hide = False
-            if rubro_sel != "Todos" and row_dict.get("rubro", "") != rubro_sel:
-                hide = True
-            if not hide and marca_sel != "Todos" and row_dict.get("marca", "") != marca_sel:
-                hide = True
-
-            self.tbl.setRowHidden(r, hide)
-
     def _save_gain(self):
         try:
             self._settings.setValue("productos/precios/ganancia_pct", float(self.sp_gan.value()))
@@ -193,7 +153,7 @@ class PreciosTab(QWidget):
 
         datos = []
         for i, p in enumerate(self._prods):
-            if i % 500 == 0:
+            if i % 100 == 0:
                 QApplication.processEvents()
 
             info = find_price_plus_iva_for_product(p)  # cruza por proveedor_id+codigo, luego código, luego nombre
@@ -235,39 +195,9 @@ class PreciosTab(QWidget):
                 "precio_manual": float(getattr(p, "precio_manual", 0.0) or 0.0),
                 "venta_granel": bool(getattr(p, "venta_granel", 0) in (1, True, "1")),
                 "presentacion_cantidad": float(getattr(p, "presentacion_cantidad", 1.0) or 1.0),
-                "rubro": getattr(p, "rubro", "") or ""
             })
 
         self._rows = datos
-
-        # Populate comboboxes
-        rubros = sorted(list({r["rubro"] for r in datos if r["rubro"]}))
-        marcas = sorted(list({r["marca"] for r in datos if r["marca"]}))
-
-        self.cb_filtro_rubro.blockSignals(True)
-        self.cb_filtro_marca.blockSignals(True)
-
-        curr_rubro = self.cb_filtro_rubro.currentText()
-        curr_marca = self.cb_filtro_marca.currentText()
-
-        self.cb_filtro_rubro.clear()
-        self.cb_filtro_rubro.addItem("Todos")
-        self.cb_filtro_rubro.addItems(rubros)
-
-        self.cb_filtro_marca.clear()
-        self.cb_filtro_marca.addItem("Todos")
-        self.cb_filtro_marca.addItems(marcas)
-
-        idx_r = self.cb_filtro_rubro.findText(curr_rubro)
-        if idx_r >= 0: self.cb_filtro_rubro.setCurrentIndex(idx_r)
-
-        idx_m = self.cb_filtro_marca.findText(curr_marca)
-        if idx_m >= 0: self.cb_filtro_marca.setCurrentIndex(idx_m)
-
-        self.cb_filtro_rubro.blockSignals(False)
-        self.cb_filtro_marca.blockSignals(False)
-
-        self._apply_filters()
         self._render_table()
         self._recalc_all()  # primer cálculo automático
 
@@ -278,34 +208,27 @@ class PreciosTab(QWidget):
         except Exception:
             pass
 
-        self.tbl.setSortingEnabled(False)
-        self.tbl.setUpdatesEnabled(False)
-
         self.tbl.setRowCount(len(self._rows))
 
         for r, row in enumerate(self._rows):
             def setc(col, val, align_right=False, editable=False):
                 text = "" if val is None else str(val)
-                item = self.tbl.item(r, col)
-                if item is None:
-                    item = QTableWidgetItem(text)
-                    flags = Qt.ItemIsEnabled | Qt.ItemIsSelectable
-                    if editable:
-                        flags |= Qt.ItemIsEditable
-                    item.setFlags(flags)
+                item = QTableWidgetItem(text)
+                flags = Qt.ItemIsEnabled | Qt.ItemIsSelectable
+                if editable:
+                    flags |= Qt.ItemIsEditable
+                item.setFlags(flags)
 
-                    if align_right:
-                        item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                    elif col in (0, 4, 9):
-                        item.setTextAlignment(Qt.AlignCenter)
-
-                    self.tbl.setItem(r, col, item)
-                else:
-                    item.setText(text)
+                if align_right:
+                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                elif col in (0, 4, 9):
+                    item.setTextAlignment(Qt.AlignCenter)
 
                 # Guardar PK en la columna 13 (Precio Final) para identificar fila al editar
                 if col == 13:
                     item.setData(Qt.UserRole, row["pk"])
+
+                self.tbl.setItem(r, col, item)
 
             setc(0, row["id"])
             setc(1, row["codigo"])
@@ -324,8 +247,6 @@ class PreciosTab(QWidget):
             setc(13, _fmt(row["final"]), True, editable=True)
 
         self.tbl.resizeColumnsToContents()
-        self.tbl.setUpdatesEnabled(True)
-        self.tbl.setSortingEnabled(True)
         self.tbl.itemChanged.connect(self._on_item_changed)
 
     def _on_item_changed(self, item):
@@ -341,12 +262,30 @@ class PreciosTab(QWidget):
             val_txt = item.text().replace("$", "").replace(" ", "").replace(",", ".")
             new_val = float(val_txt)
         except Exception:
-            # Si el usuario pone algo inválido o vacío, asumimos 0 (restablecer a automático)
-            new_val = 0.0
+            # Si el usuario pone algo inválido, no guardamos (o podríamos revertir)
+            return
 
-        # Delegate update logic to _update_manual_price to handle UI and memory refresh consistently.
-        # This will set the manual price to new_val. If new_val is 0.0, it restores the calculated price.
-        self._update_manual_price(pk, new_val)
+        # Actualizar en DB (campo precio_manual)
+        # Si es 0, asumimos que quiere volver al automático (opcional, pero buena práctica)
+        # El requerimiento dice "ajustes manuales", así que guardamos lo que ponga.
+        try:
+            with AppSession() as s:
+                p = s.query(Producto).get(pk)
+                if p:
+                    p.precio_manual = new_val
+                    s.commit()
+
+            # Actualizar modelo en memoria (_rows) para que el próximo recalc lo respete
+            # Buscamos la fila correcta
+            for r in self._rows:
+                if r["pk"] == pk:
+                    r["precio_manual"] = new_val
+                    # Si puso 0, tal vez quiera recalcular ahora mismo
+                    # Pero el _recalc_all se dispara con botón.
+                    # Dejamos que el valor visual quede fijo hasta que recalcule.
+                    break
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo guardar el precio manual: {e}")
 
     # ------------------------------------------------------------------
     # Context Menu
@@ -454,112 +393,6 @@ class PreciosTab(QWidget):
     # ------------------------------------------------------------------
     # Cálculos
     # ------------------------------------------------------------------
-
-    def _on_ajuste_masivo_clicked(self):
-        # Dialog para ajuste masivo
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Ajuste Plus Masivo")
-        dlg.setMinimumWidth(350)
-
-        lay = QVBoxLayout(dlg)
-        form = QFormLayout()
-
-        cb_tipo = QComboBox()
-        cb_tipo.addItems(["Todos", "Por Rubro", "Por Marca (lista)"])
-        form.addRow("Aplicar a:", cb_tipo)
-
-        cb_filtro = QComboBox()
-        cb_filtro.setEnabled(False)
-        form.addRow("Valor:", cb_filtro)
-
-        sp_monto = QDoubleSpinBox()
-        sp_monto.setRange(-1000000.0, 1000000.0)
-        sp_monto.setDecimals(2)
-        sp_monto.setSingleStep(100.0)
-        sp_monto.setPrefix("$ ")
-        form.addRow("Monto a sumar (+/-):", sp_monto)
-
-        lay.addLayout(form)
-
-        bbox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bbox.accepted.connect(dlg.accept)
-        bbox.rejected.connect(dlg.reject)
-        lay.addWidget(bbox)
-
-        # Llenar filtros
-        rubros = set()
-        marcas = set()
-        for p in self._prods:
-            if getattr(p, "rubro", None): rubros.add(p.rubro)
-        for r in self._rows:
-            if r["marca"]: marcas.add(r["marca"])
-
-        rubros = sorted(list(rubros))
-        marcas = sorted(list(marcas))
-
-        def on_tipo_changed(idx):
-            cb_filtro.clear()
-            if idx == 0:
-                cb_filtro.setEnabled(False)
-            elif idx == 1:
-                cb_filtro.setEnabled(True)
-                cb_filtro.addItems(rubros)
-            elif idx == 2:
-                cb_filtro.setEnabled(True)
-                cb_filtro.addItems(marcas)
-
-        cb_tipo.currentIndexChanged.connect(on_tipo_changed)
-
-        if dlg.exec_() == QDialog.Accepted:
-            monto = sp_monto.value()
-            if monto == 0: return
-
-            tipo = cb_tipo.currentIndex()
-            val_filtro = cb_filtro.currentText()
-
-            afectados = 0
-
-            try:
-                with AppSession() as s:
-                    for r in self._rows:
-                        # Evaluar filtro
-                        match = False
-                        if tipo == 0:
-                            match = True
-                        elif tipo == 1:
-                            # Buscar rubro en _prods
-                            rubro_p = ""
-                            for p in self._prods:
-                                if p.id == r["pk"]:
-                                    rubro_p = getattr(p, "rubro", "") or ""
-                                    break
-                            if rubro_p == val_filtro:
-                                match = True
-                        elif tipo == 2:
-                            if r["marca"] == val_filtro:
-                                match = True
-
-                        if match:
-                            # Calcular nuevo precio
-                            current = r["final"]
-                            new_val = current + monto
-                            if new_val < 0: new_val = 0
-
-                            p = s.query(Producto).get(r["pk"])
-                            if p:
-                                p.precio_manual = new_val
-                                r["precio_manual"] = new_val
-                                afectados += 1
-
-                    if afectados > 0:
-                        s.commit()
-                        self._recalc_all()
-                        QMessageBox.information(self, "Éxito", f"Se actualizaron {afectados} productos.")
-                    else:
-                        QMessageBox.information(self, "Sin cambios", "No se encontraron productos que coincidan.")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Ocurrió un error: {e}")
-
     def _on_recalc_clicked(self):
         # guardo la ganancia antes de recalcular (persistencia)
         self._save_gain()
