@@ -22,7 +22,8 @@ No pide “gastos variables” manuales. Los gastos variables son las listas mis
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QDoubleSpinBox,
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
-    QDialog, QDialogButtonBox, QMessageBox, QMenu, QInputDialog
+    QDialog, QDialogButtonBox, QMessageBox, QMenu, QInputDialog,
+    QComboBox, QCheckBox
 )
 from PyQt5.QtCore import Qt, QSettings
 from PyQt5.QtPrintSupport import QPrinter
@@ -106,6 +107,30 @@ class PreciosTab(QWidget):
         top.addWidget(self.btn_pdf)
         top.addStretch(1)
         lay.addLayout(top)
+
+        # Filtros
+        self.lay_filtros = QHBoxLayout()
+        self.cmb_marca = QComboBox()
+        self.cmb_rubro = QComboBox()
+        self.cmb_subrubro = QComboBox()
+        self.chk_recientes = QCheckBox("Agregados hoy")
+
+        self.lay_filtros.addWidget(QLabel("Marca:"))
+        self.lay_filtros.addWidget(self.cmb_marca)
+        self.lay_filtros.addWidget(QLabel("Rubro:"))
+        self.lay_filtros.addWidget(self.cmb_rubro)
+        self.lay_filtros.addWidget(QLabel("Subrubro:"))
+        self.lay_filtros.addWidget(self.cmb_subrubro)
+        self.lay_filtros.addWidget(self.chk_recientes)
+        self.lay_filtros.addStretch()
+
+        lay.addLayout(self.lay_filtros)
+
+        self.cmb_marca.currentIndexChanged.connect(self._aplicar_filtros)
+        self.cmb_rubro.currentIndexChanged.connect(self._aplicar_filtros)
+        self.cmb_subrubro.currentIndexChanged.connect(self._aplicar_filtros)
+        self.chk_recientes.stateChanged.connect(self._aplicar_filtros)
+
 
         # Tabla de precios
         self.tbl = QTableWidget(self)
@@ -195,6 +220,10 @@ class PreciosTab(QWidget):
                 "precio_manual": float(getattr(p, "precio_manual", 0.0) or 0.0),
                 "venta_granel": bool(getattr(p, "venta_granel", 0) in (1, True, "1")),
                 "presentacion_cantidad": float(getattr(p, "presentacion_cantidad", 1.0) or 1.0),
+                "rubro": str(getattr(p, "rubro", "") or ""),
+                "subrubro": str(getattr(p, "subrubro", "") or ""),
+                "creado_en": getattr(p, "creado_en", None),
+
             })
 
         self._rows = datos
@@ -248,6 +277,67 @@ class PreciosTab(QWidget):
 
         self.tbl.resizeColumnsToContents()
         self.tbl.itemChanged.connect(self._on_item_changed)
+        self._actualizar_combos_filtro()
+
+
+
+    def _actualizar_combos_filtro(self):
+        m_marca = self.cmb_marca.currentText()
+        m_rubro = self.cmb_rubro.currentText()
+        m_subrubro = self.cmb_subrubro.currentText()
+
+        self.cmb_marca.blockSignals(True)
+        self.cmb_rubro.blockSignals(True)
+        self.cmb_subrubro.blockSignals(True)
+
+        self.cmb_marca.clear()
+        self.cmb_rubro.clear()
+        self.cmb_subrubro.clear()
+
+        marcas = sorted(list(set([r["marca"] for r in self._rows if r.get("marca")])))
+        rubros = sorted(list(set([r.get("rubro", "") for r in self._rows if r.get("rubro")])))
+        subrubros = sorted(list(set([r.get("subrubro", "") for r in self._rows if r.get("subrubro")])))
+
+        self.cmb_marca.addItem("Todas")
+        self.cmb_marca.addItems(marcas)
+        self.cmb_rubro.addItem("Todos")
+        self.cmb_rubro.addItems(rubros)
+        self.cmb_subrubro.addItem("Todos")
+        self.cmb_subrubro.addItems(subrubros)
+
+        idx = self.cmb_marca.findText(m_marca)
+        if idx >= 0: self.cmb_marca.setCurrentIndex(idx)
+        idx = self.cmb_rubro.findText(m_rubro)
+        if idx >= 0: self.cmb_rubro.setCurrentIndex(idx)
+        idx = self.cmb_subrubro.findText(m_subrubro)
+        if idx >= 0: self.cmb_subrubro.setCurrentIndex(idx)
+
+        self.cmb_marca.blockSignals(False)
+        self.cmb_rubro.blockSignals(False)
+        self.cmb_subrubro.blockSignals(False)
+
+        self._aplicar_filtros()
+
+    def _aplicar_filtros(self):
+        if not hasattr(self, '_rows'): return
+
+        f_marca = self.cmb_marca.currentText()
+        f_rubro = self.cmb_rubro.currentText()
+        f_subrubro = self.cmb_subrubro.currentText()
+        f_reciente = self.chk_recientes.isChecked()
+
+        import datetime
+        hoy = datetime.datetime.now().date()
+
+        for i, r in enumerate(self._rows):
+            mostrar = True
+            if f_marca != "Todas" and f_marca != "" and r.get("marca", "") != f_marca: mostrar = False
+            if f_rubro != "Todos" and f_rubro != "" and r.get("rubro", "") != f_rubro: mostrar = False
+            if f_subrubro != "Todos" and f_subrubro != "" and r.get("subrubro", "") != f_subrubro: mostrar = False
+            if f_reciente:
+                if r.get("creado_en") is None or r.get("creado_en").date() != hoy: mostrar = False
+
+            self.tbl.setRowHidden(i, not mostrar)
 
     def _on_item_changed(self, item):
         """Maneja la edición manual del precio final."""
