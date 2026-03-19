@@ -169,7 +169,8 @@ class StockRubroGroup(QWidget):
                         "creado_en": creado_en
                     })
 
-                self._actualizar_combos_filtro()
+                self.tbl.setUpdatesEnabled(False)
+                self.tbl.setSortingEnabled(False)
                 self.tbl.setRowCount(len(rows))
                 for i, (p, stock_val, stock_min) in enumerate(rows):
                     cod_barras = str(getattr(p, "codigo_barras", "") or "")
@@ -236,6 +237,10 @@ class StockRubroGroup(QWidget):
                             it = self.tbl.item(i, col)
                             if it:
                                 it.setBackground(brush)
+
+                self.tbl.setUpdatesEnabled(True)
+                self.tbl.setSortingEnabled(True)
+                self._actualizar_combos_filtro()
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo cargar el stock:\n{e}")

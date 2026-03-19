@@ -227,8 +227,8 @@ class PreciosTab(QWidget):
             })
 
         self._rows = datos
-        self._render_table()
         self._recalc_all()  # primer cálculo automático
+        self._actualizar_combos_filtro()
 
     def _render_table(self):
         # Desconectar señal para evitar bucles al repoblar
@@ -237,6 +237,8 @@ class PreciosTab(QWidget):
         except Exception:
             pass
 
+        self.tbl.setUpdatesEnabled(False)
+        self.tbl.setSortingEnabled(False)
         self.tbl.setRowCount(len(self._rows))
 
         for r, row in enumerate(self._rows):
@@ -277,7 +279,9 @@ class PreciosTab(QWidget):
 
         self.tbl.resizeColumnsToContents()
         self.tbl.itemChanged.connect(self._on_item_changed)
-        self._actualizar_combos_filtro()
+        self.tbl.setUpdatesEnabled(True)
+        self.tbl.setSortingEnabled(True)
+        self._aplicar_filtros()
 
 
 

@@ -645,6 +645,8 @@ class CodigosBarraTab(QWidget):
                     "creado_en": creado_en
                 })
 
+            self.tbl.setUpdatesEnabled(False)
+            self.tbl.setSortingEnabled(False)
             self.tbl.setRowCount(len(rows))
             for r, (p, m_nombre) in enumerate(rows):
                 ck = QTableWidgetItem()
@@ -663,6 +665,8 @@ class CodigosBarraTab(QWidget):
                 self.tbl.setItem(r, 4, item_cb)
 
                 self.tbl.item(r, 1).setData(Qt.UserRole, p.id)
+            self.tbl.setUpdatesEnabled(True)
+            self.tbl.setSortingEnabled(True)
             self._actualizar_combos_filtro()
 
 
