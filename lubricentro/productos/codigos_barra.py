@@ -2,6 +2,7 @@
 import os
 import datetime as dt
 from PyQt5.QtWidgets import (
+    QComboBox,
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
     QTableWidgetItem, QMessageBox, QHeaderView, QLabel, QCheckBox,
     QDialog, QFormLayout, QDoubleSpinBox, QComboBox, QFileDialog,
@@ -543,7 +544,35 @@ class CodigosBarraTab(QWidget):
     def _setup_ui(self):
         layout = QVBoxLayout(self)
 
-        # Toolbar
+        # Filters Row (Top)
+        filter_bar = QHBoxLayout()
+
+        filter_bar.addWidget(QLabel("Marca:"))
+        self.cmb_marca = QComboBox()
+        self.cmb_marca.currentIndexChanged.connect(self._load_data)
+        filter_bar.addWidget(self.cmb_marca)
+
+        filter_bar.addWidget(QLabel("Rubro:"))
+        self.cmb_rubro = QComboBox()
+        self.cmb_rubro.currentIndexChanged.connect(self._load_rubro)
+        filter_bar.addWidget(self.cmb_rubro)
+
+        filter_bar.addWidget(QLabel("Subrubro:"))
+        self.cmb_subrubro = QComboBox()
+        self.cmb_subrubro.currentIndexChanged.connect(self._load_data)
+        filter_bar.addWidget(self.cmb_subrubro)
+
+        self.chk_agregados_hoy = QCheckBox("Agregados hoy")
+        self.chk_agregados_hoy.stateChanged.connect(self._load_data)
+        filter_bar.addWidget(self.chk_agregados_hoy)
+
+        filter_bar.addStretch()
+        layout.addLayout(filter_bar)
+
+        # Populate Filters
+        self._populate_filters()
+
+        # Actions Row (Toolbar)
         bar = QHBoxLayout()
 
         self.btn_refresh = QPushButton("Actualizar")
@@ -580,6 +609,45 @@ class CodigosBarraTab(QWidget):
         self.tbl.setColumnWidth(2, 120)
         layout.addWidget(self.tbl)
 
+    def _populate_filters(self):
+        # Rubros
+        self.cmb_rubro.blockSignals(True)
+        self.cmb_rubro.clear()
+        self.cmb_rubro.addItem("Todos", None)
+        self.cmb_rubro.addItems(["Baterias", "Lubricantes", "Filtros", "Otro"])
+        self.cmb_rubro.blockSignals(False)
+
+        # Marcas
+        self.cmb_marca.blockSignals(True)
+        self.cmb_marca.clear()
+        self.cmb_marca.addItem("Todas", None)
+        with SessionLocal() as s:
+            if Marca:
+                marcas = s.query(Marca).order_by(Marca.nombre).all()
+                for m in marcas:
+                    self.cmb_marca.addItem(m.nombre, m.id)
+        self.cmb_marca.blockSignals(False)
+
+        self._load_rubro()
+
+    def _load_rubro(self):
+        self.cmb_subrubro.blockSignals(True)
+        self.cmb_subrubro.clear()
+        self.cmb_subrubro.addItem("Todos", None)
+
+        rubro = self.cmb_rubro.currentText()
+        if rubro == "Filtros":
+            self.cmb_subrubro.addItems(["Aceite", "Aire", "Combustible", "Habitaculo"])
+        elif rubro == "Lubricantes":
+            self.cmb_subrubro.addItems(["Mineral", "Semi-Sintetico", "Sintetico"])
+        elif rubro == "Baterias":
+            self.cmb_subrubro.addItems(["Auto", "Moto", "Camion"])
+        elif rubro == "Otro":
+            self.cmb_subrubro.addItems(["Lamparas", "Escobillas", "Varios"])
+
+        self.cmb_subrubro.blockSignals(False)
+        self._load_data()
+
     def refresh(self):
         self._load_data()
 
@@ -592,6 +660,27 @@ class CodigosBarraTab(QWidget):
                 q = s.query(Producto, Marca.nombre).outerjoin(Marca, Producto.marca_id == Marca.id).filter(Producto.activo == True)
             else:
                 q = s.query(Producto).filter(Producto.activo == True)
+
+            # Apply Marca filter
+            marca_id = self.cmb_marca.currentData()
+            if marca_id:
+                q = q.filter(Producto.marca_id == marca_id)
+
+            # Apply Rubro filter
+            rubro = self.cmb_rubro.currentText()
+            if rubro != "Todos":
+                q = q.filter(Producto.rubro == rubro)
+
+            # Apply Subrubro filter
+            subrubro = self.cmb_subrubro.currentText()
+            if subrubro != "Todos":
+                q = q.filter(Producto.subrubro == subrubro)
+
+            # Apply Agregados Hoy filter
+            if self.chk_agregados_hoy.isChecked():
+                hoy = dt.date.today()
+                from sqlalchemy import cast, Date
+                q = q.filter(cast(Producto.creado_en, Date) == hoy)
 
             prods = q.all()
 
