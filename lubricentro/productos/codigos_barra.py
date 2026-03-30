@@ -570,8 +570,6 @@ class CodigosBarraTab(QWidget):
         layout.addLayout(filter_bar)
 
         # Populate Filters
-        self._populate_filters()
-
         # Actions Row (Toolbar)
         bar = QHBoxLayout()
 
@@ -608,6 +606,9 @@ class CodigosBarraTab(QWidget):
         self.tbl.setColumnWidth(1, 60)
         self.tbl.setColumnWidth(2, 120)
         layout.addWidget(self.tbl)
+
+        # Populate Filters
+        self._populate_filters()
 
     def _populate_filters(self):
         # Rubros
