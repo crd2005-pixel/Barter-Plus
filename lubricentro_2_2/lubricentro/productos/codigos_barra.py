@@ -554,6 +554,30 @@ class CodigosBarraTab(QWidget):
         self.chk_solo_sin_codigo.stateChanged.connect(self._load_data)
         bar.addWidget(self.chk_solo_sin_codigo)
 
+        # Filtros
+        self.lay_filtros = QHBoxLayout()
+        self.cmb_marca = QComboBox()
+        self.cmb_rubro = QComboBox()
+        self.cmb_subrubro = QComboBox()
+        self.chk_recientes = QCheckBox("Agregados hoy")
+
+        self.lay_filtros.addWidget(QLabel("Marca:"))
+        self.lay_filtros.addWidget(self.cmb_marca)
+        self.lay_filtros.addWidget(QLabel("Rubro:"))
+        self.lay_filtros.addWidget(self.cmb_rubro)
+        self.lay_filtros.addWidget(QLabel("Subrubro:"))
+        self.lay_filtros.addWidget(self.cmb_subrubro)
+        self.lay_filtros.addWidget(self.chk_recientes)
+        self.lay_filtros.addStretch()
+
+        layout.addLayout(self.lay_filtros)
+
+        self.cmb_marca.currentIndexChanged.connect(self._aplicar_filtros)
+        self.cmb_rubro.currentIndexChanged.connect(self._aplicar_filtros)
+        self.cmb_subrubro.currentIndexChanged.connect(self._aplicar_filtros)
+        self.chk_recientes.stateChanged.connect(self._aplicar_filtros)
+
+
         bar.addStretch()
 
         # Combined button as requested
@@ -608,6 +632,21 @@ class CodigosBarraTab(QWidget):
                     continue
                 rows.append((p, m_nombre))
 
+            self._datos_filtro = []
+            for p, m_nombre in rows:
+                rubro = str(getattr(p, "rubro", "") or "")
+                subrubro = str(getattr(p, "subrubro", "") or "")
+                creado_en = getattr(p, "creado_en", None)
+
+                self._datos_filtro.append({
+                    "marca": m_nombre or "",
+                    "rubro": rubro,
+                    "subrubro": subrubro,
+                    "creado_en": creado_en
+                })
+
+            self.tbl.setUpdatesEnabled(False)
+            self.tbl.setSortingEnabled(False)
             self.tbl.setRowCount(len(rows))
             for r, (p, m_nombre) in enumerate(rows):
                 ck = QTableWidgetItem()
@@ -626,36 +665,83 @@ class CodigosBarraTab(QWidget):
                 self.tbl.setItem(r, 4, item_cb)
 
                 self.tbl.item(r, 1).setData(Qt.UserRole, p.id)
+            self.tbl.setUpdatesEnabled(True)
+            self.tbl.setSortingEnabled(True)
+            self._actualizar_combos_filtro()
+
+
+
+    def _actualizar_combos_filtro(self):
+        m_marca = self.cmb_marca.currentText()
+        m_rubro = self.cmb_rubro.currentText()
+        m_subrubro = self.cmb_subrubro.currentText()
+
+        self.cmb_marca.blockSignals(True)
+        self.cmb_rubro.blockSignals(True)
+        self.cmb_subrubro.blockSignals(True)
+
+        self.cmb_marca.clear()
+        self.cmb_rubro.clear()
+        self.cmb_subrubro.clear()
+
+        marcas = sorted(list(set([d["marca"] for d in self._datos_filtro if d["marca"]])))
+        rubros = sorted(list(set([d["rubro"] for d in self._datos_filtro if d["rubro"]])))
+        subrubros = sorted(list(set([d["subrubro"] for d in self._datos_filtro if d["subrubro"]])))
+
+        self.cmb_marca.addItem("Todas")
+        self.cmb_marca.addItems(marcas)
+        self.cmb_rubro.addItem("Todos")
+        self.cmb_rubro.addItems(rubros)
+        self.cmb_subrubro.addItem("Todos")
+        self.cmb_subrubro.addItems(subrubros)
+
+        idx = self.cmb_marca.findText(m_marca)
+        if idx >= 0: self.cmb_marca.setCurrentIndex(idx)
+        idx = self.cmb_rubro.findText(m_rubro)
+        if idx >= 0: self.cmb_rubro.setCurrentIndex(idx)
+        idx = self.cmb_subrubro.findText(m_subrubro)
+        if idx >= 0: self.cmb_subrubro.setCurrentIndex(idx)
+
+        self.cmb_marca.blockSignals(False)
+        self.cmb_rubro.blockSignals(False)
+        self.cmb_subrubro.blockSignals(False)
+
+        self._aplicar_filtros()
+
+    def _aplicar_filtros(self):
+        if not hasattr(self, '_datos_filtro'): return
+
+        f_marca = self.cmb_marca.currentText()
+        f_rubro = self.cmb_rubro.currentText()
+        f_subrubro = self.cmb_subrubro.currentText()
+        f_reciente = self.chk_recientes.isChecked()
+
+        import datetime
+        hoy = datetime.datetime.now().date()
+
+        for i, d in enumerate(self._datos_filtro):
+            mostrar = True
+            if f_marca != "Todas" and f_marca != "" and d["marca"] != f_marca: mostrar = False
+            if f_rubro != "Todos" and f_rubro != "" and d["rubro"] != f_rubro: mostrar = False
+            if f_subrubro != "Todos" and f_subrubro != "" and d["subrubro"] != f_subrubro: mostrar = False
+            if f_reciente:
+                if d["creado_en"] is None or d["creado_en"].date() != hoy: mostrar = False
+
+            self.tbl.setRowHidden(i, not mostrar)
 
     def _asignar_codigos_faltantes(self):
         count = 0
         with SessionLocal() as s:
             prods = s.query(Producto).filter(Producto.activo == True).all()
-
-            # Pre-cargar códigos existentes (activos e inactivos) para evitar colisiones de UNIQUE
-            all_codes = s.query(Producto.codigo_barras).filter(Producto.codigo_barras != None).all()
-            existing_codes = {row[0] for row in all_codes if row[0]}
-
             for p in prods:
                 if not p.codigo_barras or not p.codigo_barras.strip():
-                    base_codigo = f"INT{p.id:06d}"
-                    nuevo_codigo = base_codigo
-                    suffix = 1
-                    while nuevo_codigo in existing_codes:
-                        nuevo_codigo = f"{base_codigo}_{suffix}"
-                        suffix += 1
-
+                    nuevo_codigo = f"INT{p.id:06d}"
                     p.codigo_barras = nuevo_codigo
-                    existing_codes.add(nuevo_codigo)
                     count += 1
             if count > 0:
-                try:
-                    s.commit()
-                    QMessageBox.information(self, "Generar", f"Se generaron {count} códigos nuevos.")
-                    self._load_data()
-                except Exception as e:
-                    s.rollback()
-                    QMessageBox.critical(self, "Error", f"Error al guardar los códigos en la base de datos:\n{str(e)}")
+                s.commit()
+                QMessageBox.information(self, "Generar", f"Se generaron {count} códigos nuevos.")
+                self._load_data()
             else:
                 QMessageBox.information(self, "Generar", "No había productos sin código.")
 
