@@ -1,0 +1,1 @@
+src/lubricentro/main.py:        msg.setWindowTitle("Error Crítico")
