@@ -1,0 +1,6 @@
+*.pyc
+__pycache__/
+*.rar
+*.zip
+lubricentro/unmatched_review_queue.log
+lubricentro/test_output.txt
