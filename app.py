@@ -9,6 +9,10 @@ import io
 
 DB_NAME = "master_data.db"
 
+@st.cache_resource
+def run_init_db():
+    init_db()
+
 def init_db():
     """
     Base de Datos Resiliente y Auto-Corregible.
@@ -33,11 +37,11 @@ def init_db():
         )
     ''')
 
-    # Tabla Plantillas Avanzadas
+    # Tabla Plantillas Avanzadas (Mapeamos por 'nombre_plantilla' ya que un proveedor puede usar un excel que sirva para varias marcas/pestañas)
     c.execute('''
         CREATE TABLE IF NOT EXISTS plantillas_proveedores (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            proveedor_marca TEXT UNIQUE,
+            nombre_plantilla TEXT UNIQUE,
             col_codigo TEXT,
             col_descripcion TEXT,
             col_costo TEXT,
@@ -94,7 +98,7 @@ def purge_dataframe(df):
     Purga Operativa Total (Pre-Mapeo).
     Descarta filas 100% vacías, encabezados operativos repetidos, y disclaimers.
     """
-    if df.empty:
+    if df is None or df.empty:
         return df
 
     # Limpieza Vertical Total
@@ -139,7 +143,6 @@ def purge_dataframe(df):
 def detect_unit_and_capacity(description, presentacion_adicional=None):
     """
     Detección Inteligente de Unidades (Regex).
-    Genera la unidad y capacidad basada en la descripción y opcionalmente en una columna extra de presentación.
     """
     desc_upper = str(description).upper()
     if pd.notna(presentacion_adicional):
@@ -148,7 +151,6 @@ def detect_unit_and_capacity(description, presentacion_adicional=None):
     tipo_venta = "UNIDAD"
     capacidad_medida = "Unidad"
 
-    # Regex para granel (tambores, baldes, 20L, 200L)
     match_granel = re.search(r'\b(TAMBOR|TBR|200\s*L|GRANEL|BALDE|20\s*L)\b', desc_upper)
 
     if match_granel:
@@ -165,7 +167,6 @@ def detect_unit_and_capacity(description, presentacion_adicional=None):
         else:
             capacidad_medida = "Granel"
     else:
-        # Regex para unidad
         match_unidad = re.search(r'\b(\d+\s*L|BOTELLA|UNIDAD|FILTRO)\b', desc_upper)
         if match_unidad:
             cap = match_unidad.group(1).replace(" ", "")
@@ -188,46 +189,41 @@ def generate_sku(marca, tipo_venta, item_id):
     tipo_code = "UN" if tipo_venta == "UNIDAD" else "GR"
     return f"{marca_prefix}-{tipo_code}-{str(item_id).zfill(5)}"
 
-def load_excel_sheet_names(uploaded_file):
+def extract_excel_sheets(uploaded_file):
+    """
+    Extrae un diccionario de {nombre_hoja: DataFrame_Purgado}
+    """
     try:
         xl = pd.ExcelFile(uploaded_file)
-        return xl.sheet_names
+        sheets_data = {}
+        for sheet_name in xl.sheet_names:
+            df = pd.read_excel(xl, sheet_name=sheet_name, header=None)
+            df_purged = purge_dataframe(df)
+            if not df_purged.empty:
+                sheets_data[sheet_name] = df_purged
+        return sheets_data
     except Exception as e:
-        return []
+        st.error(f"Error procesando el Excel: {e}")
+        return {}
 
-def parse_file(uploaded_file, sheet_name=None):
+def extract_pdf_data(uploaded_file):
     """
-    Motor de Ingesta Multi-Pestañas Robusto.
-    Extrae, purga y retorna el DataFrame.
+    Extrae, purga y retorna DataFrame de PDF.
     """
-    filename = uploaded_file.name.lower()
     try:
-        if filename.endswith('.csv'):
-            df = pd.read_csv(uploaded_file, header=None)
-        elif filename.endswith(('.xls', '.xlsx')):
-            if sheet_name:
-                df = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=None)
-            else:
-                df = pd.read_excel(uploaded_file, header=None)
-        elif filename.endswith('.pdf'):
-            data = []
-            with pdfplumber.open(uploaded_file) as pdf:
-                for page in pdf.pages:
-                    table = page.extract_table()
-                    if table:
-                        data.extend(table)
-            if data:
-                df = pd.DataFrame(data)
-            else:
-                st.error("No se encontraron tablas estructuradas en el PDF.")
-                return pd.DataFrame()
+        data = []
+        with pdfplumber.open(uploaded_file) as pdf:
+            for page in pdf.pages:
+                table = page.extract_table()
+                if table:
+                    data.extend(table)
+        if data:
+            df = pd.DataFrame(data)
+            return purge_dataframe(df)
         else:
-            st.error("Formato de archivo no soportado.")
             return pd.DataFrame()
-
-        return purge_dataframe(df)
     except Exception as e:
-        st.error(f"Error procesando el archivo: {e}")
+        st.error(f"Error procesando el PDF: {e}")
         return pd.DataFrame()
 
 def clean_currency(value):
@@ -244,7 +240,6 @@ def clean_currency(value):
 def clean_box_content(value):
     if pd.isna(value) or str(value).strip() == "":
          return "1"
-    # Basic numeric extraction if possible
     val_str = str(value).strip()
     match = re.search(r'(\d+)', val_str)
     if match:
@@ -252,6 +247,9 @@ def clean_box_content(value):
     return "1"
 
 def process_mass_update(df, marca, template):
+    """
+    Actualización y Unificación Masiva cruzando por Marca (Dinámica) y Tipo de Venta.
+    """
     col_codigo = template['col_codigo']
     col_desc = template['col_descripcion']
     col_costo = template['col_costo']
@@ -263,7 +261,7 @@ def process_mass_update(df, marca, template):
     conn = get_connection()
     c = conn.cursor()
 
-    # Extraer de BD filtrando por Marca
+    # Extraer de BD filtrando estrictamente por Marca (Automática por hoja de Excel o Manual en PDF)
     c.execute("SELECT id, codigo_proveedor, descripcion, tipo_venta FROM productos_maestro WHERE marca = ?", (marca,))
     db_items = c.fetchall()
 
@@ -292,7 +290,7 @@ def process_mass_update(df, marca, template):
                     matched_id = item[0]
                     break
 
-        # 2. Match Fuzzy Inteligente (Filtro estricto por Marca y Tipo de Venta)
+        # 2. Match Fuzzy Inteligente
         if not matched_id:
             best_score = 0
             best_id = None
@@ -336,17 +334,13 @@ def to_excel(df):
     return output.getvalue()
 
 
-@st.cache_resource
-def run_init_db():
-    init_db()
-
 def main():
     st.set_page_config(page_title="Barter Plus - Ingesta Avanzada", layout="wide")
-    st.title("Sistema Avanzado de Ingesta y Mapeo de Proveedores (Barter Plus)")
+    st.title("Sistema Avanzado de Ingesta y Mapeo Masivo (Barter Plus)")
 
     run_init_db()
 
-    tab1, tab2, tab3 = st.tabs(["1. Gestión de Plantillas Avanzadas", "2. Actualización Masiva de Lotes", "3. Inventario Maestro Unificado"])
+    tab1, tab2, tab3 = st.tabs(["1. Gestión de Plantillas Avanzadas", "2. Actualización Masiva", "3. Inventario Maestro Unificado"])
 
     none_option = "[Ninguno (No Existe)]"
 
@@ -355,25 +349,30 @@ def main():
         st.header("Entrenamiento de Plantilla de Mapeo Avanzado")
         st.info("Define cómo extraer columnas de un proveedor. El Módulo Operativo purgará basura automáticamente.")
 
-        train_file = st.file_uploader("Sube lista de ejemplo (Excel Multi-Pestañas / PDF)", type=["xlsx", "xls", "pdf"], key="train_file")
-        marca_train = st.text_input("Nombre de la Marca/Proveedor (Ej: YPF)", key="train_marca").strip().upper()
+        train_file = st.file_uploader("Sube lista de ejemplo (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="train_file")
+        nombre_plantilla = st.text_input("Nombre de la Plantilla (Ej: Proveedor Distribuidor Sur)", key="train_plantilla").strip().upper()
 
-        if train_file and marca_train:
-            sheet_selected = None
-            if train_file.name.lower().endswith(('.xls', '.xlsx')):
-                sheets = load_excel_sheet_names(train_file)
-                if len(sheets) > 1:
-                    sheet_selected = st.selectbox("Archivo Multi-Pestañas detectado. Elige qué hoja mapear:", sheets, key="train_sheet")
-                elif len(sheets) == 1:
-                    sheet_selected = sheets[0]
-
+        if train_file and nombre_plantilla:
             if st.button("Analizar y Purgar", key="btn_analizar"):
-                df_train = parse_file(train_file, sheet_name=sheet_selected)
-                if not df_train.empty:
+                filename = train_file.name.lower()
+
+                df_train = None
+
+                # Para entrenar, si es excel, usamos solo la primera hoja purgada para mostrarle al usuario las columnas.
+                if filename.endswith(('.xls', '.xlsx')):
+                    sheets_data = extract_excel_sheets(train_file)
+                    if sheets_data:
+                        first_sheet = list(sheets_data.keys())[0]
+                        df_train = sheets_data[first_sheet]
+                        st.info(f"Para el entrenamiento se está previsualizando la hoja: '{first_sheet}'")
+                elif filename.endswith('.pdf'):
+                    df_train = extract_pdf_data(train_file)
+
+                if df_train is not None and not df_train.empty:
                     st.session_state['df_train'] = df_train
                     st.success("✅ Archivo leído y purgado exitosamente.")
                 else:
-                    st.error("No se extrajeron datos válidos. Revisa el archivo.")
+                    st.error("No se extrajeron datos válidos tras la purga. Revisa el archivo.")
 
             if 'df_train' in st.session_state:
                 df_train = st.session_state['df_train']
@@ -397,15 +396,15 @@ def main():
                     c = conn.cursor()
                     try:
                         c.execute('''INSERT INTO plantillas_proveedores
-                                     (proveedor_marca, col_codigo, col_descripcion, col_costo, col_contenido_caja, col_presentacion)
+                                     (nombre_plantilla, col_codigo, col_descripcion, col_costo, col_contenido_caja, col_presentacion)
                                      VALUES (?, ?, ?, ?, ?, ?)
-                                     ON CONFLICT(proveedor_marca) DO UPDATE SET
+                                     ON CONFLICT(nombre_plantilla) DO UPDATE SET
                                      col_codigo=excluded.col_codigo, col_descripcion=excluded.col_descripcion,
                                      col_costo=excluded.col_costo, col_contenido_caja=excluded.col_contenido_caja,
                                      col_presentacion=excluded.col_presentacion''',
-                                  (marca_train, sel_cod, sel_desc, sel_costo, sel_caja, sel_pres))
+                                  (nombre_plantilla, sel_cod, sel_desc, sel_costo, sel_caja, sel_pres))
                         conn.commit()
-                        st.success(f"Plantilla avanzada para {marca_train} guardada/actualizada con éxito.")
+                        st.success(f"Plantilla '{nombre_plantilla}' guardada/actualizada con éxito.")
                     except Exception as e:
                         st.error(f"Error guardando plantilla: {e}")
                     finally:
@@ -413,34 +412,36 @@ def main():
 
     # ---------------- TAB 2: ACTUALIZACIÓN MASIVA DE LOTES ----------------
     with tab2:
-        st.header("Actualización Masiva con Ingesta Robusta")
-        st.info("Cruza una lista nueva usando la plantilla guardada. Zero adivinanza: Solo procesa columnas mapeadas.")
+        st.header("Actualización Masiva y Auto-Asignación de Marca")
+        st.info("Sube un archivo. Si es Excel, procesará TODAS las pestañas y asignará automáticamente el nombre de la pestaña como MARCA. Si es PDF, se te pedirá ingresar la Marca.")
 
         conn = get_connection()
-        df_templates = pd.read_sql_query("SELECT proveedor_marca FROM plantillas_proveedores", conn)
+        df_templates = pd.read_sql_query("SELECT nombre_plantilla FROM plantillas_proveedores", conn)
         conn.close()
 
         if df_templates.empty:
             st.warning("Aún no hay plantillas. Ve a la Pestaña 1.")
         else:
-            marcas_guardadas = df_templates['proveedor_marca'].tolist()
-            marca_update = st.selectbox("Selecciona la Marca/Proveedor para actualizar", ["-- Seleccionar --"] + marcas_guardadas)
+            plantillas_guardadas = df_templates['nombre_plantilla'].tolist()
+            plantilla_update = st.selectbox("Selecciona la Plantilla a utilizar", ["-- Seleccionar --"] + plantillas_guardadas)
 
-            update_file = st.file_uploader("Sube lista nueva (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="update_file")
+            update_file = st.file_uploader("Sube lista masiva (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="update_file")
 
-            if update_file and marca_update != "-- Seleccionar --":
-                sheet_selected_upd = None
-                if update_file.name.lower().endswith(('.xls', '.xlsx')):
-                    sheets_upd = load_excel_sheet_names(update_file)
-                    if len(sheets_upd) > 1:
-                        sheet_selected_upd = st.selectbox("Selecciona qué pestaña procesar:", sheets_upd, key="update_sheet")
-                    elif len(sheets_upd) == 1:
-                         sheet_selected_upd = sheets_upd[0]
+            if update_file and plantilla_update != "-- Seleccionar --":
+                filename = update_file.name.lower()
 
-                if st.button("Procesar y Unificar Lista"):
+                marca_manual_pdf = None
+                if filename.endswith('.pdf'):
+                     marca_manual_pdf = st.text_input("Ingresa la MARCA (Requerido para PDFs):", key="marca_pdf").strip().upper()
+
+                if st.button("Procesar Lista Masivamente"):
+                    if filename.endswith('.pdf') and not marca_manual_pdf:
+                        st.error("Debes ingresar la Marca para procesar un PDF.")
+                        st.stop()
+
                     conn = get_connection()
                     c = conn.cursor()
-                    c.execute("SELECT col_codigo, col_descripcion, col_costo, col_contenido_caja, col_presentacion FROM plantillas_proveedores WHERE proveedor_marca = ?", (marca_update,))
+                    c.execute("SELECT col_codigo, col_descripcion, col_costo, col_contenido_caja, col_presentacion FROM plantillas_proveedores WHERE nombre_plantilla = ?", (plantilla_update,))
                     template_row = c.fetchone()
                     conn.close()
 
@@ -453,15 +454,34 @@ def main():
                             'col_presentacion': template_row[4]
                         }
 
-                        with st.spinner("Ejecutando Purga Operativa Total..."):
-                            df_update = parse_file(update_file, sheet_name=sheet_selected_upd)
+                        total_ins = 0
+                        total_upd = 0
 
-                        if not df_update.empty:
-                            with st.spinner("Unificando datos, detectando unidades y generando SKUs..."):
-                                ins, upd = process_mass_update(df_update, marca_update, template)
-                                st.success(f"✅ ¡Actualización masiva completada! Marca: {marca_update}. Insertados: {ins} | Actualizados: {upd}")
-                        else:
-                            st.error("Archivo vacío tras la purga. Revisa el documento fuente.")
+                        if filename.endswith(('.xls', '.xlsx')):
+                            with st.spinner("Procesando Excel Multi-Pestañas en lote..."):
+                                sheets_data = extract_excel_sheets(update_file)
+
+                                if not sheets_data:
+                                    st.error("No se extrajeron datos válidos (archivo vacío tras purga).")
+                                else:
+                                    for sheet_name, df_update in sheets_data.items():
+                                        # AUTO-ASIGNACIÓN DE MARCA POR NOMBRE DE PESTAÑA
+                                        marca_lote = sheet_name.strip().upper()
+                                        ins, upd = process_mass_update(df_update, marca_lote, template)
+                                        total_ins += ins
+                                        total_upd += upd
+                                        st.write(f"✔️ Hoja '{sheet_name}' (Marca: {marca_lote}) procesada: {ins} insertados, {upd} actualizados.")
+
+                                    st.success(f"✅ ¡Procesamiento Masivo Multi-Pestañas Completado! Total Insertados: {total_ins} | Total Actualizados: {total_upd}")
+
+                        elif filename.endswith('.pdf'):
+                            with st.spinner("Procesando PDF..."):
+                                df_update = extract_pdf_data(update_file)
+                                if not df_update.empty:
+                                    ins, upd = process_mass_update(df_update, marca_manual_pdf, template)
+                                    st.success(f"✅ ¡PDF procesado! Marca: {marca_manual_pdf}. Insertados: {ins} | Actualizados: {upd}")
+                                else:
+                                    st.error("El PDF está vacío tras la purga operativa.")
 
     # ---------------- TAB 3: INVENTARIO MAESTRO UNIFICADO ----------------
     with tab3:
