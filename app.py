@@ -7,7 +7,7 @@ from datetime import datetime
 from thefuzz import fuzz
 import io
 
-DB_NAME = "master_data.db"
+DB_NAME = "inventario_barter.db"
 NONE_OPTION = "[Ninguno (No Existe)]"
 
 @st.cache_resource
@@ -16,8 +16,7 @@ def run_init_db():
 
 def init_db():
     """
-    Base de Datos Resiliente (init_db)
-    Inicializa el esquema y corrige dinámicamente cualquier columna faltante.
+    Base de Datos Resiliente y Auto-Corregible (init_db).
     """
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -38,7 +37,7 @@ def init_db():
         )
     ''')
 
-    # Tabla de Plantillas de Mapeo
+    # Tabla Plantillas
     c.execute('''
         CREATE TABLE IF NOT EXISTS plantillas_proveedores (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,10 +55,10 @@ def init_db():
 
     required_columns = {
         'sku_interno': 'TEXT UNIQUE',
-        'tipo_venta': 'TEXT',
-        'capacidad_medida': 'TEXT',
         'contenido_caja': 'TEXT',
-        'costo_actual': 'REAL'
+        'costo_actual': 'REAL',
+        'tipo_venta': 'TEXT',
+        'capacidad_medida': 'TEXT'
     }
 
     for col, dtype in required_columns.items():
@@ -79,58 +78,72 @@ def init_db():
 def get_connection():
     return sqlite3.connect(DB_NAME)
 
-def purge_dataframe_advanced(df):
+def extract_blocks_and_purge(df):
     """
-    Módulo de Purga Resiliente
-    Descarta filas vacías, disclaimers y cabeceras operativas, devolviendo también
-    la cantidad de filas omitidas para el reporte visual.
+    De-Stacker y Purger Modular.
+    1. Blinda columnas a Col_0, Col_1.
+    2. Divide la hoja en bloques si detecta cambios de estructura.
+    3. Purga basura/metadata.
+    Retorna lista de DataFrames purgados (bloques) y número de filas omitidas.
     """
     if df is None or df.empty:
-        return df, 0
+        return [], 0
 
     original_count = len(df)
 
-    # 1. Blindar el DataFrame
+    # Blindar DF
     df.columns = [f"Col_{i}" for i in range(len(df.columns))]
 
-    # 2. Limpieza de Vacíos
+    # Limpieza vacíos absolutos
     df = df.replace(r'^\s*$', pd.NA, regex=True)
     df = df.dropna(how='all')
 
     if df.empty:
-        return df, original_count
+        return [], original_count
 
-    # Regex para basura y disclaimers
-    disclaimer_pattern = re.compile(r'(LISTA SUJETA A CAMBIOS|NO INCLUYE IVA|VÁLIDA HASTA|VALIDA HASTA|CONFIRMAR PRECIOS|PAGINA \d+|SOLO CONTADO|LOS PRECIOS|RAMONSABIO)', re.IGNORECASE)
-    header_pattern = re.compile(r'\b(CÓDIGO|CODIGO|DESCRIPCIÓN|DESCRIPCION|NETO|PRECIO|PRODUCTO|FILTROS|ACEITES|MARCA)\b', re.IGNORECASE)
+    # Patrones para purgar
+    basura_regex = re.compile(r'(LISTA SUJETA A CAMBIOS|NO INCLUYE IVA|VÁLIDA HASTA|VALIDA HASTA|CONFIRMAR PRECIOS|PAGINA \d+|SOLO CONTADO|LOS PRECIOS|RAMONSABIO|METADATA)', re.IGNORECASE)
+    # Patrón para detectar cabeceras de nuevas tablas
+    header_pattern = re.compile(r'\b(CÓDIGO|CODIGO|DESCRIPCIÓN|DESCRIPCION|NETO|PRECIO|PRODUCTO|ARTICULO|DETALLE)\b', re.IGNORECASE)
 
-    rows_to_keep = []
+    blocks = []
+    current_block_rows = []
+    omitted_rows = 0
 
     for index, row in df.iterrows():
         row_str = " ".join([str(val) for val in row if pd.notna(val)])
 
-        # Filtro de disclaimers
-        if disclaimer_pattern.search(row_str):
+        # Filtro de disclaimers / metadata
+        if basura_regex.search(row_str):
+            omitted_rows += 1
             continue
 
-        # Filtro de cabeceras operativas (Si más del 50% de celdas válidas son cabeceras)
-        header_matches = 0
-        valid_cells = 0
-        for val in row:
-            if pd.notna(val) and str(val).strip():
-                valid_cells += 1
-                if header_pattern.search(str(val)):
-                    header_matches += 1
+        # Detectar si esta fila es una nueva cabecera (cambio de estructura)
+        # Si tiene más de 1 coincidencia con términos comunes de encabezado
+        header_matches = sum(1 for val in row if pd.notna(val) and header_pattern.search(str(val).lower()))
 
+        if header_matches >= 2:
+            omitted_rows += 1 # Omitimos la cabecera misma ya que usamos índices de columna abstractos
+            if current_block_rows:
+                blocks.append(pd.DataFrame(current_block_rows, columns=df.columns))
+                current_block_rows = []
+            continue
+
+        # Filtro si la fila está compuesta en su mayoría por encabezados (para casos donde solo hay 1)
+        valid_cells = sum(1 for val in row if pd.notna(val) and str(val).strip())
         if valid_cells > 0 and (header_matches / valid_cells) > 0.5:
+            omitted_rows += 1
             continue
 
-        rows_to_keep.append(index)
+        current_block_rows.append(row)
 
-    purged_df = df.loc[rows_to_keep].reset_index(drop=True)
-    omitted_count = original_count - len(purged_df)
+    if current_block_rows:
+        blocks.append(pd.DataFrame(current_block_rows, columns=df.columns))
 
-    return purged_df, omitted_count
+    omitted_rows += (original_count - len(df)) # Sumar las filas 100% vacías borradas al principio
+
+    final_blocks = [b.reset_index(drop=True) for b in blocks if not b.empty]
+    return final_blocks, omitted_rows
 
 def detect_unit_and_capacity(description):
     """
@@ -197,11 +210,11 @@ def clean_box_content(value):
          return match.group(1)
     return "1"
 
-def process_mass_update(df, marca, template):
+def process_mass_update(df_blocks, marca, template):
     """
-    Procesa un dataframe aplicando estrictamente la plantilla.
+    Procesa un conjunto de DataFrames (bloques) aplicando estrictamente la plantilla.
     Cruza por Marca y Tipo de Venta usando exact match -> fuzzy match.
-    Retorna (insertados, actualizados, ignorados_vacios, reporte_lista).
+    Retorna (insertados, actualizados, reporte_lista).
     """
     col_codigo = template['col_codigo']
     col_desc = template['col_descripcion']
@@ -217,73 +230,73 @@ def process_mass_update(df, marca, template):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     updates = 0
     inserts = 0
-    ignorados = 0
 
     report_list = []
 
-    for _, row in df.iterrows():
-        cod_prov = str(row[col_codigo]).strip() if col_codigo != NONE_OPTION and col_codigo in df.columns and pd.notna(row[col_codigo]) else ""
-        desc = str(row[col_desc]).strip() if col_desc != NONE_OPTION and col_desc in df.columns and pd.notna(row[col_desc]) else ""
-        costo = clean_currency(row[col_costo]) if col_costo != NONE_OPTION and col_costo in df.columns else 0.0
-        caja = clean_box_content(row[col_caja]) if col_caja != NONE_OPTION and col_caja in df.columns else "1"
+    for df in df_blocks:
+        for _, row in df.iterrows():
+            cod_prov = str(row[col_codigo]).strip() if col_codigo != NONE_OPTION and col_codigo in df.columns and pd.notna(row[col_codigo]) else ""
+            desc = str(row[col_desc]).strip() if col_desc != NONE_OPTION and col_desc in df.columns and pd.notna(row[col_desc]) else ""
+            costo = clean_currency(row[col_costo]) if col_costo != NONE_OPTION and col_costo in df.columns else 0.0
+            caja = clean_box_content(row[col_caja]) if col_caja != NONE_OPTION and col_caja in df.columns else "1"
 
-        if not desc or desc.lower() in ['nan', 'none', '']:
-            ignorados += 1
-            continue
+            if not desc or desc.lower() in ['nan', 'none', '']:
+                continue # No hay ignorados por metadata acá, solo celdas realmente vacías en la columna elegida.
 
-        tipo_venta, capacidad = detect_unit_and_capacity(desc)
-        matched_id = None
+            tipo_venta, capacidad = detect_unit_and_capacity(desc)
+            matched_id = None
 
-        # 1. Match Exacto por Código Proveedor y Tipo de Venta
-        if cod_prov and cod_prov.lower() not in ['nan', 'none']:
-            for item in db_items:
-                if item[1] == cod_prov and item[3] == tipo_venta:
-                    matched_id = item[0]
-                    break
+            # 1. Match Exacto
+            if cod_prov and cod_prov.lower() not in ['nan', 'none']:
+                for item in db_items:
+                    if item[1] == cod_prov and item[3] == tipo_venta:
+                        matched_id = item[0]
+                        break
 
-        # 2. Match Fuzzy Inteligente
-        if not matched_id:
-            best_score = 0
-            best_id = None
-            for item in db_items:
-                if item[3] == tipo_venta:
-                    score = fuzz.token_sort_ratio(desc.lower(), item[2].lower())
-                    if score > best_score:
-                        best_score = score
-                        best_id = item[0]
+            # 2. Match Fuzzy
+            if not matched_id:
+                best_score = 0
+                best_id = None
+                for item in db_items:
+                    if item[3] == tipo_venta:
+                        score = fuzz.token_sort_ratio(desc.lower(), item[2].lower())
+                        if score > best_score:
+                            best_score = score
+                            best_id = item[0]
 
-            if best_score >= 85:
-                matched_id = best_id
+                if best_score >= 85:
+                    matched_id = best_id
 
-        if matched_id:
-            c.execute('''UPDATE productos_maestro
-                         SET costo_actual = ?, fecha_actualizacion = ?, contenido_caja = ?, capacidad_medida = ?
-                         WHERE id = ?''', (costo, now, caja, capacidad, matched_id))
+            if matched_id:
+                c.execute('''UPDATE productos_maestro
+                             SET costo_actual = ?, fecha_actualizacion = ?, contenido_caja = ?, capacidad_medida = ?
+                             WHERE id = ?''', (costo, now, caja, capacidad, matched_id))
 
-            c.execute("SELECT sku_interno FROM productos_maestro WHERE id = ?", (matched_id,))
-            sku_val = c.fetchone()[0]
+                c.execute("SELECT sku_interno FROM productos_maestro WHERE id = ?", (matched_id,))
+                sku_val = c.fetchone()[0]
 
-            report_list.append({'Acción': 'Actualizado', 'SKU': sku_val, 'Descripción': desc, 'Costo': costo})
-            updates += 1
-        else:
-            c.execute('''INSERT INTO productos_maestro
-                         (codigo_proveedor, descripcion, marca, tipo_venta, capacidad_medida, contenido_caja, costo_actual, fecha_actualizacion)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                         (cod_prov, desc, marca, tipo_venta, capacidad, caja, costo, now))
-            new_id = c.lastrowid
-            sku = generate_sku(marca, tipo_venta, new_id)
-            c.execute("UPDATE productos_maestro SET sku_interno = ? WHERE id = ?", (sku, new_id))
+                report_list.append({'Acción': 'Actualizado', 'SKU': sku_val, 'Descripción': desc, 'Costo': costo})
+                updates += 1
+            else:
+                c.execute('''INSERT INTO productos_maestro
+                             (codigo_proveedor, descripcion, marca, tipo_venta, capacidad_medida, contenido_caja, costo_actual, fecha_actualizacion)
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                             (cod_prov, desc, marca, tipo_venta, capacidad, caja, costo, now))
+                new_id = c.lastrowid
+                sku = generate_sku(marca, tipo_venta, new_id)
+                c.execute("UPDATE productos_maestro SET sku_interno = ? WHERE id = ?", (sku, new_id))
 
-            db_items.append((new_id, cod_prov, desc, tipo_venta))
-            report_list.append({'Acción': 'NUEVO', 'SKU': sku, 'Descripción': desc, 'Costo': costo})
-            inserts += 1
+                db_items.append((new_id, cod_prov, desc, tipo_venta))
+                report_list.append({'Acción': 'NUEVO', 'SKU': sku, 'Descripción': desc, 'Costo': costo})
+                inserts += 1
 
     conn.commit()
     conn.close()
 
-    return inserts, updates, ignorados, report_list
+    return inserts, updates, report_list
 
 def parse_raw_file(uploaded_file):
+    """Módulo de entrenamiento: solo carga la primera hoja sin de-stackear para elegir índices."""
     filename = uploaded_file.name.lower()
     try:
         if filename.endswith(('.xls', '.xlsx')):
@@ -307,23 +320,24 @@ def parse_raw_file(uploaded_file):
         st.error(f"Error procesando el archivo: {e}")
         return pd.DataFrame()
 
-def process_file_advanced(uploaded_file):
+def ingest_file_pipeline(uploaded_file):
     """
-    Retorna una lista de DataFrames purgados (uno por pestaña de Excel o la única tabla del PDF)
-    junto con la cantidad total de filas omitidas.
+    Pipiline Crítico: Multi-Pestañas + De-Stacker + Purger
+    Retorna lista de todos los bloques purgados y conteo total omitido.
     """
     filename = uploaded_file.name.lower()
-    blocks = []
-    total_omitted = 0
+    all_blocks = []
+    total_omitted_file = 0
+
     try:
         if filename.endswith(('.xls', '.xlsx')):
             xl = pd.ExcelFile(uploaded_file)
             for sheet in xl.sheet_names:
-                df = pd.read_excel(xl, sheet_name=sheet, header=None)
-                df_purged, omitted = purge_dataframe_advanced(df)
-                total_omitted += omitted
-                if not df_purged.empty:
-                    blocks.append(df_purged)
+                df_sheet = pd.read_excel(xl, sheet_name=sheet, header=None)
+                blocks, omitted = extract_blocks_and_purge(df_sheet)
+                all_blocks.extend(blocks)
+                total_omitted_file += omitted
+
         elif filename.endswith('.pdf'):
             data = []
             with pdfplumber.open(uploaded_file) as pdf:
@@ -332,14 +346,15 @@ def process_file_advanced(uploaded_file):
                     if table:
                         data.extend(table)
             if data:
-                df = pd.DataFrame(data)
-                df_purged, omitted = purge_dataframe_advanced(df)
-                total_omitted += omitted
-                if not df_purged.empty:
-                    blocks.append(df_purged)
+                df_sheet = pd.DataFrame(data)
+                blocks, omitted = extract_blocks_and_purge(df_sheet)
+                all_blocks.extend(blocks)
+                total_omitted_file += omitted
+
     except Exception as e:
-        st.error(f"Error en extracción: {e}")
-    return blocks, total_omitted
+        st.error(f"Error en pipeline de extracción: {e}")
+
+    return all_blocks, total_omitted_file
 
 def to_excel(df):
     output = io.BytesIO()
@@ -349,7 +364,7 @@ def to_excel(df):
 
 
 def main():
-    st.set_page_config(page_title="Gestor de Ingesta Guiado (Barter Plus)", layout="wide")
+    st.set_page_config(page_title="Gestor Resiliente Barter Plus", layout="wide")
 
     run_init_db()
 
@@ -359,7 +374,7 @@ def main():
         st.info("Sube un ejemplo para enseñar al sistema dónde están los datos de este proveedor.")
 
         train_file = st.file_uploader("Subir Archivo de Ejemplo", type=["xlsx", "xls", "pdf"], key="train_file")
-        train_marca = st.text_input("Nombre del Proveedor / Marca", key="train_marca").strip().upper()
+        train_marca = st.text_input("Nombre de Plantilla / Proveedor", key="train_marca").strip().upper()
 
         if train_file and train_marca:
             if st.button("Previsualizar Estructura", key="btn_train"):
@@ -379,7 +394,7 @@ def main():
             map_cod = st.selectbox("¿Dónde está el CÓDIGO?", cols, key="map_cod")
             map_desc = st.selectbox("¿Dónde está la DESCRIPCIÓN?", [c for c in cols if c != NONE_OPTION], key="map_desc")
             map_neto = st.selectbox("¿Dónde está el NETO (Precio)?", cols, key="map_neto")
-            map_caja = st.selectbox("¿Dónde está Unidades x Caja? (Opcional)", cols, key="map_caja")
+            map_caja = st.selectbox("¿Dónde está CANT POR CAJA?", cols, key="map_caja")
 
             if st.button("Guardar Plantilla", key="btn_save_tpl"):
                 conn = get_connection()
@@ -431,36 +446,28 @@ def main():
                     'col_contenido_caja': tpl_row[3]
                 }
 
-                with st.spinner("Purgando metadata, disclaimers y extrayendo bloques comerciales..."):
-                    blocks, total_omitted = process_file_advanced(update_file)
+                with st.spinner("Purgando metadata, y extrayendo bloques comerciales heterogéneos..."):
+                    blocks, total_omitted = ingest_file_pipeline(update_file)
 
                 if blocks:
-                    total_ins, total_upd, total_ign = 0, 0, 0
-                    global_report = []
-
-                    with st.spinner(f"Bloques detectados: {len(blocks)}. Aplicando plantilla y Matching Fuzzy..."):
-                        for block in blocks:
-                            ins, upd, ign, rep = process_mass_update(block, marca_update, template)
-                            total_ins += ins
-                            total_upd += upd
-                            total_ign += ign
-                            global_report.extend(rep)
+                    with st.spinner(f"De-Stacker activo: {len(blocks)} bloques detectados. Aplicando plantilla y Matching Fuzzy..."):
+                        ins, upd, rep = process_mass_update(blocks, marca_update, template)
 
                         st.session_state['process_report'] = {
-                            'omitted': total_omitted + total_ign,
-                            'inserted': total_ins,
-                            'updated': total_upd,
-                            'details': global_report
+                            'omitted': total_omitted,
+                            'inserted': ins,
+                            'updated': upd,
+                            'details': rep
                         }
                         st.success(f"✅ ¡Proceso completado para {marca_update}!")
                 else:
                     st.error("El Módulo de Purga descartó el archivo entero por no detectar tablas comerciales válidas.")
 
     st.write("---")
-    st.subheader("2. Reporte de Proceso")
+    st.subheader("2. Reporte de Proceso Visual")
     if 'process_report' in st.session_state:
         rep = st.session_state['process_report']
-        st.info(f"📊 Resumen: {rep['inserted']} Productos Nuevos | {rep['updated']} Actualizados | {rep['omitted']} Filas Purgadas/Omitidas (Basura o Incompletas)")
+        st.info(f"📊 Resumen de la Ejecución:\n- {rep['inserted']} Productos Nuevos\n- {rep['updated']} Productos Actualizados\n- {rep['omitted']} Filas Omitidas (Metadata, vacías o cabeceras repetidas)")
         if rep['details']:
             df_rep = pd.DataFrame(rep['details'])
             st.dataframe(df_rep, use_container_width=True)
