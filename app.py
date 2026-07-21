@@ -8,6 +8,7 @@ from thefuzz import fuzz
 import io
 
 DB_NAME = "master_data.db"
+NONE_OPTION = "[Ninguno (No Existe)]"
 
 @st.cache_resource
 def run_init_db():
@@ -15,7 +16,7 @@ def run_init_db():
 
 def init_db():
     """
-    Base de Datos Resiliente y Auto-Corregible.
+    Base de Datos Resiliente (init_db)
     Inicializa el esquema y corrige dinámicamente cualquier columna faltante.
     """
     conn = sqlite3.connect(DB_NAME)
@@ -30,36 +31,32 @@ def init_db():
             descripcion TEXT,
             marca TEXT,
             tipo_venta TEXT,
-            capacidad_medida TEXT,
             contenido_caja TEXT,
             costo_actual REAL,
             fecha_actualizacion TEXT
         )
     ''')
 
-    # Librería de Plantillas (Heterogénea)
+    # Tabla de Plantillas de Mapeo
     c.execute('''
         CREATE TABLE IF NOT EXISTS plantillas_proveedores (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nombre_plantilla TEXT UNIQUE,
-            num_columnas INTEGER,
+            proveedor_marca TEXT UNIQUE,
             col_codigo TEXT,
             col_descripcion TEXT,
             col_costo TEXT,
-            col_contenido_caja TEXT,
-            col_presentacion TEXT
+            col_contenido_caja TEXT
         )
     ''')
 
-    # Módulo de Auto-Corrección: Inspección física del esquema de productos_maestro
+    # Módulo de Auto-Corrección: Inspección física de productos_maestro
     c.execute("PRAGMA table_info(productos_maestro)")
     columns = [info[1] for info in c.fetchall()]
 
     required_columns = {
         'sku_interno': 'TEXT UNIQUE',
-        'tipo_venta': 'TEXT',
-        'capacidad_medida': 'TEXT',
-        'contenido_caja': 'TEXT'
+        'contenido_caja': 'TEXT',
+        'costo_actual': 'REAL'
     }
 
     for col, dtype in required_columns.items():
@@ -73,156 +70,87 @@ def init_db():
                 else:
                     raise e
 
-    # Auto-Corrección para plantillas_proveedores
-    c.execute("PRAGMA table_info(plantillas_proveedores)")
-    template_cols = [info[1] for info in c.fetchall()]
-
-    req_template_cols = {
-        'num_columnas': 'INTEGER',
-        'col_contenido_caja': 'TEXT',
-        'col_presentacion': 'TEXT'
-    }
-
-    for col, dtype in req_template_cols.items():
-        if col not in template_cols:
-            c.execute(f"ALTER TABLE plantillas_proveedores ADD COLUMN {col} {dtype}")
-            st.toast(f"🛠️ Autocorrección de BD: Columna '{col}' agregada a plantillas_proveedores.", icon="🔧")
-
     conn.commit()
     conn.close()
 
 def get_connection():
     return sqlite3.connect(DB_NAME)
 
-def purge_dataframe(df):
+def purge_dataframe_advanced(df):
     """
-    Purga Operativa Total (Pre-Mapeo).
-    Descarta filas vacías, encabezados operativos repetidos, y disclaimers.
-    Blinda el DataFrame forzando nombres únicos (Col_0, Col_1, etc.).
+    Modulo "Parser Avanzado" (Purga + Bloques Comerciales)
+    Primero blinda el DataFrame forzando nombres únicos.
+    Usa Regex para descartar avisos, IVA, y separar en bloques si hay cambios bruscos.
+    Retorna una lista de DataFrames purgados (los "bloques comerciales").
     """
     if df is None or df.empty:
-        return df
+        return []
 
-    # Limpieza Vertical Total
+    # 1. Blindar el DataFrame
+    df.columns = [f"Col_{i}" for i in range(len(df.columns))]
+
+    # 2. Limpieza de Vacíos
     df = df.replace(r'^\s*$', pd.NA, regex=True)
     df = df.dropna(how='all')
-
     if df.empty:
-        return df
+        return []
 
-    rows_to_keep = []
+    # Regex para basura y disclaimers
+    disclaimer_pattern = re.compile(r'(LISTA SUJETA A CAMBIOS|NO INCLUYE IVA|VÁLIDA HASTA|VALIDA HASTA|CONFIRMAR PRECIOS|PAGINA \d+|SOLO CONTADO|RAMONSABIO|RAMON SABIO)', re.IGNORECASE)
 
-    header_pattern = re.compile(r'\b(CÓDIGO|CODIGO|DESCRIPCIÓN|DESCRIPCION|NETO|PRECIO LISTA|PRECIO|PRODUCTO|FILTROS|ACEITES|ARTICULO|ARTÍCULO|MARCA)\b', re.IGNORECASE)
-    disclaimer_pattern = re.compile(r'(LISTA SUJETA A CAMBIOS|NO INCLUYE IVA|VÁLIDA HASTA|VALIDA HASTA|CONFIRMAR PRECIOS|PAGINA \d+|PÁGINA \d+|SOLO CONTADO|LOS PRECIOS)', re.IGNORECASE)
+    # Regex para detectar nuevas cabeceras (cambio brusco de estructura / nuevo bloque)
+    header_pattern = re.compile(r'\b(CÓDIGO|CODIGO|DESCRIPCIÓN|DESCRIPCION|NETO|PRECIO|PRODUCTO)\b', re.IGNORECASE)
+
+    blocks = []
+    current_block_rows = []
 
     for index, row in df.iterrows():
         row_str = " ".join([str(val) for val in row if pd.notna(val)])
 
+        # Filtro de disclaimers
         if disclaimer_pattern.search(row_str):
             continue
 
-        header_matches = 0
-        valid_cells = 0
-        for val in row:
-            if pd.notna(val) and str(val).strip():
-                valid_cells += 1
-                if header_pattern.search(str(val)):
-                    header_matches += 1
+        # Detectar si esta fila es una nueva cabecera (más de 1 celda coincide)
+        header_matches = sum(1 for val in row if pd.notna(val) and header_pattern.search(str(val)))
 
-        if valid_cells > 0 and (header_matches / valid_cells) > 0.5:
-            continue
+        # Si encontramos una cabecera nueva, cortamos el bloque anterior
+        if header_matches >= 2:
+            if current_block_rows:
+                blocks.append(pd.DataFrame(current_block_rows, columns=df.columns))
+                current_block_rows = []
+            continue # Descartamos la fila de cabecera operativa
 
-        rows_to_keep.append(index)
+        current_block_rows.append(row)
 
-    purged_df = df.loc[rows_to_keep].reset_index(drop=True)
-    purged_df.columns = [f"Col_{i}" for i in range(len(purged_df.columns))]
-    return purged_df
+    # Añadir el último bloque
+    if current_block_rows:
+        blocks.append(pd.DataFrame(current_block_rows, columns=df.columns))
 
-def detect_unit_and_capacity(description, presentacion_adicional=None):
+    return [block.reset_index(drop=True) for block in blocks if not block.empty]
+
+def detect_unit_and_capacity(description):
     """
-    Detección Inteligente de Unidades (Regex).
+    Clasifica automáticamente el Tipo_Venta (UNIDAD o GRANEL).
     """
     desc_upper = str(description).upper()
-    if pd.notna(presentacion_adicional):
-        desc_upper += " " + str(presentacion_adicional).upper()
-
     tipo_venta = "UNIDAD"
-    capacidad_medida = "Unidad"
 
     match_granel = re.search(r'\b(TAMBOR|TBR|200\s*L|GRANEL|BALDE|20\s*L)\b', desc_upper)
-
     if match_granel:
         tipo_venta = "GRANEL"
-        cap = match_granel.group(1).replace(" ", "")
-        if "200L" in cap:
-            capacidad_medida = "200L"
-        elif "20L" in cap:
-            capacidad_medida = "20L"
-        elif cap in ["TAMBOR", "TBR"]:
-            capacidad_medida = "Tambor"
-        elif cap == "BALDE":
-            capacidad_medida = "Balde"
-        else:
-            capacidad_medida = "Granel"
-    else:
-        match_unidad = re.search(r'\b(\d+\s*L|BOTELLA|UNIDAD|FILTRO)\b', desc_upper)
-        if match_unidad:
-            cap = match_unidad.group(1).replace(" ", "")
-            if "L" in cap and cap[0].isdigit():
-                capacidad_medida = cap
-            elif cap == "BOTELLA":
-                capacidad_medida = "Botella"
-            elif cap == "FILTRO":
-                capacidad_medida = "Filtro"
-            else:
-                capacidad_medida = "Unidad"
 
-    return tipo_venta, capacidad_medida
+    return tipo_venta
 
 def generate_sku(marca, tipo_venta, item_id):
     """
     Generador de SKU Propio Unificado: [MARCA]-[UN/GR]-[ID_AUTONUMERICO]
     """
     marca_prefix = marca[:3].upper() if len(marca) >= 3 else marca.upper().ljust(3, 'X')
-    tipo_code = "UN" if tipo_venta == "UNIDAD" else "GR"
+    tipo_code = "UN" if tipo_venta == "GRANEL" else "UN"
+    if tipo_venta == "GRANEL":
+        tipo_code = "GR"
     return f"{marca_prefix}-{tipo_code}-{str(item_id).zfill(5)}"
-
-def extract_excel_sheets(uploaded_file):
-    """
-    Extrae un diccionario de {nombre_hoja: DataFrame_Purgado}
-    """
-    try:
-        xl = pd.ExcelFile(uploaded_file)
-        sheets_data = {}
-        for sheet_name in xl.sheet_names:
-            df = pd.read_excel(xl, sheet_name=sheet_name, header=None)
-            df_purged = purge_dataframe(df)
-            if not df_purged.empty:
-                sheets_data[sheet_name] = df_purged
-        return sheets_data
-    except Exception as e:
-        st.error(f"Error procesando el Excel: {e}")
-        return {}
-
-def extract_pdf_data(uploaded_file):
-    """
-    Extrae, purga y retorna DataFrame de PDF.
-    """
-    try:
-        data = []
-        with pdfplumber.open(uploaded_file) as pdf:
-            for page in pdf.pages:
-                table = page.extract_table()
-                if table:
-                    data.extend(table)
-        if data:
-            df = pd.DataFrame(data)
-            return purge_dataframe(df)
-        else:
-            return pd.DataFrame()
-    except Exception as e:
-        st.error(f"Error procesando el PDF: {e}")
-        return pd.DataFrame()
 
 def clean_currency(value):
     if pd.isna(value):
@@ -244,42 +172,15 @@ def clean_box_content(value):
          return match.group(1)
     return "1"
 
-def match_template(num_cols):
+def process_mass_update(df_blocks, marca, template):
     """
-    Motor de Ingesta HETEROGÉNEAS:
-    Intenta buscar una plantilla en la librería cuyo número de columnas coincida con la pestaña purgada.
-    """
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute('''SELECT nombre_plantilla, col_codigo, col_descripcion, col_costo, col_contenido_caja, col_presentacion
-                 FROM plantillas_proveedores
-                 WHERE num_columnas = ? LIMIT 1''', (num_cols,))
-    row = c.fetchone()
-    conn.close()
-
-    if row:
-        return {
-            'nombre_plantilla': row[0],
-            'col_codigo': row[1],
-            'col_descripcion': row[2],
-            'col_costo': row[3],
-            'col_contenido_caja': row[4],
-            'col_presentacion': row[5]
-        }
-    return None
-
-def process_mass_update(df, marca, template):
-    """
-    Actualización y Unificación Masiva cruzando por Marca (Dinámica) y Tipo de Venta.
-    Retorna un histórico (reporte_operativo) de lo modificado/insertado.
+    Procesa múltiples bloques comerciales (DataFrames purgados).
+    Cruza por Marca y Tipo de Venta.
     """
     col_codigo = template['col_codigo']
     col_desc = template['col_descripcion']
     col_costo = template['col_costo']
-    col_caja = template['col_contenido_caja']
-    col_pres = template['col_presentacion']
-
-    none_option = "[Ninguno (No Existe)]"
+    col_caja = template.get('col_contenido_caja', NONE_OPTION)
 
     conn = get_connection()
     c = conn.cursor()
@@ -288,85 +189,112 @@ def process_mass_update(df, marca, template):
     db_items = c.fetchall()
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    updates = 0
+    inserts = 0
 
-    reporte_operativo = []
+    for df in df_blocks:
+        for _, row in df.iterrows():
+            cod_prov = str(row[col_codigo]).strip() if col_codigo != NONE_OPTION and col_codigo in df.columns and pd.notna(row[col_codigo]) else ""
+            desc = str(row[col_desc]).strip() if col_desc != NONE_OPTION and col_desc in df.columns and pd.notna(row[col_desc]) else ""
+            costo = clean_currency(row[col_costo]) if col_costo != NONE_OPTION and col_costo in df.columns else 0.0
+            caja = clean_box_content(row[col_caja]) if col_caja != NONE_OPTION and col_caja in df.columns else "1"
 
-    for _, row in df.iterrows():
-        cod_prov = str(row[col_codigo]).strip() if col_codigo != none_option and col_codigo in df.columns and pd.notna(row[col_codigo]) else ""
-        desc = str(row[col_desc]).strip() if col_desc != none_option and col_desc in df.columns and pd.notna(row[col_desc]) else ""
-        costo = clean_currency(row[col_costo]) if col_costo != none_option and col_costo in df.columns else 0.0
+            if not desc or desc.lower() in ['nan', 'none', '']:
+                continue
 
-        caja = clean_box_content(row[col_caja]) if col_caja != none_option and col_caja in df.columns else "1"
-        pres = str(row[col_pres]).strip() if col_pres != none_option and col_pres in df.columns and pd.notna(row[col_pres]) else ""
+            tipo_venta = detect_unit_and_capacity(desc)
+            matched_id = None
 
-        if not desc or desc.lower() in ['nan', 'none', '']:
-            continue
+            # 1. Match Exacto por Código Proveedor y Tipo de Venta
+            if cod_prov and cod_prov.lower() not in ['nan', 'none']:
+                for item in db_items:
+                    if item[1] == cod_prov and item[3] == tipo_venta:
+                        matched_id = item[0]
+                        break
 
-        tipo_venta, capacidad = detect_unit_and_capacity(desc, presentacion_adicional=pres)
-        matched_id = None
+            # 2. Match Fuzzy Inteligente (Aislado por bloque gracias al Parser Avanzado)
+            if not matched_id:
+                best_score = 0
+                best_id = None
+                for item in db_items:
+                    if item[3] == tipo_venta:
+                        score = fuzz.token_sort_ratio(desc.lower(), item[2].lower())
+                        if score > best_score:
+                            best_score = score
+                            best_id = item[0]
 
-        # 1. Match Exacto por Código Proveedor y Tipo de Venta
-        if cod_prov and cod_prov.lower() not in ['nan', 'none']:
-            for item in db_items:
-                if item[1] == cod_prov and item[3] == tipo_venta:
-                    matched_id = item[0]
-                    break
+                if best_score >= 85:
+                    matched_id = best_id
 
-        # 2. Match Fuzzy Inteligente
-        if not matched_id:
-            best_score = 0
-            best_id = None
-            for item in db_items:
-                if item[3] == tipo_venta:
-                    score = fuzz.token_sort_ratio(desc.lower(), item[2].lower())
-                    if score > best_score:
-                        best_score = score
-                        best_id = item[0]
+            if matched_id:
+                c.execute('''UPDATE productos_maestro
+                             SET costo_actual = ?, fecha_actualizacion = ?, contenido_caja = ?
+                             WHERE id = ?''', (costo, now, caja, matched_id))
+                updates += 1
+            else:
+                c.execute('''INSERT INTO productos_maestro
+                             (codigo_proveedor, descripcion, marca, tipo_venta, contenido_caja, costo_actual, fecha_actualizacion)
+                             VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                             (cod_prov, desc, marca, tipo_venta, caja, costo, now))
+                new_id = c.lastrowid
+                sku = generate_sku(marca, tipo_venta, new_id)
+                c.execute("UPDATE productos_maestro SET sku_interno = ? WHERE id = ?", (sku, new_id))
 
-            if best_score >= 85:
-                matched_id = best_id
-
-        if matched_id:
-            c.execute('''UPDATE productos_maestro
-                         SET costo_actual = ?, fecha_actualizacion = ?, contenido_caja = ?, capacidad_medida = ?
-                         WHERE id = ?''', (costo, now, caja, capacidad, matched_id))
-
-            # Recuperar SKU para el reporte
-            c.execute("SELECT sku_interno FROM productos_maestro WHERE id = ?", (matched_id,))
-            sku_row = c.fetchone()
-            sku_val = sku_row[0] if sku_row else ""
-
-            reporte_operativo.append({
-                'Acción': 'Actualizado',
-                'SKU Propio': sku_val,
-                'Marca': marca,
-                'Descripción': desc,
-                'Tipo': tipo_venta,
-                'Costo': costo
-            })
-        else:
-            c.execute('''INSERT INTO productos_maestro
-                         (codigo_proveedor, descripcion, marca, tipo_venta, capacidad_medida, contenido_caja, costo_actual, fecha_actualizacion)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                         (cod_prov, desc, marca, tipo_venta, capacidad, caja, costo, now))
-            new_id = c.lastrowid
-            sku = generate_sku(marca, tipo_venta, new_id)
-            c.execute("UPDATE productos_maestro SET sku_interno = ? WHERE id = ?", (sku, new_id))
-
-            db_items.append((new_id, cod_prov, desc, tipo_venta))
-            reporte_operativo.append({
-                'Acción': 'NUEVO',
-                'SKU Propio': sku,
-                'Marca': marca,
-                'Descripción': desc,
-                'Tipo': tipo_venta,
-                'Costo': costo
-            })
+                db_items.append((new_id, cod_prov, desc, tipo_venta))
+                inserts += 1
 
     conn.commit()
     conn.close()
 
-    return reporte_operativo
+    return inserts, updates
+
+def parse_raw_file(uploaded_file):
+    filename = uploaded_file.name.lower()
+    try:
+        if filename.endswith(('.xls', '.xlsx')):
+            xl = pd.ExcelFile(uploaded_file)
+            # Retorna el crudo de la primera hoja para la vista de entrenamiento
+            df = pd.read_excel(xl, sheet_name=xl.sheet_names[0], header=None)
+            df.columns = [f"Col_{i}" for i in range(len(df.columns))]
+            return df
+        elif filename.endswith('.pdf'):
+            data = []
+            with pdfplumber.open(uploaded_file) as pdf:
+                for page in pdf.pages:
+                    table = page.extract_table()
+                    if table:
+                        data.extend(table)
+            if data:
+                df = pd.DataFrame(data)
+                df.columns = [f"Col_{i}" for i in range(len(df.columns))]
+                return df
+            return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error procesando el archivo: {e}")
+        return pd.DataFrame()
+
+def process_file_advanced(uploaded_file):
+    filename = uploaded_file.name.lower()
+    blocks_all = []
+    try:
+        if filename.endswith(('.xls', '.xlsx')):
+            xl = pd.ExcelFile(uploaded_file)
+            for sheet in xl.sheet_names:
+                df = pd.read_excel(xl, sheet_name=sheet, header=None)
+                blocks_all.extend(purge_dataframe_advanced(df))
+        elif filename.endswith('.pdf'):
+            data = []
+            with pdfplumber.open(uploaded_file) as pdf:
+                for page in pdf.pages:
+                    table = page.extract_table()
+                    if table:
+                        data.extend(table)
+            if data:
+                df = pd.DataFrame(data)
+                blocks_all.extend(purge_dataframe_advanced(df))
+    except Exception as e:
+        st.error(f"Error en Parser Avanzado: {e}")
+    return blocks_all
 
 def to_excel(df):
     output = io.BytesIO()
@@ -376,203 +304,114 @@ def to_excel(df):
 
 
 def main():
-    st.set_page_config(page_title="Barter Plus - Ingesta Avanzada", layout="wide")
-    st.title("Sistema Avanzado HETEROGÉNEO de Ingesta (Barter Plus)")
+    st.set_page_config(page_title="Gestor Resiliente y Entrenable", layout="wide")
 
     run_init_db()
 
-    # UI Sidebar: Inventario Maestro Unificado
-    st.sidebar.header("Inventario Maestro Unificado")
-    conn = get_connection()
-    df_maestro = pd.read_sql_query("SELECT sku_interno, descripcion, marca, tipo_venta, capacidad_medida, contenido_caja, costo_actual FROM productos_maestro", conn)
-    conn.close()
-    st.sidebar.dataframe(df_maestro)
-    if not df_maestro.empty:
-        st.sidebar.download_button(
-            label="📥 Exportar Maestra a Excel",
-            data=to_excel(df_maestro),
-            file_name='master_data_barterplus.xlsx',
-            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        )
+    # ---------------- SIDEBAR: INTELIGENCIA DE MAPEO GUIADO ----------------
+    with st.sidebar:
+        st.header("Gestión de Plantillas (Mapeo)")
+        st.info("Sube un ejemplo para enseñar al sistema dónde están los datos de este proveedor.")
 
-    tab1, tab2, tab3 = st.tabs(["1. Gestión de Librería de Plantillas", "2. Actualización Masiva", "3. Reporte Visual y Exportación"])
+        train_file = st.file_uploader("Subir Archivo de Ejemplo", type=["xlsx", "xls", "pdf"], key="train_file")
+        train_marca = st.text_input("Nombre del Proveedor / Marca", key="train_marca").strip().upper()
 
-    none_option = "[Ninguno (No Existe)]"
-
-    # ---------------- TAB 1: GESTIÓN DE LIBRERÍA DE PLANTILLAS ----------------
-    with tab1:
-        st.header("Entrenamiento de Librería de Plantillas (Heterogénea)")
-        st.info("Guarda la estructura (número de columnas post-purga) asociada a un nombre para que el motor la detecte automáticamente.")
-
-        train_file = st.file_uploader("Sube lista de ejemplo (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="train_file")
-        nombre_plantilla = st.text_input("Nombre de la Plantilla (Ej: Formato_Ramon_Sabio)", key="train_plantilla").strip()
-
-        if train_file and nombre_plantilla:
-            if st.button("Analizar y Purgar", key="btn_analizar"):
-                filename = train_file.name.lower()
-                df_train = None
-
-                if filename.endswith(('.xls', '.xlsx')):
-                    sheets_data = extract_excel_sheets(train_file)
-                    if sheets_data:
-                        first_sheet = list(sheets_data.keys())[0]
-                        df_train = sheets_data[first_sheet]
-                        st.info(f"Previsualizando la hoja: '{first_sheet}' para generar la plantilla.")
-                elif filename.endswith('.pdf'):
-                    df_train = extract_pdf_data(train_file)
-
-                if df_train is not None and not df_train.empty:
-                    st.session_state['df_train'] = df_train
-                    st.success("✅ Archivo purgado. El motor usará la cantidad de columnas para identificar esta estructura.")
+        if train_file and train_marca:
+            if st.button("Previsualizar Estructura", key="btn_train"):
+                df_train = parse_raw_file(train_file)
+                if not df_train.empty:
+                    st.session_state['df_train_raw'] = df_train
                 else:
-                    st.error("No se extrajeron datos válidos.")
+                    st.error("No se pudo extraer la estructura cruda.")
 
-            if 'df_train' in st.session_state:
-                df_train = st.session_state['df_train']
-                num_columnas = len(df_train.columns)
-                st.write(f"### Vista previa de la Estructura (Columnas purgadas: {num_columnas})")
-                st.dataframe(df_train.head(10))
+        if 'df_train_raw' in st.session_state:
+            df_train_raw = st.session_state['df_train_raw']
+            st.dataframe(df_train_raw.head(10))
 
-                cols_available = [none_option] + list(df_train.columns)
+            cols = [NONE_OPTION] + list(df_train_raw.columns)
 
-                st.write("### Configuración de Mapeo")
-                col1, col2 = st.columns(2)
-                with col1:
-                    sel_cod = st.selectbox("Código de Proveedor", cols_available, key="map_cod")
-                    sel_desc = st.selectbox("Descripción Principal *", [c for c in cols_available if c != none_option], key="map_desc")
-                    sel_costo = st.selectbox("Costo Actual / Precio", cols_available, key="map_costo")
-                with col2:
-                    sel_caja = st.selectbox("Contenido por Caja (Cantidad)", cols_available, key="map_caja")
-                    sel_pres = st.selectbox("Presentación Adicional (Unidad/Litros)", cols_available, key="map_pres")
+            st.write("**Define los Índices:**")
+            map_cod = st.selectbox("¿Dónde está el CÓDIGO?", cols, key="map_cod")
+            map_desc = st.selectbox("¿Dónde está la DESCRIPCIÓN?", [c for c in cols if c != NONE_OPTION], key="map_desc")
+            map_neto = st.selectbox("¿Dónde está el NETO (Precio)?", cols, key="map_neto")
+            map_caja = st.selectbox("¿Dónde está Unidades x Caja? (Opcional)", cols, key="map_caja")
 
-                if st.button("Guardar Plantilla en la Librería"):
-                    conn = get_connection()
-                    c = conn.cursor()
-                    try:
-                        c.execute('''INSERT INTO plantillas_proveedores
-                                     (nombre_plantilla, num_columnas, col_codigo, col_descripcion, col_costo, col_contenido_caja, col_presentacion)
-                                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                                     ON CONFLICT(nombre_plantilla) DO UPDATE SET
-                                     num_columnas=excluded.num_columnas, col_codigo=excluded.col_codigo, col_descripcion=excluded.col_descripcion,
-                                     col_costo=excluded.col_costo, col_contenido_caja=excluded.col_contenido_caja,
-                                     col_presentacion=excluded.col_presentacion''',
-                                  (nombre_plantilla, num_columnas, sel_cod, sel_desc, sel_costo, sel_caja, sel_pres))
-                        conn.commit()
-                        st.success(f"Plantilla '{nombre_plantilla}' guardada en la Librería.")
-                    except Exception as e:
-                        st.error(f"Error guardando plantilla: {e}")
-                    finally:
-                        conn.close()
-
-    # ---------------- TAB 2: ACTUALIZACIÓN MASIVA HETEROGÉNEA ----------------
-    with tab2:
-        st.header("Actualización Masiva (Librería Automática)")
-        st.info("Sube un Excel. El Motor evaluará cada pestaña por separado, buscará una plantilla compatible en tu Librería basándose en la estructura, purgará y extraerá heredando la Marca de la pestaña. Zero Adivinanza.")
-
-        update_file = st.file_uploader("Sube lista masiva (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="update_file")
-
-        if update_file:
-            filename = update_file.name.lower()
-
-            marca_manual_pdf = None
-            plantilla_pdf = None
-
-            if filename.endswith('.pdf'):
-                marca_manual_pdf = st.text_input("Ingresa la MARCA (Requerido para PDFs):", key="marca_pdf").strip().upper()
-
+            if st.button("Guardar Plantilla", key="btn_save_tpl"):
                 conn = get_connection()
-                df_templates = pd.read_sql_query("SELECT nombre_plantilla FROM plantillas_proveedores", conn)
-                conn.close()
-                if not df_templates.empty:
-                    plantillas_guardadas = df_templates['nombre_plantilla'].tolist()
-                    plantilla_pdf = st.selectbox("Selecciona la Plantilla (Requerido para PDF):", ["-- Seleccionar --"] + plantillas_guardadas)
+                c = conn.cursor()
+                try:
+                    c.execute('''INSERT INTO plantillas_proveedores
+                                 (proveedor_marca, col_codigo, col_descripcion, col_costo, col_contenido_caja)
+                                 VALUES (?, ?, ?, ?, ?)
+                                 ON CONFLICT(proveedor_marca) DO UPDATE SET
+                                 col_codigo=excluded.col_codigo, col_descripcion=excluded.col_descripcion,
+                                 col_costo=excluded.col_costo, col_contenido_caja=excluded.col_contenido_caja''',
+                              (train_marca, map_cod, map_desc, map_neto, map_caja))
+                    conn.commit()
+                    st.success(f"¡Plantilla para {train_marca} guardada!")
+                except Exception as e:
+                    st.error(f"Error guardando: {e}")
+                finally:
+                    conn.close()
 
-            if st.button("Procesar Lista Masivamente"):
-                if filename.endswith('.pdf') and (not marca_manual_pdf or plantilla_pdf == "-- Seleccionar --"):
-                    st.error("Debes ingresar la Marca y seleccionar la plantilla para procesar un PDF.")
-                    st.stop()
+    # ---------------- MAIN UI: INGESTA MINIMALISTA ----------------
+    st.title("Sistema de Extracción Robusta e Ingesta")
 
-                global_report = []
+    st.subheader("1. Ingesta Masiva")
+    col1, col2 = st.columns(2)
 
-                if filename.endswith(('.xls', '.xlsx')):
-                    with st.spinner("Procesando Multi-Pestañas Heterogéneas..."):
-                        sheets_data = extract_excel_sheets(update_file)
+    with col1:
+        update_file = st.file_uploader("Sube Lista Nueva (Excel o PDF)", type=["xlsx", "xls", "pdf"], key="update_file")
+    with col2:
+        conn = get_connection()
+        df_templates = pd.read_sql_query("SELECT proveedor_marca FROM plantillas_proveedores", conn)
+        conn.close()
 
-                        if not sheets_data:
-                            st.error("No se extrajeron datos válidos.")
-                        else:
-                            for sheet_name, df_update in sheets_data.items():
-                                marca_lote = sheet_name.strip().upper()
-                                num_cols = len(df_update.columns)
+        marcas_guardadas = df_templates['proveedor_marca'].tolist() if not df_templates.empty else []
+        marca_update = st.selectbox("Selecciona la Marca/Proveedor", ["-- Seleccionar --"] + marcas_guardadas)
 
-                                template = match_template(num_cols)
-
-                                if template:
-                                    st.write(f"🔍 Hoja '{sheet_name}': Match con Plantilla '{template['nombre_plantilla']}' ({num_cols} columnas).")
-                                    repo = process_mass_update(df_update, marca_lote, template)
-                                    global_report.extend(repo)
-                                else:
-                                    st.warning(f"⚠️ Hoja '{sheet_name}': Omitida. No hay plantilla en la Librería para una estructura de {num_cols} columnas.")
-
-                            st.session_state['global_report'] = global_report
-                            st.success("✅ Procesamiento completado. Revisa la Pestaña 3 para el Resultado Operativo.")
-
-                elif filename.endswith('.pdf'):
-                    with st.spinner("Procesando PDF..."):
-                        df_update = extract_pdf_data(update_file)
-                        if not df_update.empty:
-                            conn = get_connection()
-                            c = conn.cursor()
-                            c.execute("SELECT col_codigo, col_descripcion, col_costo, col_contenido_caja, col_presentacion FROM plantillas_proveedores WHERE nombre_plantilla = ?", (plantilla_pdf,))
-                            template_row = c.fetchone()
-                            conn.close()
-
-                            if template_row:
-                                template = {
-                                    'col_codigo': template_row[0],
-                                    'col_descripcion': template_row[1],
-                                    'col_costo': template_row[2],
-                                    'col_contenido_caja': template_row[3],
-                                    'col_presentacion': template_row[4]
-                                }
-                                repo = process_mass_update(df_update, marca_manual_pdf, template)
-                                st.session_state['global_report'] = repo
-                                st.success("✅ PDF Procesado. Revisa la Pestaña 3.")
-                        else:
-                            st.error("El PDF está vacío tras la purga operativa.")
-
-    # ---------------- TAB 3: REPORTE VISUAL Y EXPORTACIÓN ----------------
-    with tab3:
-        st.header("Resultado Operativo de la Última Ingesta")
-
-        if 'global_report' in st.session_state and st.session_state['global_report']:
-            df_report = pd.DataFrame(st.session_state['global_report'])
-
-            nuevos = len(df_report[df_report['Acción'] == 'NUEVO'])
-            actualizados = len(df_report[df_report['Acción'] == 'Actualizado'])
-
-            st.info(f"Resumen: {nuevos} Productos Creados | {actualizados} Productos Actualizados")
-
-            st.dataframe(df_report, use_container_width=True)
-
-            st.write("---")
-            st.subheader("Paso Final: Exportar Base Consolidada")
-            st.info("Usa este botón para descargar el Inventario Maestro completo, con el formato ideal para importar en el siguiente programa.")
-
+    if update_file and marca_update != "-- Seleccionar --":
+        if st.button("Procesar Lista"):
             conn = get_connection()
-            df_final = pd.read_sql_query("SELECT sku_interno, codigo_proveedor, descripcion, marca, tipo_venta, capacidad_medida, contenido_caja, costo_actual, fecha_actualizacion FROM productos_maestro", conn)
+            c = conn.cursor()
+            c.execute("SELECT col_codigo, col_descripcion, col_costo, col_contenido_caja FROM plantillas_proveedores WHERE proveedor_marca = ?", (marca_update,))
+            tpl_row = c.fetchone()
             conn.close()
 
-            excel_data = to_excel(df_final)
-            st.download_button(
-                label="📥 Exportar Inventario Maestro Operativo",
-                data=excel_data,
-                file_name='INVENTARIO_MAESTRO_UNIFICADO_COMPLETO.xlsx',
-                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            )
+            if tpl_row:
+                template = {
+                    'col_codigo': tpl_row[0],
+                    'col_descripcion': tpl_row[1],
+                    'col_costo': tpl_row[2],
+                    'col_contenido_caja': tpl_row[3]
+                }
 
-        else:
-            st.info("No hay reporte disponible. Sube y procesa un archivo en la pestaña 2.")
+                with st.spinner("Parser Avanzado detectando bloques comerciales y purgando metadata..."):
+                    blocks = process_file_advanced(update_file)
+
+                if blocks:
+                    with st.spinner(f"Bloques detectados: {len(blocks)}. Ejecutando Inteligencia de Matching..."):
+                        ins, upd = process_mass_update(blocks, marca_update, template)
+                        st.success(f"✅ ¡Completado! Marca: {marca_update}. Creados: {ins} | Actualizados: {upd}")
+                else:
+                    st.error("El Parser Avanzado descartó el archivo entero por no detectar bloques comerciales válidos.")
+
+    st.write("---")
+    st.subheader("2. Inventario Maestro Unificado")
+
+    conn = get_connection()
+    df_maestro = pd.read_sql_query("SELECT sku_interno, codigo_proveedor, descripcion, marca, tipo_venta, contenido_caja, costo_actual, fecha_actualizacion FROM productos_maestro", conn)
+    conn.close()
+
+    st.dataframe(df_maestro, use_container_width=True, hide_index=True)
+
+    if not df_maestro.empty:
+        st.download_button(
+            label="📥 Exportar Inventario Maestro (Excel)",
+            data=to_excel(df_maestro),
+            file_name='INVENTARIO_MAESTRO_COMPLETO.xlsx',
+            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
 
 if __name__ == '__main__':
     main()
