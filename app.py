@@ -10,6 +10,173 @@ import io
 DB_NAME = "master_data.db"
 NONE_OPTION = "[Ninguno (No Existe)]"
 
+class IngestaInteligenteLubricentro:
+    def __init__(self, maestro_db_path="inventario_barter.db"):
+        self.maestro_db_path = maestro_db_path
+        self.alias_costo = r"(pr.*icio|costo|arancel|neto|uni.*tario).*"
+        self.alias_desc = r"(det.*alle|art.*iculo|desc.*ripcion|prod.*ucto).*"
+        self.alias_cod = r"(cod.*igo|cod|ref).*"
+
+    def purgar_basura_operativa(self, df):
+        """Elimina filas vacías, metadata y títulos intermedios."""
+        # 1. Eliminar filas 100% vacías
+        df = df.dropna(how='all')
+        if df.empty:
+            return df
+
+        # 2. Eliminar metadata (filas con palabras clave de gestión, no comerciales)
+        basura_regex = r"(vigencia|pagina|lista de|proveedor|s\.a\.|RAMONSABIO|LISTA SUJETA A CAMBIOS|NO INCLUYE IVA|VÁLIDA HASTA|CONFIRMAR PRECIOS|SOLO CONTADO)"
+        # Revisamos la primera columna como indicadora de metadata
+        mask_basura = df.iloc[:, 0].astype(str).str.contains(basura_regex, case=False, na=False)
+        df = df[~mask_basura]
+
+        return df
+
+    def detectar_y_separar_tablas_apiladas(self, df_hoja, sheet_name=""):
+        """Detecta si una hoja tiene múltiples tablas una sobre otra."""
+        tablas_detectadas = []
+
+        # Si la hoja está vacía tras purgar basura
+        if df_hoja.empty: return tablas_detectadas
+
+        # Por simplicidad en este script, mapeamos la primera tabla y purgar títulos internos.
+        # Normalizamos encabezados de la primera tabla encontrada
+        df_hoja = self.normalizar_encabezados(df_hoja)
+        if not df_hoja.empty:
+            df_hoja['marca_sugerida'] = sheet_name.strip().upper()
+            tablas_detectadas.append(df_hoja)
+
+        return tablas_detectadas
+
+    def normalizar_encabezados(self, df):
+        """Usa Smart Alias para unificar columnas basadas en Regex."""
+        # If columns are just integers (no header row specified in read_excel), we need to find the header row.
+        # For simplicity, we try to match the current columns or the first few rows.
+
+        header_row_index = -1
+        new_headers = {}
+
+        # Check first 10 rows to find a valid header
+        for idx in range(min(10, len(df))):
+            row_vals = [str(x).lower().strip() for x in df.iloc[idx]]
+            temp_headers = {}
+            for i, h_str in enumerate(row_vals):
+                if re.match(self.alias_costo, h_str):
+                    temp_headers[df.columns[i]] = 'costo_unificado'
+                elif re.match(self.alias_desc, h_str):
+                    temp_headers[df.columns[i]] = 'descripcion_unificada'
+                elif re.match(self.alias_cod, h_str):
+                    temp_headers[df.columns[i]] = 'codigo_unificado'
+
+            if 'descripcion_unificada' in temp_headers.values() and 'costo_unificado' in temp_headers.values():
+                header_row_index = idx
+                new_headers = temp_headers
+                break
+
+        if header_row_index != -1:
+            # We found a header row, so we rename and then drop rows up to and including the header
+            df = df.rename(columns=new_headers)
+            df = df.iloc[header_row_index+1:].copy()
+        else:
+            # Maybe columns were already set (e.g. read_excel with header=0)
+            headers = df.columns.tolist()
+            for header in headers:
+                h_str = str(header).lower().strip()
+                if re.match(self.alias_costo, h_str):
+                    new_headers[header] = 'costo_unificado'
+                elif re.match(self.alias_desc, h_str):
+                    new_headers[header] = 'descripcion_unificada'
+                elif re.match(self.alias_cod, h_str):
+                    new_headers[header] = 'codigo_unificado'
+            df = df.rename(columns=new_headers)
+
+        # Filtramos para quedarnos solo con las columnas unificadas críticas
+        columnas_criticas = ['codigo_unificado', 'descripcion_unificada', 'costo_unificado']
+        columnas_a_mantener = [c for c in columnas_criticas if c in df.columns]
+
+        if len(columnas_a_mantener) < 2: # Si no encontramos al menos Descripción y Costo, no es tabla válida
+            return pd.DataFrame()
+
+        return df[columnas_a_mantener]
+
+    def sanitizar_datos_finales(self, df):
+        """Corrige errores de dato (texto en precio) y normaliza."""
+        if df.empty: return df
+
+        # 1. Convertir costo a numérico, forzando errores a NaN (luego a 0)
+        df['costo_unificado'] = pd.to_numeric(df['costo_unificado'].astype(str).str.replace(',', '.').str.replace('$', '').str.strip(), errors='coerce').fillna(0)
+
+        # 2. Limpiar espacios en códigos y descripciones
+        if 'codigo_unificado' in df.columns:
+            df['codigo_unificado'] = df['codigo_unificado'].astype(str).str.strip().str.upper()
+        if 'descripcion_unificada' in df.columns:
+            df['descripcion_unificada'] = df['descripcion_unificada'].astype(str).str.strip()
+
+        return df
+
+    def procesar_excel_completo(self, excel_file_obj):
+        """Módulo Principal: Lee multi-pestañas, purga, unifica y normaliza."""
+        try:
+            excel_file = pd.ExcelFile(excel_file_obj)
+            all_sheets_unified = []
+
+            for sheet_name in excel_file.sheet_names:
+                df_sheet = pd.read_excel(excel_file, sheet_name=sheet_name, header=None)
+
+                # Fase 2: Purga Basura
+                df_clean = self.purgar_basura_operativa(df_sheet)
+
+                # Fase 3 y 4: De-Stacker y Normalizar Encabezados
+                tablas_de_hoja = self.detectar_y_separar_tablas_apiladas(df_clean, sheet_name)
+
+                for tabla in tablas_de_hoja:
+                    if not tabla.empty:
+                        # Fase 5: Normalizar Datos
+                        tabla_final = self.sanitizar_datos_finales(tabla)
+                        all_sheets_unified.append(tabla_final)
+
+            if not all_sheets_unified:
+                print("❌ No se encontraron tablas comerciales válidas en el archivo.")
+                return pd.DataFrame()
+
+            # Unificación Final de todas las pestañas y tablas stackeadas
+            df_maestro_unificado = pd.concat(all_sheets_unified, ignore_index=True)
+            print(f"✅ Unificación masiva completada. {len(df_maestro_unificado)} productos normalizados.")
+            return df_maestro_unificado
+
+        except Exception as e:
+            print(f"❌ Error crítico en ingesta: {e}")
+            return pd.DataFrame()
+
+    def procesar_pdf(self, pdf_file_obj, marca):
+        """Procesa un PDF usando la misma normalización."""
+        try:
+            data = []
+            with pdfplumber.open(pdf_file_obj) as pdf:
+                for page in pdf.pages:
+                    table = page.extract_table()
+                    if table:
+                        data.extend(table)
+            if not data:
+                return pd.DataFrame()
+
+            df_sheet = pd.DataFrame(data)
+            df_clean = self.purgar_basura_operativa(df_sheet)
+            tablas_de_hoja = self.detectar_y_separar_tablas_apiladas(df_clean, marca)
+
+            all_tables = []
+            for tabla in tablas_de_hoja:
+                if not tabla.empty:
+                    tabla_final = self.sanitizar_datos_finales(tabla)
+                    all_tables.append(tabla_final)
+
+            if all_tables:
+                return pd.concat(all_tables, ignore_index=True)
+            return pd.DataFrame()
+        except Exception as e:
+            print(f"❌ Error crítico en ingesta PDF: {e}")
+            return pd.DataFrame()
+
 @st.cache_resource
 def run_init_db():
     init_db()
@@ -34,18 +201,6 @@ def init_db():
             contenido_caja TEXT,
             costo_actual REAL,
             fecha_actualizacion TEXT
-        )
-    ''')
-
-    # Tabla de Plantillas de Mapeo
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS plantillas_proveedores (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            proveedor_marca TEXT UNIQUE,
-            col_codigo TEXT,
-            col_descripcion TEXT,
-            col_costo TEXT,
-            col_contenido_caja TEXT
         )
     ''')
 
@@ -76,59 +231,6 @@ def init_db():
 def get_connection():
     return sqlite3.connect(DB_NAME)
 
-def purge_dataframe_advanced(df):
-    """
-    Modulo "Parser Avanzado" (Purga + Bloques Comerciales)
-    Primero blinda el DataFrame forzando nombres únicos.
-    Usa Regex para descartar avisos, IVA, y separar en bloques si hay cambios bruscos.
-    Retorna una lista de DataFrames purgados (los "bloques comerciales").
-    """
-    if df is None or df.empty:
-        return []
-
-    # 1. Blindar el DataFrame
-    df.columns = [f"Col_{i}" for i in range(len(df.columns))]
-
-    # 2. Limpieza de Vacíos
-    df = df.replace(r'^\s*$', pd.NA, regex=True)
-    df = df.dropna(how='all')
-    if df.empty:
-        return []
-
-    # Regex para basura y disclaimers
-    disclaimer_pattern = re.compile(r'(LISTA SUJETA A CAMBIOS|NO INCLUYE IVA|VÁLIDA HASTA|VALIDA HASTA|CONFIRMAR PRECIOS|PAGINA \d+|SOLO CONTADO|RAMONSABIO|RAMON SABIO)', re.IGNORECASE)
-
-    # Regex para detectar nuevas cabeceras (cambio brusco de estructura / nuevo bloque)
-    header_pattern = re.compile(r'\b(CÓDIGO|CODIGO|DESCRIPCIÓN|DESCRIPCION|NETO|PRECIO|PRODUCTO)\b', re.IGNORECASE)
-
-    blocks = []
-    current_block_rows = []
-
-    for index, row in df.iterrows():
-        row_str = " ".join([str(val) for val in row if pd.notna(val)])
-
-        # Filtro de disclaimers
-        if disclaimer_pattern.search(row_str):
-            continue
-
-        # Detectar si esta fila es una nueva cabecera (más de 1 celda coincide)
-        header_matches = sum(1 for val in row if pd.notna(val) and header_pattern.search(str(val)))
-
-        # Si encontramos una cabecera nueva, cortamos el bloque anterior
-        if header_matches >= 2:
-            if current_block_rows:
-                blocks.append(pd.DataFrame(current_block_rows, columns=df.columns))
-                current_block_rows = []
-            continue # Descartamos la fila de cabecera operativa
-
-        current_block_rows.append(row)
-
-    # Añadir el último bloque
-    if current_block_rows:
-        blocks.append(pd.DataFrame(current_block_rows, columns=df.columns))
-
-    return [block.reset_index(drop=True) for block in blocks if not block.empty]
-
 def detect_unit_and_capacity(description):
     """
     Clasifica automáticamente el Tipo_Venta (UNIDAD o GRANEL).
@@ -146,155 +248,84 @@ def generate_sku(marca, tipo_venta, item_id):
     """
     Generador de SKU Propio Unificado: [MARCA]-[UN/GR]-[ID_AUTONUMERICO]
     """
-    marca_prefix = marca[:3].upper() if len(marca) >= 3 else marca.upper().ljust(3, 'X')
-    tipo_code = "UN" if tipo_venta == "GRANEL" else "UN"
-    if tipo_venta == "GRANEL":
-        tipo_code = "GR"
+    marca_prefix = str(marca)[:3].upper() if len(str(marca)) >= 3 else str(marca).upper().ljust(3, 'X')
+    tipo_code = "UN" if tipo_venta == "UNIDAD" else "GR"
     return f"{marca_prefix}-{tipo_code}-{str(item_id).zfill(5)}"
 
-def clean_currency(value):
-    if pd.isna(value):
-        return 0.0
-    if isinstance(value, (int, float)):
-        return float(value)
-    value_str = str(value).replace('$', '').replace(',', '').strip()
-    try:
-        return float(value_str)
-    except ValueError:
-        return 0.0
-
-def clean_box_content(value):
-    if pd.isna(value) or str(value).strip() == "":
-         return "1"
-    val_str = str(value).strip()
-    match = re.search(r'(\d+)', val_str)
-    if match:
-         return match.group(1)
-    return "1"
-
-def process_mass_update(df_blocks, marca, template):
+def process_mass_update(df_unified):
     """
-    Procesa múltiples bloques comerciales (DataFrames purgados).
+    Procesa un dataframe unificado e inserta/actualiza en la base de datos maestra.
     Cruza por Marca y Tipo de Venta.
     """
-    col_codigo = template['col_codigo']
-    col_desc = template['col_descripcion']
-    col_costo = template['col_costo']
-    col_caja = template.get('col_contenido_caja', NONE_OPTION)
-
     conn = get_connection()
     c = conn.cursor()
-
-    c.execute("SELECT id, codigo_proveedor, descripcion, tipo_venta FROM productos_maestro WHERE marca = ?", (marca,))
-    db_items = c.fetchall()
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     updates = 0
     inserts = 0
 
-    for df in df_blocks:
-        for _, row in df.iterrows():
-            cod_prov = str(row[col_codigo]).strip() if col_codigo != NONE_OPTION and col_codigo in df.columns and pd.notna(row[col_codigo]) else ""
-            desc = str(row[col_desc]).strip() if col_desc != NONE_OPTION and col_desc in df.columns and pd.notna(row[col_desc]) else ""
-            costo = clean_currency(row[col_costo]) if col_costo != NONE_OPTION and col_costo in df.columns else 0.0
-            caja = clean_box_content(row[col_caja]) if col_caja != NONE_OPTION and col_caja in df.columns else "1"
+    c.execute("SELECT id, codigo_proveedor, descripcion, tipo_venta, marca FROM productos_maestro")
+    db_items_all = c.fetchall()
 
-            if not desc or desc.lower() in ['nan', 'none', '']:
-                continue
+    for _, row in df_unified.iterrows():
+        cod_prov = str(row.get('codigo_unificado', '')).strip() if 'codigo_unificado' in df_unified.columns and pd.notna(row.get('codigo_unificado')) else ""
+        desc = str(row.get('descripcion_unificada', '')).strip() if 'descripcion_unificada' in df_unified.columns and pd.notna(row.get('descripcion_unificada')) else ""
+        costo = row.get('costo_unificado', 0.0) if 'costo_unificado' in df_unified.columns else 0.0
+        marca = str(row.get('marca_sugerida', '')).strip().upper() if 'marca_sugerida' in df_unified.columns else ""
+        caja = "1" # El módulo IngestaInteligente no extrae caja por ahora
 
-            tipo_venta = detect_unit_and_capacity(desc)
-            matched_id = None
+        if not desc or desc.lower() in ['nan', 'none', '']:
+            continue
 
-            # 1. Match Exacto por Código Proveedor y Tipo de Venta
-            if cod_prov and cod_prov.lower() not in ['nan', 'none']:
-                for item in db_items:
-                    if item[1] == cod_prov and item[3] == tipo_venta:
-                        matched_id = item[0]
-                        break
+        tipo_venta = detect_unit_and_capacity(desc)
+        matched_id = None
 
-            # 2. Match Fuzzy Inteligente (Aislado por bloque gracias al Parser Avanzado)
-            if not matched_id:
-                best_score = 0
-                best_id = None
-                for item in db_items:
-                    if item[3] == tipo_venta:
-                        score = fuzz.token_sort_ratio(desc.lower(), item[2].lower())
-                        if score > best_score:
-                            best_score = score
-                            best_id = item[0]
+        # Filter DB items by brand for this specific row
+        db_items = [item for item in db_items_all if item[4] == marca]
 
-                if best_score >= 85:
-                    matched_id = best_id
+        # 1. Match Exacto por Código Proveedor y Tipo de Venta
+        if cod_prov and cod_prov.lower() not in ['nan', 'none']:
+            for item in db_items:
+                if item[1] == cod_prov and item[3] == tipo_venta:
+                    matched_id = item[0]
+                    break
 
-            if matched_id:
-                c.execute('''UPDATE productos_maestro
-                             SET costo_actual = ?, fecha_actualizacion = ?, contenido_caja = ?
-                             WHERE id = ?''', (costo, now, caja, matched_id))
-                updates += 1
-            else:
-                c.execute('''INSERT INTO productos_maestro
-                             (codigo_proveedor, descripcion, marca, tipo_venta, contenido_caja, costo_actual, fecha_actualizacion)
-                             VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                             (cod_prov, desc, marca, tipo_venta, caja, costo, now))
-                new_id = c.lastrowid
-                sku = generate_sku(marca, tipo_venta, new_id)
-                c.execute("UPDATE productos_maestro SET sku_interno = ? WHERE id = ?", (sku, new_id))
+        # 2. Match Fuzzy Inteligente
+        if not matched_id:
+            best_score = 0
+            best_id = None
+            for item in db_items:
+                if item[3] == tipo_venta:
+                    score = fuzz.token_sort_ratio(desc.lower(), item[2].lower())
+                    if score > best_score:
+                        best_score = score
+                        best_id = item[0]
 
-                db_items.append((new_id, cod_prov, desc, tipo_venta))
-                inserts += 1
+            if best_score >= 85:
+                matched_id = best_id
+
+        if matched_id:
+            c.execute('''UPDATE productos_maestro
+                         SET costo_actual = ?, fecha_actualizacion = ?, contenido_caja = ?
+                         WHERE id = ?''', (costo, now, caja, matched_id))
+            updates += 1
+        else:
+            c.execute('''INSERT INTO productos_maestro
+                         (codigo_proveedor, descripcion, marca, tipo_venta, contenido_caja, costo_actual, fecha_actualizacion)
+                         VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                         (cod_prov, desc, marca, tipo_venta, caja, costo, now))
+            new_id = c.lastrowid
+            sku = generate_sku(marca, tipo_venta, new_id)
+            c.execute("UPDATE productos_maestro SET sku_interno = ? WHERE id = ?", (sku, new_id))
+
+            new_record = (new_id, cod_prov, desc, tipo_venta, marca)
+            db_items_all.append(new_record)
+            inserts += 1
 
     conn.commit()
     conn.close()
 
     return inserts, updates
-
-def parse_raw_file(uploaded_file):
-    filename = uploaded_file.name.lower()
-    try:
-        if filename.endswith(('.xls', '.xlsx')):
-            xl = pd.ExcelFile(uploaded_file)
-            # Retorna el crudo de la primera hoja para la vista de entrenamiento
-            df = pd.read_excel(xl, sheet_name=xl.sheet_names[0], header=None)
-            df.columns = [f"Col_{i}" for i in range(len(df.columns))]
-            return df
-        elif filename.endswith('.pdf'):
-            data = []
-            with pdfplumber.open(uploaded_file) as pdf:
-                for page in pdf.pages:
-                    table = page.extract_table()
-                    if table:
-                        data.extend(table)
-            if data:
-                df = pd.DataFrame(data)
-                df.columns = [f"Col_{i}" for i in range(len(df.columns))]
-                return df
-            return pd.DataFrame()
-    except Exception as e:
-        st.error(f"Error procesando el archivo: {e}")
-        return pd.DataFrame()
-
-def process_file_advanced(uploaded_file):
-    filename = uploaded_file.name.lower()
-    blocks_all = []
-    try:
-        if filename.endswith(('.xls', '.xlsx')):
-            xl = pd.ExcelFile(uploaded_file)
-            for sheet in xl.sheet_names:
-                df = pd.read_excel(xl, sheet_name=sheet, header=None)
-                blocks_all.extend(purge_dataframe_advanced(df))
-        elif filename.endswith('.pdf'):
-            data = []
-            with pdfplumber.open(uploaded_file) as pdf:
-                for page in pdf.pages:
-                    table = page.extract_table()
-                    if table:
-                        data.extend(table)
-            if data:
-                df = pd.DataFrame(data)
-                blocks_all.extend(purge_dataframe_advanced(df))
-    except Exception as e:
-        st.error(f"Error en Parser Avanzado: {e}")
-    return blocks_all
 
 def to_excel(df):
     output = io.BytesIO()
@@ -308,93 +339,41 @@ def main():
 
     run_init_db()
 
-    # ---------------- SIDEBAR: INTELIGENCIA DE MAPEO GUIADO ----------------
-    with st.sidebar:
-        st.header("Gestión de Plantillas (Mapeo)")
-        st.info("Sube un ejemplo para enseñar al sistema dónde están los datos de este proveedor.")
-
-        train_file = st.file_uploader("Subir Archivo de Ejemplo", type=["xlsx", "xls", "pdf"], key="train_file")
-        train_marca = st.text_input("Nombre del Proveedor / Marca", key="train_marca").strip().upper()
-
-        if train_file and train_marca:
-            if st.button("Previsualizar Estructura", key="btn_train"):
-                df_train = parse_raw_file(train_file)
-                if not df_train.empty:
-                    st.session_state['df_train_raw'] = df_train
-                else:
-                    st.error("No se pudo extraer la estructura cruda.")
-
-        if 'df_train_raw' in st.session_state:
-            df_train_raw = st.session_state['df_train_raw']
-            st.dataframe(df_train_raw.head(10))
-
-            cols = [NONE_OPTION] + list(df_train_raw.columns)
-
-            st.write("**Define los Índices:**")
-            map_cod = st.selectbox("¿Dónde está el CÓDIGO?", cols, key="map_cod")
-            map_desc = st.selectbox("¿Dónde está la DESCRIPCIÓN?", [c for c in cols if c != NONE_OPTION], key="map_desc")
-            map_neto = st.selectbox("¿Dónde está el NETO (Precio)?", cols, key="map_neto")
-            map_caja = st.selectbox("¿Dónde está Unidades x Caja? (Opcional)", cols, key="map_caja")
-
-            if st.button("Guardar Plantilla", key="btn_save_tpl"):
-                conn = get_connection()
-                c = conn.cursor()
-                try:
-                    c.execute('''INSERT INTO plantillas_proveedores
-                                 (proveedor_marca, col_codigo, col_descripcion, col_costo, col_contenido_caja)
-                                 VALUES (?, ?, ?, ?, ?)
-                                 ON CONFLICT(proveedor_marca) DO UPDATE SET
-                                 col_codigo=excluded.col_codigo, col_descripcion=excluded.col_descripcion,
-                                 col_costo=excluded.col_costo, col_contenido_caja=excluded.col_contenido_caja''',
-                              (train_marca, map_cod, map_desc, map_neto, map_caja))
-                    conn.commit()
-                    st.success(f"¡Plantilla para {train_marca} guardada!")
-                except Exception as e:
-                    st.error(f"Error guardando: {e}")
-                finally:
-                    conn.close()
-
     # ---------------- MAIN UI: INGESTA MINIMALISTA ----------------
-    st.title("Sistema de Extracción Robusta e Ingesta")
+    st.title("Sistema de Ingesta Inteligente Lubricentro")
 
-    st.subheader("1. Ingesta Masiva")
+    st.subheader("1. Ingesta Masiva y Mapeo Automático")
     col1, col2 = st.columns(2)
 
     with col1:
         update_file = st.file_uploader("Sube Lista Nueva (Excel o PDF)", type=["xlsx", "xls", "pdf"], key="update_file")
     with col2:
-        conn = get_connection()
-        df_templates = pd.read_sql_query("SELECT proveedor_marca FROM plantillas_proveedores", conn)
-        conn.close()
+        marca_manual_pdf = st.text_input("Ingresa la MARCA (Requerido solo para PDFs):", key="marca_pdf").strip().upper()
 
-        marcas_guardadas = df_templates['proveedor_marca'].tolist() if not df_templates.empty else []
-        marca_update = st.selectbox("Selecciona la Marca/Proveedor", ["-- Seleccionar --"] + marcas_guardadas)
-
-    if update_file and marca_update != "-- Seleccionar --":
+    if update_file:
         if st.button("Procesar Lista"):
-            conn = get_connection()
-            c = conn.cursor()
-            c.execute("SELECT col_codigo, col_descripcion, col_costo, col_contenido_caja FROM plantillas_proveedores WHERE proveedor_marca = ?", (marca_update,))
-            tpl_row = c.fetchone()
-            conn.close()
+            filename = update_file.name.lower()
+            ingesta = IngestaInteligenteLubricentro()
+            df_unificado = pd.DataFrame()
 
-            if tpl_row:
-                template = {
-                    'col_codigo': tpl_row[0],
-                    'col_descripcion': tpl_row[1],
-                    'col_costo': tpl_row[2],
-                    'col_contenido_caja': tpl_row[3]
-                }
+            if filename.endswith(('.xls', '.xlsx')):
+                with st.spinner("Procesando Excel masivamente y mapeando automáticamente..."):
+                    df_unificado = ingesta.procesar_excel_completo(update_file)
+            elif filename.endswith('.pdf'):
+                if not marca_manual_pdf:
+                    st.error("Debes ingresar la Marca para procesar un PDF.")
+                    st.stop()
+                with st.spinner("Procesando PDF y mapeando automáticamente..."):
+                    df_unificado = ingesta.procesar_pdf(update_file, marca_manual_pdf)
 
-                with st.spinner("Parser Avanzado detectando bloques comerciales y purgando metadata..."):
-                    blocks = process_file_advanced(update_file)
-
-                if blocks:
-                    with st.spinner(f"Bloques detectados: {len(blocks)}. Ejecutando Inteligencia de Matching..."):
-                        ins, upd = process_mass_update(blocks, marca_update, template)
-                        st.success(f"✅ ¡Completado! Marca: {marca_update}. Creados: {ins} | Actualizados: {upd}")
-                else:
-                    st.error("El Parser Avanzado descartó el archivo entero por no detectar bloques comerciales válidos.")
+            if not df_unificado.empty:
+                st.write("### Datos Normalizados (Pre-Fuzzy Matching)")
+                st.dataframe(df_unificado.head(15))
+                with st.spinner(f"Filas normalizadas: {len(df_unificado)}. Ejecutando Inteligencia de Matching en la BD..."):
+                    ins, upd = process_mass_update(df_unificado)
+                    st.success(f"✅ ¡Completado! Creados: {ins} | Actualizados: {upd}")
+            else:
+                st.error("El Parser no detectó tablas comerciales válidas (faltan las columnas Código, Descripción o Precio).")
 
     st.write("---")
     st.subheader("2. Inventario Maestro Unificado")
