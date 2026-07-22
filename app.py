@@ -195,7 +195,18 @@ def clean_currency(value):
         return 0.0
     if isinstance(value, (int, float)):
         return float(value)
-    value_str = str(value).replace('$', '').replace(',', '').strip()
+    # Handle Latin American format: replace dot (thousands) with nothing, then comma (decimals) with dot
+    value_str = str(value).replace('$', '').strip()
+    # Check if there's both dot and comma
+    if '.' in value_str and ',' in value_str:
+        # e.g., 1.234,50
+        if value_str.rfind(',') > value_str.rfind('.'):
+            value_str = value_str.replace('.', '').replace(',', '.')
+        else: # e.g., 1,234.50
+            value_str = value_str.replace(',', '')
+    elif ',' in value_str: # only comma, assume decimal
+        value_str = value_str.replace(',', '.')
+
     try:
         return float(value_str)
     except ValueError:
