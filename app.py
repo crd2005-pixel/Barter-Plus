@@ -241,7 +241,7 @@ def process_mass_update(df_blocks, marca, template):
             caja = clean_box_content(row[col_caja]) if col_caja != NONE_OPTION and col_caja in df.columns else "1"
 
             if not desc or desc.lower() in ['nan', 'none', '']:
-                continue # No hay ignorados por metadata acá, solo celdas realmente vacías en la columna elegida.
+                continue
 
             tipo_venta, capacidad = detect_unit_and_capacity(desc)
             matched_id = None
@@ -322,7 +322,7 @@ def parse_raw_file(uploaded_file):
 
 def ingest_file_pipeline(uploaded_file):
     """
-    Pipiline Crítico: Multi-Pestañas + De-Stacker + Purger
+    Pipeline Crítico: Multi-Pestañas + De-Stacker + Purger
     Retorna lista de todos los bloques purgados y conteo total omitido.
     """
     filename = uploaded_file.name.lower()
@@ -364,13 +364,17 @@ def to_excel(df):
 
 
 def main():
-    st.set_page_config(page_title="Gestor Resiliente Barter Plus", layout="wide")
+    st.set_page_config(page_title="Barter Plus v5.1 - Resiliente & Heterogéneo", layout="wide")
 
     run_init_db()
 
-    # ---------------- SIDEBAR: MÓDULO DE MAPEO GUIADO ----------------
-    with st.sidebar:
-        st.header("Gestión de Plantillas")
+    st.title("Sistema de Extracción Resiliente y Multi-Pestañas (Barter Plus v5.1)")
+
+    tab1, tab2, tab3 = st.tabs(["1. Gestión de Plantillas", "2. Actualización Masiva de Lotes", "3. Inventario Maestro Unificado"])
+
+    # ---------------- TAB 1: MÓDULO DE MAPEO GUIADO ----------------
+    with tab1:
+        st.header("Entrenador de Plantillas Heterogéneas")
         st.info("Sube un ejemplo para enseñar al sistema dónde están los datos de este proveedor.")
 
         train_file = st.file_uploader("Subir Archivo de Ejemplo", type=["xlsx", "xls", "pdf"], key="train_file")
@@ -414,80 +418,80 @@ def main():
                 finally:
                     conn.close()
 
-    # ---------------- MAIN UI: INGESTA MASIVA Y RESILIENTE ----------------
-    st.title("Ingesta Masiva y Extracción Resiliente (Barter Plus)")
+    # ---------------- TAB 2: INGESTA MASIVA Y RESILIENTE ----------------
+    with tab2:
+        st.header("Motor de Ingesta Multi-Pestañas y De-Stacker AUTOMÁTICO")
+        col1, col2 = st.columns(2)
 
-    st.subheader("1. Procesamiento Masivo")
-    col1, col2 = st.columns(2)
-
-    with col1:
-        update_file = st.file_uploader("Sube Lista Nueva (Excel o PDF)", type=["xlsx", "xls", "pdf"], key="update_file")
-    with col2:
-        conn = get_connection()
-        df_templates = pd.read_sql_query("SELECT proveedor_marca FROM plantillas_proveedores", conn)
-        conn.close()
-
-        marcas_guardadas = df_templates['proveedor_marca'].tolist() if not df_templates.empty else []
-        marca_update = st.selectbox("Selecciona la Marca/Plantilla para Procesar:", ["-- Seleccionar --"] + marcas_guardadas)
-
-    if update_file and marca_update != "-- Seleccionar --":
-        if st.button("Procesar Lista"):
+        with col1:
+            update_file = st.file_uploader("Sube Lista Nueva (Excel o PDF)", type=["xlsx", "xls", "pdf"], key="update_file")
+        with col2:
             conn = get_connection()
-            c = conn.cursor()
-            c.execute("SELECT col_codigo, col_descripcion, col_costo, col_contenido_caja FROM plantillas_proveedores WHERE proveedor_marca = ?", (marca_update,))
-            tpl_row = c.fetchone()
+            df_templates = pd.read_sql_query("SELECT proveedor_marca FROM plantillas_proveedores", conn)
             conn.close()
 
-            if tpl_row:
-                template = {
-                    'col_codigo': tpl_row[0],
-                    'col_descripcion': tpl_row[1],
-                    'col_costo': tpl_row[2],
-                    'col_contenido_caja': tpl_row[3]
-                }
+            marcas_guardadas = df_templates['proveedor_marca'].tolist() if not df_templates.empty else []
+            marca_update = st.selectbox("Selecciona la Marca/Plantilla para Procesar:", ["-- Seleccionar --"] + marcas_guardadas)
 
-                with st.spinner("Purgando metadata, y extrayendo bloques comerciales heterogéneos..."):
-                    blocks, total_omitted = ingest_file_pipeline(update_file)
+        if update_file and marca_update != "-- Seleccionar --":
+            if st.button("Procesar Lista"):
+                conn = get_connection()
+                c = conn.cursor()
+                c.execute("SELECT col_codigo, col_descripcion, col_costo, col_contenido_caja FROM plantillas_proveedores WHERE proveedor_marca = ?", (marca_update,))
+                tpl_row = c.fetchone()
+                conn.close()
 
-                if blocks:
-                    with st.spinner(f"De-Stacker activo: {len(blocks)} bloques detectados. Aplicando plantilla y Matching Fuzzy..."):
-                        ins, upd, rep = process_mass_update(blocks, marca_update, template)
+                if tpl_row:
+                    template = {
+                        'col_codigo': tpl_row[0],
+                        'col_descripcion': tpl_row[1],
+                        'col_costo': tpl_row[2],
+                        'col_contenido_caja': tpl_row[3]
+                    }
 
-                        st.session_state['process_report'] = {
-                            'omitted': total_omitted,
-                            'inserted': ins,
-                            'updated': upd,
-                            'details': rep
-                        }
-                        st.success(f"✅ ¡Proceso completado para {marca_update}!")
-                else:
-                    st.error("El Módulo de Purga descartó el archivo entero por no detectar tablas comerciales válidas.")
+                    with st.spinner("Purgando metadata, y extrayendo bloques comerciales heterogéneos..."):
+                        blocks, total_omitted = ingest_file_pipeline(update_file)
 
-    st.write("---")
-    st.subheader("2. Reporte de Proceso Visual")
-    if 'process_report' in st.session_state:
-        rep = st.session_state['process_report']
-        st.info(f"📊 Resumen de la Ejecución:\n- {rep['inserted']} Productos Nuevos\n- {rep['updated']} Productos Actualizados\n- {rep['omitted']} Filas Omitidas (Metadata, vacías o cabeceras repetidas)")
-        if rep['details']:
-            df_rep = pd.DataFrame(rep['details'])
-            st.dataframe(df_rep, use_container_width=True)
+                    if blocks:
+                        with st.spinner(f"De-Stacker activo: {len(blocks)} bloques detectados. Aplicando plantilla y Matching Fuzzy..."):
+                            ins, upd, rep = process_mass_update(blocks, marca_update, template)
 
-    st.write("---")
-    st.subheader("3. Inventario Maestro Unificado")
+                            st.session_state['process_report'] = {
+                                'omitted': total_omitted,
+                                'inserted': ins,
+                                'updated': upd,
+                                'details': rep
+                            }
+                            st.success(f"✅ ¡Proceso completado para {marca_update}!")
+                    else:
+                        st.error("El Módulo de Purga descartó el archivo entero por no detectar tablas comerciales válidas.")
 
-    conn = get_connection()
-    df_maestro = pd.read_sql_query("SELECT sku_interno, codigo_proveedor, descripcion, marca, tipo_venta, capacidad_medida, contenido_caja, costo_actual, fecha_actualizacion FROM productos_maestro", conn)
-    conn.close()
+        st.write("---")
+        st.subheader("Reporte de Proceso Visual")
+        if 'process_report' in st.session_state:
+            rep = st.session_state['process_report']
+            st.info(f"📊 Resumen de la Ejecución:\n- {rep['inserted']} Productos Nuevos\n- {rep['updated']} Productos Actualizados\n- {rep['omitted']} Filas Omitidas (Metadata, vacías o cabeceras repetidas)")
+            if rep['details']:
+                df_rep = pd.DataFrame(rep['details'])
+                st.dataframe(df_rep, use_container_width=True)
 
-    st.dataframe(df_maestro, use_container_width=True, hide_index=True)
+    # ---------------- TAB 3: INVENTARIO MAESTRO UNIFICADO ----------------
+    with tab3:
+        st.header("Inventario Maestro Unificado (Consolidado)")
 
-    if not df_maestro.empty:
-        st.download_button(
-            label="📥 Exportar Inventario Maestro (Excel)",
-            data=to_excel(df_maestro),
-            file_name='INVENTARIO_MAESTRO_COMPLETO.xlsx',
-            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        )
+        conn = get_connection()
+        df_maestro = pd.read_sql_query("SELECT sku_interno, codigo_proveedor, descripcion, marca, tipo_venta, capacidad_medida, contenido_caja, costo_actual, fecha_actualizacion FROM productos_maestro", conn)
+        conn.close()
+
+        st.dataframe(df_maestro, use_container_width=True, hide_index=True)
+
+        if not df_maestro.empty:
+            st.download_button(
+                label="📥 Exportar Inventario Maestro (Excel)",
+                data=to_excel(df_maestro),
+                file_name='INVENTARIO_MAESTRO_COMPLETO.xlsx',
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            )
 
 if __name__ == '__main__':
     main()
