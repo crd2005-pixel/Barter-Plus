@@ -53,11 +53,44 @@ def extract_raw_text_from_excel(uploaded_file):
         st.error(f"Error extrayendo texto del Excel: {e}")
     return text_chunks
 
-def call_gemini_engine(text_data, api_key):
+def discover_gemini_model(api_key):
     """
-    Motor IA: Llama a Gemini para limpiar el texto y devolver JSON estructurado usando REST API pura.
+    Auto-descubrimiento HTTP puro. Busca dinámicamente un modelo de Gemini válido para generateContent.
     """
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    try:
+        resp = requests.get(url)
+        if resp.status_code != 200:
+            st.error(f"Error descubriendo modelos (HTTP {resp.status_code}): {resp.text}")
+            return None
+
+        models = resp.json().get('models', [])
+        valid_models = []
+        for m in models:
+            if 'generateContent' in m.get('supportedGenerationMethods', []) and 'gemini' in m.get('name', '').lower():
+                valid_models.append(m['name'])
+
+        if not valid_models:
+            st.error("No se encontró ningún modelo Gemini que soporte 'generateContent'.")
+            return None
+
+        # Prioritize 'flash'
+        for name in valid_models:
+            if 'flash' in name.lower():
+                return name
+
+        # If no flash, return the first valid one
+        return valid_models[0]
+    except Exception as e:
+        st.error(f"Excepción descubriendo modelos: {e}")
+        return None
+
+def call_gemini_engine(text_data, api_key, model_name):
+    """
+    Motor IA: Llama a Gemini para limpiar el texto y devolver JSON estructurado usando REST API pura
+    apuntando al modelo auto-descubierto.
+    """
+    url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key}"
     prompt = "Extrae la información comercial de este texto sucio. Ignora basura y metadatos. Devuelve ÚNICAMENTE un JSON con una lista de diccionarios. Claves estrictas: 'codigo_proveedor', 'descripcion', 'costo_neto', 'contenido_caja' (si no existe, pon 1). No incluyas markdown ni explicaciones, solo el JSON puro.\n\nTexto sucio:\n"
 
     payload = {
@@ -207,6 +240,14 @@ def main():
                 st.error("No se puede procesar sin una API Key válida.")
                 st.stop()
 
+            with st.spinner("Conectando y descubriendo modelo IA disponible..."):
+                discovered_model = discover_gemini_model(api_key)
+
+            if not discovered_model:
+                st.stop()
+
+            st.success(f"Motor IA conectado: {discovered_model}")
+
             all_inserts = 0
             all_updates = 0
 
@@ -222,8 +263,8 @@ def main():
                     text_chunks = extract_raw_text_from_excel(file)
 
                 for chunk in text_chunks:
-                    with st.spinner(f"({file.name}) Enviando bloque a la IA (Gemini)..."):
-                        json_data = call_gemini_engine(chunk, api_key)
+                    with st.spinner(f"({file.name}) Enviando bloque a la IA ({discovered_model})..."):
+                        json_data = call_gemini_engine(chunk, api_key, discovered_model)
 
                         if json_data:
                             ins, upd = process_and_unify(json_data, marca)
