@@ -67,19 +67,23 @@ def discover_gemini_model(api_key):
         models = resp.json().get('models', [])
         valid_models = []
         for m in models:
-            if 'generateContent' in m.get('supportedGenerationMethods', []) and 'gemini' in m.get('name', '').lower():
+            # Exclude models containing '2.5' or 'pro' and require 'generateContent' support
+            name_lower = m.get('name', '').lower()
+            if '2.5' in name_lower or 'pro' in name_lower:
+                continue
+            if 'generateContent' in m.get('supportedGenerationMethods', []):
                 valid_models.append(m['name'])
 
         if not valid_models:
-            st.error("No se encontró ningún modelo Gemini que soporte 'generateContent'.")
+            st.error("No se encontró ningún modelo Gemini compatible.")
             return None
 
-        # Prioritize 'flash'
+        # Busca el primer modelo cuyo name contenga exactamente 'gemini-1.5-flash'
         for name in valid_models:
-            if 'flash' in name.lower():
+            if 'gemini-1.5-flash' in name.lower():
                 return name
 
-        # If no flash, return the first valid one
+        # Fallback if specific string not found among the valid ones
         return valid_models[0]
     except Exception as e:
         st.error(f"Excepción descubriendo modelos: {e}")
@@ -90,6 +94,7 @@ def call_gemini_engine(text_data, api_key, model_name):
     Motor IA: Llama a Gemini para limpiar el texto y devolver JSON estructurado usando REST API pura
     apuntando al modelo auto-descubierto.
     """
+    # Construye la URL de generación (model_name ya trae el prefijo 'models/')
     url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key}"
     prompt = "Extrae la información comercial de este texto sucio. Ignora basura y metadatos. Devuelve ÚNICAMENTE un JSON con una lista de diccionarios. Claves estrictas: 'codigo_proveedor', 'descripcion', 'costo_neto', 'contenido_caja' (si no existe, pon 1). No incluyas markdown ni explicaciones, solo el JSON puro.\n\nTexto sucio:\n"
 
