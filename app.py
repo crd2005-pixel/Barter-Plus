@@ -1,7 +1,7 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
-import google.generativeai as genai
+import requests
 import json
 import io
 import time
@@ -55,36 +55,45 @@ def extract_raw_text_from_excel(uploaded_file):
 
 def call_gemini_engine(text_data, api_key):
     """
-    Motor IA: Llama a Gemini para limpiar el texto y devolver JSON estructurado.
+    Motor IA: Llama a Gemini para limpiar el texto y devolver JSON estructurado usando REST API pura.
     """
-    genai.configure(api_key=api_key)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    prompt = "Extrae la información comercial de este texto sucio. Ignora basura y metadatos. Devuelve ÚNICAMENTE un JSON con una lista de diccionarios. Claves estrictas: 'codigo_proveedor', 'descripcion', 'costo_neto', 'contenido_caja' (si no existe, pon 1). No incluyas markdown ni explicaciones, solo el JSON puro.\n\nTexto sucio:\n"
 
-    prompt = f"""Extrae la información comercial de este texto sucio. Ignora basura y metadatos. Devuelve ÚNICAMENTE un JSON con una lista de diccionarios. Claves estrictas: 'codigo_proveedor', 'descripcion', 'costo_neto', 'contenido_caja' (si no existe, pon 1). No incluyas markdown ni explicaciones, solo el JSON puro.
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt + text_data}
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.0
+        }
+    }
 
-Texto sucio:
-{text_data}
-"""
     try:
+        response = requests.post(url, headers={'Content-Type': 'application/json'}, json=payload)
+
+        if response.status_code != 200:
+            st.error(f"Error de la API (HTTP {response.status_code}):")
+            st.code(response.text)
+            return []
+
+        response_json = response.json()
+
+        # Extract the text content from the API response
         try:
-            # Using gemini-1.5-flash-latest as requested
-            model = genai.GenerativeModel('gemini-1.5-flash-latest')
-            response = model.generate_content(prompt)
-        except Exception as e:
-            st.warning(f"⚠️ El modelo 'gemini-1.5-flash-latest' falló ({e}). Haciendo fallback a 'gemini-pro'.")
-            model = genai.GenerativeModel('gemini-pro')
-            response = model.generate_content(prompt)
+            raw_output = response_json['candidates'][0]['content']['parts'][0]['text']
+        except (KeyError, IndexError):
+            st.error("La API devolvió una respuesta con formato inesperado.")
+            st.code(response.text)
+            return []
 
-        raw_output = response.text.strip()
+        # Remove markdown formatting if present
+        raw_output = raw_output.replace('```json', '').replace('```', '').strip()
 
-        # Safe JSON parsing: remove markdown fences if Gemini hallucinates them
-        if raw_output.startswith("```json"):
-            raw_output = raw_output[7:]
-        if raw_output.startswith("```"):
-            raw_output = raw_output[3:]
-        if raw_output.endswith("```"):
-            raw_output = raw_output[:-3]
-
-        raw_output = raw_output.strip()
         data = json.loads(raw_output)
         return data
     except json.JSONDecodeError:
@@ -92,7 +101,7 @@ Texto sucio:
         st.code(raw_output)
         return []
     except Exception as e:
-        st.error(f"Error llamando a la API de Gemini: {e}")
+        st.error(f"Error llamando a la API de Gemini (REST): {e}")
         return []
 
 def generate_sku(marca, item_id):
