@@ -58,8 +58,6 @@ def call_gemini_engine(text_data, api_key):
     Motor IA: Llama a Gemini para limpiar el texto y devolver JSON estructurado.
     """
     genai.configure(api_key=api_key)
-    # Using gemini-1.5-flash as requested
-    model = genai.GenerativeModel('gemini-1.5-flash')
 
     prompt = f"""Extrae la información comercial de este texto sucio. Ignora basura y metadatos. Devuelve ÚNICAMENTE un JSON con una lista de diccionarios. Claves estrictas: 'codigo_proveedor', 'descripcion', 'costo_neto', 'contenido_caja' (si no existe, pon 1). No incluyas markdown ni explicaciones, solo el JSON puro.
 
@@ -67,7 +65,15 @@ Texto sucio:
 {text_data}
 """
     try:
-        response = model.generate_content(prompt)
+        try:
+            # Using gemini-1.5-flash-latest as requested
+            model = genai.GenerativeModel('gemini-1.5-flash-latest')
+            response = model.generate_content(prompt)
+        except Exception as e:
+            st.warning(f"⚠️ El modelo 'gemini-1.5-flash-latest' falló ({e}). Haciendo fallback a 'gemini-pro'.")
+            model = genai.GenerativeModel('gemini-pro')
+            response = model.generate_content(prompt)
+
         raw_output = response.text.strip()
 
         # Safe JSON parsing: remove markdown fences if Gemini hallucinates them
