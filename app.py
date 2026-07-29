@@ -32,20 +32,24 @@ def init_db():
 def get_connection():
     return sqlite3.connect(DB_NAME)
 
-def extract_raw_text_from_excel(uploaded_file):
+def extract_raw_text_from_excel(uploaded_file, batch_size=50):
     text_chunks = []
     try:
         xl = pd.ExcelFile(uploaded_file)
         for sheet in xl.sheet_names:
             df = pd.read_excel(xl, sheet_name=sheet, header=None)
             df = df.dropna(how='all')
-            csv_str = df.to_csv(index=False, header=False)
-            text_chunks.append(csv_str)
+
+            # Batch processing: divide the dataframe into smaller chunks
+            for start_idx in range(0, len(df), batch_size):
+                df_chunk = df.iloc[start_idx:start_idx + batch_size]
+                csv_str = df_chunk.to_csv(index=False, header=False)
+                text_chunks.append(csv_str)
     except Exception as e:
         st.error(f"Error extrayendo texto del Excel: {e}")
     return text_chunks
 
-def call_gemini_engine(text_data, api_key):
+def call_gemini_engine(text_data, api_key, batch_num):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key={api_key}"
     prompt = "Extrae la información comercial de este texto sucio. Ignora basura y metadatos. Devuelve ÚNICAMENTE un JSON con una lista de diccionarios. Claves estrictas: 'codigo_proveedor', 'descripcion', 'costo_neto', 'contenido_caja' (si no existe, pon 1). No incluyas markdown ni explicaciones, solo el JSON puro.\n\nTexto sucio:\n"
 
@@ -62,12 +66,12 @@ def call_gemini_engine(text_data, api_key):
         }
     }
 
+    raw_output = ""
     try:
         response = requests.post(url, headers={'Content-Type': 'application/json'}, json=payload)
 
         if response.status_code != 200:
-            st.error(f"Error de la API (HTTP {response.status_code}):")
-            st.code(response.text)
+            st.warning(f"Error de la API en el Lote {batch_num} (HTTP {response.status_code}). Saltando...")
             return []
 
         response_json = response.json()
@@ -75,8 +79,7 @@ def call_gemini_engine(text_data, api_key):
         try:
             raw_output = response_json['candidates'][0]['content']['parts'][0]['text']
         except (KeyError, IndexError):
-            st.error("La API devolvió una respuesta con formato inesperado.")
-            st.code(response.text)
+            st.warning(f"La API devolvió una respuesta con formato inesperado en el Lote {batch_num}. Saltando...")
             return []
 
         raw_output = raw_output.replace('```json', '').replace('```', '').strip()
@@ -84,11 +87,10 @@ def call_gemini_engine(text_data, api_key):
         data = json.loads(raw_output)
         return data
     except json.JSONDecodeError:
-        st.error("Error: La IA no devolvió un JSON válido.")
-        st.code(raw_output)
+        st.warning(f"Error: La IA no devolvió un JSON válido en el Lote {batch_num} (Truncamiento). Saltando...")
         return []
     except Exception as e:
-        st.error(f"Error llamando a la API de Gemini (REST): {e}")
+        st.warning(f"Error llamando a la API de Gemini (REST) en el Lote {batch_num}: {e}. Saltando...")
         return []
 
 def generate_sku(marca, item_id):
@@ -193,21 +195,34 @@ def main():
                     st.warning(f"Saltando {file.name}: No se especificó la marca.")
                     continue
 
-                with st.spinner(f"Extrayendo texto crudo de {file.name}..."):
-                    text_chunks = extract_raw_text_from_excel(file)
+                with st.spinner(f"[{file.name}] Dividiendo en lotes operativos (Batching)..."):
+                    text_chunks = extract_raw_text_from_excel(file, batch_size=50)
 
-                for chunk in text_chunks:
-                    with st.spinner(f"({file.name}) Enviando bloque a la IA (gemini-flash-lite-latest)..."):
-                        json_data = call_gemini_engine(chunk, api_key)
+                master_json_list = []
+                total_chunks = len(text_chunks)
+
+                for idx, chunk in enumerate(text_chunks):
+                    with st.spinner(f"[{file.name}] Procesando Lote {idx + 1} de {total_chunks} mediante IA..."):
+                        json_data = call_gemini_engine(chunk, api_key, batch_num=(idx + 1))
 
                         if json_data:
-                            ins, upd = process_and_unify(json_data, marca)
-                            all_inserts += ins
-                            all_updates += upd
+                            master_json_list.extend(json_data)
 
+                        # Update progress bar fractionally per batch across all files
+                        total_files = len(uploaded_files)
+                        base_progress = i / total_files
+                        chunk_progress = ((idx + 1) / total_chunks) / total_files
+                        progress_bar.progress(base_progress + chunk_progress)
+
+                        # Pequeña pausa para no saturar los rate limits de la API
                         time.sleep(2)
 
-                progress_bar.progress((i + 1) / len(uploaded_files))
+                # Upsert consolidated data for this file
+                if master_json_list:
+                    with st.spinner(f"[{file.name}] Unificando e insertando resultados en la Base Maestra..."):
+                        ins, upd = process_and_unify(master_json_list, marca)
+                        all_inserts += ins
+                        all_updates += upd
 
             st.success(f"✅ ¡Proceso de Embudo IA finalizado! Productos Nuevos (Creados): {all_inserts} | Productos Actualizados: {all_updates}")
 
