@@ -17,13 +17,14 @@ def init_db():
         CREATE TABLE IF NOT EXISTS productos_maestro (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             sku_interno TEXT UNIQUE,
+            proveedor TEXT,
             codigo_proveedor TEXT,
             descripcion TEXT,
             marca TEXT,
             costo_neto REAL,
             contenido_caja TEXT,
             fecha_actualizacion TEXT,
-            UNIQUE(marca, codigo_proveedor)
+            UNIQUE(proveedor, codigo_proveedor)
         )
     ''')
     conn.commit()
@@ -44,14 +45,16 @@ def extract_raw_text_from_excel(uploaded_file, batch_size=50):
             for start_idx in range(0, len(df), batch_size):
                 df_chunk = df.iloc[start_idx:start_idx + batch_size]
                 csv_str = df_chunk.to_csv(index=False, header=False)
-                text_chunks.append(csv_str)
+                # Inject sheet name as context for the AI
+                chunk_context = f"--- PESTAÑA ORIGEN: {sheet} ---\n{csv_str}"
+                text_chunks.append(chunk_context)
     except Exception as e:
         st.error(f"Error extrayendo texto del Excel: {e}")
     return text_chunks
 
 def call_gemini_engine(text_data, api_key, batch_num):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key={api_key}"
-    prompt = "Extrae la información comercial de este texto sucio. Ignora basura y metadatos. Devuelve ÚNICAMENTE un JSON con una lista de diccionarios. Claves estrictas: 'codigo_proveedor', 'descripcion', 'costo_neto', 'contenido_caja' (si no existe, pon 1). No incluyas markdown ni explicaciones, solo el JSON puro.\n\nTexto sucio:\n"
+    prompt = "Extrae los datos. Devuelve ÚNICAMENTE un JSON con una lista de diccionarios con las claves exactas: 'codigo_proveedor', 'marca', 'descripcion', 'costo_neto', 'contenido_caja'. Para la clave 'marca', debes deducirla del 'PESTAÑA ORIGEN', de los títulos o de la descripción. Si es imposible deducirla, pon 'GENERICA'. No incluyas markdown ni explicaciones, solo el JSON puro.\n\nTexto sucio:\n"
 
     payload = {
         "contents": [
@@ -97,7 +100,7 @@ def generate_sku(marca, item_id):
     marca_prefix = str(marca)[:3].upper() if len(str(marca)) >= 3 else str(marca).upper().ljust(3, 'X')
     return f"{marca_prefix}-{str(item_id).zfill(5)}"
 
-def process_and_unify(json_data, marca):
+def process_and_unify(json_data, proveedor):
     conn = get_connection()
     c = conn.cursor()
 
@@ -108,7 +111,9 @@ def process_and_unify(json_data, marca):
     for item in json_data:
         cod_prov = str(item.get('codigo_proveedor', '')).strip()
         desc = str(item.get('descripcion', '')).strip()
+        marca = str(item.get('marca', 'GENERICA')).strip().upper()
 
+        # Handling Latin American format vs US format securely
         costo_raw = str(item.get('costo_neto', '0')).replace('$', '').strip()
         if '.' in costo_raw and ',' in costo_raw:
             if costo_raw.rfind(',') > costo_raw.rfind('.'):
@@ -128,20 +133,22 @@ def process_and_unify(json_data, marca):
         if not desc or not cod_prov:
             continue
 
-        c.execute("SELECT id FROM productos_maestro WHERE marca = ? AND codigo_proveedor = ?", (marca, cod_prov))
+        # UPSERT logic cruzando por Proveedor y Codigo
+        c.execute("SELECT id FROM productos_maestro WHERE proveedor = ? AND codigo_proveedor = ?", (proveedor, cod_prov))
         existing = c.fetchone()
 
         if existing:
             matched_id = existing[0]
+            # Solo actualizamos descripcion, costo, caja, marca y fecha. El SKU y Proveedor se mantienen.
             c.execute('''UPDATE productos_maestro
-                         SET descripcion = ?, costo_neto = ?, contenido_caja = ?, fecha_actualizacion = ?
-                         WHERE id = ?''', (desc, costo, caja, now, matched_id))
+                         SET descripcion = ?, costo_neto = ?, contenido_caja = ?, marca = ?, fecha_actualizacion = ?
+                         WHERE id = ?''', (desc, costo, caja, marca, now, matched_id))
             updates += 1
         else:
             c.execute('''INSERT INTO productos_maestro
-                         (codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion)
-                         VALUES (?, ?, ?, ?, ?, ?)''',
-                         (cod_prov, desc, marca, costo, caja, now))
+                         (proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion)
+                         VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                         (proveedor, cod_prov, desc, marca, costo, caja, now))
             new_id = c.lastrowid
             sku = generate_sku(marca, new_id)
             c.execute("UPDATE productos_maestro SET sku_interno = ? WHERE id = ?", (sku, new_id))
@@ -157,8 +164,9 @@ def to_excel(df):
         df.to_excel(writer, index=False, sheet_name='Inventario Maestro')
     return output.getvalue()
 
+
 def main():
-    st.set_page_config(page_title="Embudo IA (Barter Plus)", layout="wide")
+    st.set_page_config(page_title="Embudo IA Multimarca (Barter Plus)", layout="wide")
     init_db()
 
     with st.sidebar:
@@ -169,15 +177,16 @@ def main():
 
     st.title("Sistema de Extracción IA y Unificación (Barter Plus)")
 
-    st.subheader("1. Embudo de Extracción Masiva")
+    st.subheader("1. Embudo de Extracción Masiva Multimarca")
+    st.info("Sube uno o múltiples archivos Excel. La Inteligencia Artificial limpiará los datos automáticamente y deducirá la marca por pestaña.")
 
     uploaded_files = st.file_uploader("Sube Listas de Proveedores (Excel)", type=["xlsx", "xls"], accept_multiple_files=True)
 
     if uploaded_files:
-        st.write("### Asignación de Marca")
-        file_marcas = {}
+        st.write("### Asignación de Proveedor")
+        file_proveedores = {}
         for file in uploaded_files:
-            file_marcas[file.name] = st.text_input(f"Ingresa la Marca para el archivo: {file.name}", key=f"marca_{file.name}").strip().upper()
+            file_proveedores[file.name] = st.text_input(f"Ingresa el Nombre del Proveedor para: {file.name}", key=f"prov_{file.name}").strip().upper()
 
         if st.button("Ejecutar Motor IA y Unificar"):
             if not api_key:
@@ -190,12 +199,12 @@ def main():
             progress_bar = st.progress(0)
 
             for i, file in enumerate(uploaded_files):
-                marca = file_marcas[file.name]
-                if not marca:
-                    st.warning(f"Saltando {file.name}: No se especificó la marca.")
+                proveedor = file_proveedores[file.name]
+                if not proveedor:
+                    st.warning(f"Saltando {file.name}: No se especificó el proveedor.")
                     continue
 
-                with st.spinner(f"[{file.name}] Dividiendo en lotes operativos (Batching)..."):
+                with st.spinner(f"[{file.name}] Extrayendo e inyectando contexto de pestañas..."):
                     text_chunks = extract_raw_text_from_excel(file, batch_size=50)
 
                 master_json_list = []
@@ -208,19 +217,17 @@ def main():
                         if json_data:
                             master_json_list.extend(json_data)
 
-                        # Update progress bar fractionally per batch across all files
+                        # Actualizar barra de progreso global
                         total_files = len(uploaded_files)
                         base_progress = i / total_files
                         chunk_progress = ((idx + 1) / total_chunks) / total_files
                         progress_bar.progress(base_progress + chunk_progress)
 
-                        # Pequeña pausa para no saturar los rate limits de la API
                         time.sleep(2)
 
-                # Upsert consolidated data for this file
                 if master_json_list:
                     with st.spinner(f"[{file.name}] Unificando e insertando resultados en la Base Maestra..."):
-                        ins, upd = process_and_unify(master_json_list, marca)
+                        ins, upd = process_and_unify(master_json_list, proveedor)
                         all_inserts += ins
                         all_updates += upd
 
@@ -230,7 +237,7 @@ def main():
     st.subheader("2. Inventario Maestro (Exportación Final)")
 
     conn = get_connection()
-    df_maestro = pd.read_sql_query("SELECT sku_interno, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion FROM productos_maestro", conn)
+    df_maestro = pd.read_sql_query("SELECT sku_interno, proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion FROM productos_maestro", conn)
     conn.close()
 
     st.dataframe(df_maestro, use_container_width=True, hide_index=True)
