@@ -69,32 +69,43 @@ def call_gemini_engine(text_data, api_key, batch_num):
         }
     }
 
-    raw_output = ""
-    try:
-        response = requests.post(url, headers={'Content-Type': 'application/json'}, json=payload)
-
-        if response.status_code != 200:
-            st.warning(f"Error de la API en el Lote {batch_num} (HTTP {response.status_code}). Saltando...")
-            return []
-
-        response_json = response.json()
-
+    while True:
+        raw_output = ""
         try:
-            raw_output = response_json['candidates'][0]['content']['parts'][0]['text']
-        except (KeyError, IndexError):
-            st.warning(f"La API devolvió una respuesta con formato inesperado en el Lote {batch_num}. Saltando...")
-            return []
+            response = requests.post(url, headers={'Content-Type': 'application/json'}, json=payload)
 
-        raw_output = raw_output.replace('```json', '').replace('```', '').strip()
+            if response.status_code == 429:
+                st.warning(f"Límite de velocidad de la API alcanzado en el Lote {batch_num}. Enfriando motor por 60 segundos... No cierres el programa.")
+                time.sleep(60)
+                continue
 
-        data = json.loads(raw_output)
-        return data
-    except json.JSONDecodeError:
-        st.warning(f"Error: La IA no devolvió un JSON válido en el Lote {batch_num} (Truncamiento). Saltando...")
-        return []
-    except Exception as e:
-        st.warning(f"Error llamando a la API de Gemini (REST) en el Lote {batch_num}: {e}. Saltando...")
-        return []
+            if response.status_code != 200:
+                st.warning(f"Error de la API en el Lote {batch_num} (HTTP {response.status_code}). Reintentando en 10 segundos...")
+                time.sleep(10)
+                continue
+
+            response_json = response.json()
+
+            try:
+                raw_output = response_json['candidates'][0]['content']['parts'][0]['text']
+            except (KeyError, IndexError):
+                st.warning(f"La API devolvió una respuesta con formato inesperado en el Lote {batch_num}. Reintentando en 10 segundos...")
+                time.sleep(10)
+                continue
+
+            raw_output = raw_output.replace('```json', '').replace('```', '').strip()
+
+            data = json.loads(raw_output)
+            return data
+
+        except json.JSONDecodeError:
+            st.warning(f"Error: La IA no devolvió un JSON válido en el Lote {batch_num} (Truncamiento). Reintentando en 10 segundos...")
+            time.sleep(10)
+            continue
+        except Exception as e:
+            st.warning(f"Error llamando a la API de Gemini (REST) en el Lote {batch_num}: {e}. Reintentando en 10 segundos...")
+            time.sleep(10)
+            continue
 
 def generate_sku(marca, item_id):
     marca_prefix = str(marca)[:3].upper() if len(str(marca)) >= 3 else str(marca).upper().ljust(3, 'X')
@@ -223,7 +234,8 @@ def main():
                         chunk_progress = ((idx + 1) / total_chunks) / total_files
                         progress_bar.progress(base_progress + chunk_progress)
 
-                        time.sleep(2)
+                        # Pausa Base obligatoria para no ahogar la API (máx ~15 req/min)
+                        time.sleep(4)
 
                 if master_json_list:
                     with st.spinner(f"[{file.name}] Unificando e insertando resultados en la Base Maestra..."):
