@@ -6,6 +6,7 @@ import json
 import io
 import time
 from datetime import datetime
+import PyPDF2
 
 DB_NAME = "inventario_barter.db"
 
@@ -33,28 +34,43 @@ def init_db():
 def get_connection():
     return sqlite3.connect(DB_NAME)
 
-def extract_raw_text_from_excel(uploaded_file, batch_size=50):
+def extract_raw_text(uploaded_file, batch_size=50):
+    """
+    Bifurcación de Extracción: Maneja Excel y PDF.
+    Devuelve una lista de chunks (lotes) de texto.
+    """
     text_chunks = []
-    try:
-        xl = pd.ExcelFile(uploaded_file)
-        for sheet in xl.sheet_names:
-            df = pd.read_excel(xl, sheet_name=sheet, header=None)
-            df = df.dropna(how='all')
+    filename = uploaded_file.name.lower()
 
-            # Batch processing: divide the dataframe into smaller chunks
-            for start_idx in range(0, len(df), batch_size):
-                df_chunk = df.iloc[start_idx:start_idx + batch_size]
-                csv_str = df_chunk.to_csv(index=False, header=False)
-                # Inject sheet name as context for the AI
-                chunk_context = f"--- PESTAÑA ORIGEN: {sheet} ---\n{csv_str}"
-                text_chunks.append(chunk_context)
+    try:
+        if filename.endswith(('.xls', '.xlsx')):
+            xl = pd.ExcelFile(uploaded_file)
+            for sheet in xl.sheet_names:
+                df = pd.read_excel(xl, sheet_name=sheet, header=None)
+                df = df.dropna(how='all')
+
+                for start_idx in range(0, len(df), batch_size):
+                    df_chunk = df.iloc[start_idx:start_idx + batch_size]
+                    csv_str = df_chunk.to_csv(index=False, header=False)
+                    chunk_context = f"--- PESTAÑA ORIGEN: {sheet} ---\n{csv_str}"
+                    text_chunks.append(chunk_context)
+
+        elif filename.endswith('.pdf'):
+            reader = PyPDF2.PdfReader(uploaded_file)
+            for i, page in enumerate(reader.pages):
+                text = page.extract_text()
+                if text:
+                    chunk_context = f"--- PAGINA: {i+1} ---\n{text}"
+                    text_chunks.append(chunk_context)
+
     except Exception as e:
-        st.error(f"Error extrayendo texto del Excel: {e}")
+        st.error(f"Error extrayendo texto del archivo: {e}")
+
     return text_chunks
 
 def call_gemini_engine(text_data, api_key, batch_num):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key={api_key}"
-    prompt = "Extrae los datos. Devuelve ÚNICAMENTE un JSON con una lista de diccionarios con las claves exactas: 'codigo_proveedor', 'marca', 'descripcion', 'costo_neto', 'contenido_caja'. Para la clave 'marca', debes deducirla del 'PESTAÑA ORIGEN', de los títulos o de la descripción. Si es imposible deducirla, pon 'GENERICA'. No incluyas markdown ni explicaciones, solo el JSON puro.\n\nTexto sucio:\n"
+    prompt = "Extrae los datos. Devuelve ÚNICAMENTE un JSON con una lista de diccionarios con las claves exactas: 'codigo_proveedor', 'marca', 'descripcion', 'costo_neto', 'contenido_caja'. Para la clave 'marca', debes deducirla del 'PESTAÑA ORIGEN' (o 'PAGINA'), de los títulos o de la descripción. Si es imposible deducirla, pon 'GENERICA'. No incluyas markdown ni explicaciones, solo el JSON puro.\n\nTexto sucio:\n"
 
     payload = {
         "contents": [
@@ -124,7 +140,6 @@ def process_and_unify(json_data, proveedor):
         desc = str(item.get('descripcion', '')).strip()
         marca = str(item.get('marca', 'GENERICA')).strip().upper()
 
-        # Handling Latin American format vs US format securely
         costo_raw = str(item.get('costo_neto', '0')).replace('$', '').strip()
         if '.' in costo_raw and ',' in costo_raw:
             if costo_raw.rfind(',') > costo_raw.rfind('.'):
@@ -144,13 +159,11 @@ def process_and_unify(json_data, proveedor):
         if not desc or not cod_prov:
             continue
 
-        # UPSERT logic cruzando por Proveedor y Codigo
         c.execute("SELECT id FROM productos_maestro WHERE proveedor = ? AND codigo_proveedor = ?", (proveedor, cod_prov))
         existing = c.fetchone()
 
         if existing:
             matched_id = existing[0]
-            # Solo actualizamos descripcion, costo, caja, marca y fecha. El SKU y Proveedor se mantienen.
             c.execute('''UPDATE productos_maestro
                          SET descripcion = ?, costo_neto = ?, contenido_caja = ?, marca = ?, fecha_actualizacion = ?
                          WHERE id = ?''', (desc, costo, caja, marca, now, matched_id))
@@ -175,9 +188,8 @@ def to_excel(df):
         df.to_excel(writer, index=False, sheet_name='Inventario Maestro')
     return output.getvalue()
 
-
 def main():
-    st.set_page_config(page_title="Embudo IA Multimarca (Barter Plus)", layout="wide")
+    st.set_page_config(page_title="Embudo IA Dual (Barter Plus)", layout="wide")
     init_db()
 
     with st.sidebar:
@@ -186,12 +198,12 @@ def main():
         if not api_key:
             st.warning("⚠️ Ingresa tu API Key para activar el motor de extracción.")
 
-    st.title("Sistema de Extracción IA y Unificación (Barter Plus)")
+    st.title("Sistema de Extracción IA Dual y Unificación (Barter Plus)")
 
-    st.subheader("1. Embudo de Extracción Masiva Multimarca")
-    st.info("Sube uno o múltiples archivos Excel. La Inteligencia Artificial limpiará los datos automáticamente y deducirá la marca por pestaña.")
+    st.subheader("1. Embudo de Extracción Masiva Multimarca (Excel y PDF)")
+    st.info("Sube uno o múltiples archivos (Excel o PDF). La Inteligencia Artificial extraerá y deducirá la marca automáticamente.")
 
-    uploaded_files = st.file_uploader("Sube Listas de Proveedores (Excel)", type=["xlsx", "xls"], accept_multiple_files=True)
+    uploaded_files = st.file_uploader("Sube Listas de Proveedores", type=["xlsx", "xls", "pdf"], accept_multiple_files=True)
 
     if uploaded_files:
         st.write("### Asignación de Proveedor")
@@ -215,8 +227,8 @@ def main():
                     st.warning(f"Saltando {file.name}: No se especificó el proveedor.")
                     continue
 
-                with st.spinner(f"[{file.name}] Extrayendo e inyectando contexto de pestañas..."):
-                    text_chunks = extract_raw_text_from_excel(file, batch_size=50)
+                with st.spinner(f"[{file.name}] Extrayendo texto crudo y separando en lotes..."):
+                    text_chunks = extract_raw_text(file, batch_size=50)
 
                 master_json_list = []
                 total_chunks = len(text_chunks)
@@ -228,13 +240,11 @@ def main():
                         if json_data:
                             master_json_list.extend(json_data)
 
-                        # Actualizar barra de progreso global
                         total_files = len(uploaded_files)
                         base_progress = i / total_files
                         chunk_progress = ((idx + 1) / total_chunks) / total_files
                         progress_bar.progress(base_progress + chunk_progress)
 
-                        # Pausa Base obligatoria para no ahogar la API (máx ~15 req/min)
                         time.sleep(4)
 
                 if master_json_list:
