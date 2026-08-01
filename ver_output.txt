@@ -1,0 +1,4 @@
+  File "<string>", line 1
+    import traceback; import sys; sys.path.append('lubricentro'); try: from proveedores.import_listas import ImportadorListasTab; print('loaded OK')
+                                                                  ^^^
+SyntaxError: invalid syntax
