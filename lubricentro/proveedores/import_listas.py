@@ -209,10 +209,7 @@ class ImportadorListasTab(QWidget):
         QMessageBox.information(
             self,
             "Importación completada",
-            f"Proceso finalizado con éxito.
-
-Actualizados: {actualizados}
-Nuevos: {nuevos}"
+            f"Proceso finalizado con éxito.\n\nActualizados: {actualizados}\nNuevos: {nuevos}"
         )
         self.btn_import.setEnabled(True)
 

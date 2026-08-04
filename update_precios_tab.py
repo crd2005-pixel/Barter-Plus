@@ -1,4 +1,9 @@
+import re
 
+with open('lubricentro/productos/precios_tab.py', 'r') as f:
+    content = f.read()
+
+replacement = '''
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QDoubleSpinBox,
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
@@ -561,7 +566,7 @@ class _PrecioConsultaDialog(QDialog):
         lay = QVBoxLayout(self)
 
         def lbl_big(texto: str, valor: float):
-            w = QLabel(f"{texto}\n" + f"${valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+            w = QLabel(f"{texto}\\n" + f"${valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
             f = QFont()
             f.setPointSize(22)
             f.setBold(True)
@@ -663,3 +668,7 @@ def on_consultar_precio_clicked(self):
 
     except Exception as e:
         QMessageBox.critical(self, "Consultar precio", f"Error al calcular: {e}")
+'''
+
+with open('lubricentro/productos/precios_tab.py', 'w') as f:
+    f.write(replacement)
