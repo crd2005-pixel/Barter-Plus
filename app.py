@@ -65,8 +65,12 @@ def clean_currency(value):
     if pd.isna(value):
         return 0.0
     val_str = str(value).strip()
-    # Handle Latin American format explicitly (e.g. 1.234,56 -> 1234.56)
-    if re.match(r'^[\d\.,\s]+$', val_str):
+
+    # Check if the string matches the general pattern of currency digits/symbols
+    if re.search(r'[\d\.,]', val_str):
+        # Remove anything that is not a digit, comma, or dot (like $ or spaces)
+        val_str = re.sub(r'[^\d\.,]', '', val_str)
+
         # Count dots and commas
         dots = val_str.count('.')
         commas = val_str.count(',')
@@ -82,6 +86,14 @@ def clean_currency(value):
             val_str = val_str.replace(',', '.')
         elif commas > 1 and dots == 0:
             val_str = val_str.replace(',', '')
+        # If it has dots but NO commas, it might be 1.500 (one thousand five hundred)
+        # or 1.50 (one point five). In Argentina format usually dot is thousands separator.
+        elif dots >= 1 and commas == 0:
+            # If the last dot has exactly 3 digits after it, assume it's a thousands separator
+            # Only if it's not a clear decimal like 1.50 (2 digits) or 1.5 (1 digit)
+            parts = val_str.split('.')
+            if len(parts[-1]) == 3:
+                val_str = val_str.replace('.', '')
 
     val_str = re.sub(r'[^\d.]', '', val_str)
     try:
