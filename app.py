@@ -1,69 +1,130 @@
 import streamlit as st
-import pandas as pd
 import sqlite3
-import re
-import io
+import pandas as pd
+import requests
 import json
-import uuid
-import datetime
-from thefuzz import fuzz
+import io
+import time
+from datetime import datetime
+import PyPDF2
 
-st.set_page_config(page_title="Barter Plus v6.0", layout="wide", initial_sidebar_state="expanded")
+DB_NAME = "inventario_barter.db"
 
 @st.cache_resource
 def init_db():
-    conn = sqlite3.connect("inventario_barter.db", check_same_thread=False)
+    conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    # Tabla maestro
     c.execute('''
         CREATE TABLE IF NOT EXISTS productos_maestro (
-            sku TEXT PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sku_interno TEXT UNIQUE,
+            proveedor TEXT,
             codigo_proveedor TEXT,
             descripcion TEXT,
             marca TEXT,
-            precio_costo REAL,
+            costo_neto REAL,
+            contenido_caja TEXT,
             fecha_actualizacion TEXT,
-            metadata_extra TEXT
-        )
-    ''')
-
-    # Auto-correccion de schema (resiliencia)
-    try:
-        c.execute("ALTER TABLE productos_maestro ADD COLUMN marca TEXT")
-    except sqlite3.OperationalError:
-        pass
-
-    try:
-        c.execute("ALTER TABLE productos_maestro ADD COLUMN precio_costo REAL")
-    except sqlite3.OperationalError:
-        pass
-
-    try:
-        c.execute("ALTER TABLE productos_maestro ADD COLUMN fecha_actualizacion TEXT")
-    except sqlite3.OperationalError:
-        pass
-
-    try:
-        c.execute("ALTER TABLE productos_maestro ADD COLUMN metadata_extra TEXT")
-    except sqlite3.OperationalError:
-        pass
-
-    # Tabla plantillas
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS plantillas (
-            id TEXT PRIMARY KEY,
-            nombre TEXT,
-            configuracion TEXT
+            UNIQUE(proveedor, codigo_proveedor)
         )
     ''')
     conn.commit()
-    return conn
+    conn.close()
 
-conn = init_db()
+def get_connection():
+    return sqlite3.connect(DB_NAME)
+
+def extract_raw_text(uploaded_file, batch_size=50):
+    """
+    Bifurcación de Extracción: Maneja Excel y PDF.
+    Devuelve una lista de chunks (lotes) de texto.
+    """
+    text_chunks = []
+    filename = uploaded_file.name.lower()
+
+    try:
+        if filename.endswith(('.xls', '.xlsx')):
+            xl = pd.ExcelFile(uploaded_file)
+            for sheet in xl.sheet_names:
+                df = pd.read_excel(xl, sheet_name=sheet, header=None)
+                df = df.dropna(how='all')
+
+                for start_idx in range(0, len(df), batch_size):
+                    df_chunk = df.iloc[start_idx:start_idx + batch_size]
+                    csv_str = df_chunk.to_csv(index=False, header=False)
+                    chunk_context = f"--- PESTAÑA ORIGEN: {sheet} ---\n{csv_str}"
+                    text_chunks.append(chunk_context)
+
+        elif filename.endswith('.pdf'):
+            reader = PyPDF2.PdfReader(uploaded_file)
+            for i, page in enumerate(reader.pages):
+                text = page.extract_text()
+                if text:
+                    chunk_context = f"--- PAGINA: {i+1} ---\n{text}"
+                    text_chunks.append(chunk_context)
+
+    except Exception as e:
+        st.error(f"Error extrayendo texto del archivo: {e}")
+
+    return text_chunks
+
+def call_gemini_engine(text_data, api_key, batch_num):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key={api_key}"
+    prompt = "Extrae los datos. Devuelve ÚNICAMENTE un JSON con una lista de diccionarios con las claves exactas: 'codigo_proveedor', 'marca', 'descripcion', 'costo_neto', 'contenido_caja'. Para la clave 'marca', debes deducirla del 'PESTAÑA ORIGEN' (o 'PAGINA'), de los títulos o de la descripción. Si es imposible deducirla, pon 'GENERICA'. No incluyas markdown ni explicaciones, solo el JSON puro.\n\nTexto sucio:\n"
+
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt + text_data}
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.0
+        }
+    }
+
+    while True:
+        raw_output = ""
+        try:
+            response = requests.post(url, headers={'Content-Type': 'application/json'}, json=payload)
+
+            if response.status_code == 429:
+                st.warning(f"Límite de velocidad de la API alcanzado en el Lote {batch_num}. Enfriando motor por 60 segundos... No cierres el programa.")
+                time.sleep(60)
+                continue
+
+            if response.status_code != 200:
+                st.warning(f"Error de la API en el Lote {batch_num} (HTTP {response.status_code}). Reintentando en 10 segundos...")
+                time.sleep(10)
+                continue
+
+            response_json = response.json()
+
+            try:
+                raw_output = response_json['candidates'][0]['content']['parts'][0]['text']
+            except (KeyError, IndexError):
+                st.warning(f"La API devolvió una respuesta con formato inesperado en el Lote {batch_num}. Reintentando en 10 segundos...")
+                time.sleep(10)
+                continue
+
+            raw_output = raw_output.replace('```json', '').replace('```', '').strip()
+
+            data = json.loads(raw_output)
+            return data
+
+        except json.JSONDecodeError:
+            st.warning(f"Error: La IA no devolvió un JSON válido en el Lote {batch_num} (Truncamiento). Reintentando en 10 segundos...")
+            time.sleep(10)
+            continue
+        except Exception as e:
+            st.warning(f"Error llamando a la API de Gemini (REST) en el Lote {batch_num}: {e}. Reintentando en 10 segundos...")
+            time.sleep(10)
+            continue
 
 def limpiar_precio_argentino(valor_crudo):
-    if pd.isna(valor_crudo):
-        return 0.0
+    import re
     if not isinstance(valor_crudo, str):
         try:
             return float(valor_crudo)
@@ -95,276 +156,144 @@ def limpiar_precio_argentino(valor_crudo):
     except ValueError:
         return 0.0
 
-def generate_sku(marca, autoincrement_id):
-    marca_clean = re.sub(r'[^a-zA-Z0-9]', '', str(marca).upper())[:3]
-    if not marca_clean:
-        marca_clean = "XXX"
-    return f"{marca_clean}-UN-{str(autoincrement_id).zfill(5)}"
+def generate_sku(marca, item_id):
+    marca_prefix = str(marca)[:3].upper() if len(str(marca)) >= 3 else str(marca).upper().ljust(3, 'X')
+    return f"{marca_prefix}-{str(item_id).zfill(5)}"
 
-def smart_alias_columns(df):
-    # This acts as an initial normalizer before strict mapping
-    new_cols = []
-    for col in df.columns:
-        col_str = str(col).lower()
-        if 'cod' in col_str or 'cód' in col_str:
-            new_cols.append('CÓDIGO')
-        elif 'desc' in col_str or 'art' in col_str:
-            new_cols.append('DESCRIPCIÓN')
-        elif 'precio' in col_str or 'costo' in col_str or '$' in col_str:
-            new_cols.append('PRECIO')
+def process_and_unify(json_data, proveedor):
+    conn = get_connection()
+    c = conn.cursor()
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    inserts = 0
+    updates = 0
+
+    for item in json_data:
+        cod_prov = str(item.get('codigo_proveedor', '')).strip()
+        desc = str(item.get('descripcion', '')).strip()
+        marca = str(item.get('marca', 'GENERICA')).strip().upper()
+
+        costo = limpiar_precio_argentino(item.get('costo_neto', '0'))
+
+        caja = str(item.get('contenido_caja', '1')).strip()
+
+        if not desc or not cod_prov:
+            continue
+
+        c.execute("SELECT id FROM productos_maestro WHERE proveedor = ? AND codigo_proveedor = ?", (proveedor, cod_prov))
+        existing = c.fetchone()
+
+        if existing:
+            matched_id = existing[0]
+            c.execute('''UPDATE productos_maestro
+                         SET descripcion = ?, costo_neto = ?, contenido_caja = ?, marca = ?, fecha_actualizacion = ?
+                         WHERE id = ?''', (desc, costo, caja, marca, now, matched_id))
+            updates += 1
         else:
-            new_cols.append(col)
+            c.execute('''INSERT INTO productos_maestro
+                         (proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion)
+                         VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                         (proveedor, cod_prov, desc, marca, costo, caja, now))
+            new_id = c.lastrowid
+            sku = generate_sku(marca, new_id)
+            c.execute("UPDATE productos_maestro SET sku_interno = ? WHERE id = ?", (sku, new_id))
+            inserts += 1
 
-    # Ensure unique column names for pyarrow safety
-    unique_cols = []
-    seen = {}
-    for c in new_cols:
-        if c not in seen:
-            seen[c] = 1
-            unique_cols.append(c)
-        else:
-            unique_cols.append(f"{c}_{seen[c]}")
-            seen[c] += 1
+    conn.commit()
+    conn.close()
+    return inserts, updates
 
-    df.columns = unique_cols
-    return df
+def to_excel(df):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Inventario Maestro')
+    return output.getvalue()
 
-def apply_purger(df):
-    # Discard rows that are likely metadata/disclaimers
-    # E.g. empty rows or rows where the majority of columns are NaN
-    threshold = len(df.columns) * 0.3 # At least 30% of columns must have data
-    df = df.dropna(thresh=int(threshold))
+def main():
+    st.set_page_config(page_title="Embudo IA Dual (Barter Plus)", layout="wide")
+    init_db()
 
-    # Simple regex based row purger for common useless text
-    mask = df.astype(str).apply(lambda x: x.str.contains(r'lista de precios|vigente desde|hoja|pág|tel:|dirección|iva', flags=re.IGNORECASE)).any(axis=1)
-    return df[~mask].reset_index(drop=True)
+    with st.sidebar:
+        st.header("Configuración de Motor IA")
+        api_key = st.text_input("Gemini API Key", type="password")
+        if not api_key:
+            st.warning("⚠️ Ingresa tu API Key para activar el motor de extracción.")
 
-def destack_dataframe(df, is_stacked=False):
-    if not is_stacked:
-        return [df]
+    st.title("Sistema de Extracción IA Dual y Unificación (Barter Plus)")
 
-    tables = []
-    current_table = []
+    st.subheader("1. Embudo de Extracción Masiva Multimarca (Excel y PDF)")
+    st.info("Sube uno o múltiples archivos (Excel o PDF). La Inteligencia Artificial extraerá y deducirá la marca automáticamente.")
 
-    for idx, row in df.iterrows():
-        # Detect a "header" row by checking if it has many non-null string values
-        # and checking fuzz ratio with previous rows. A naive implementation:
-        non_nulls = row.notna().sum()
-        if non_nulls > 2 and row.astype(str).str.contains(r'[a-zA-Z]').sum() > 2:
-            if current_table and len(current_table) > 2:
-                # Potential new table start
-                # Use fuzz to see if this row resembles the first row of current_table (the assumed header)
-                header = current_table[0]
-                # Compare string representations
-                sim = fuzz.token_set_ratio(" ".join(header.astype(str)), " ".join(row.astype(str)))
+    uploaded_files = st.file_uploader("Sube Listas de Proveedores", type=["xlsx", "xls", "pdf"], accept_multiple_files=True)
 
-                # If they are very different, it might be a new table structure
-                if sim < 85:
-                    temp_df = pd.DataFrame(current_table[1:], columns=current_table[0])
-                    tables.append(temp_df)
-                    current_table = [row]
+    if uploaded_files:
+        st.write("### Asignación de Proveedor")
+        file_proveedores = {}
+        for file in uploaded_files:
+            file_proveedores[file.name] = st.text_input(f"Ingresa el Nombre del Proveedor para: {file.name}", key=f"prov_{file.name}").strip().upper()
+
+        if st.button("Ejecutar Motor IA y Unificar"):
+            if not api_key:
+                st.error("No se puede procesar sin una API Key válida.")
+                st.stop()
+
+            all_inserts = 0
+            all_updates = 0
+
+            progress_bar = st.progress(0)
+
+            for i, file in enumerate(uploaded_files):
+                proveedor = file_proveedores[file.name]
+                if not proveedor:
+                    st.warning(f"Saltando {file.name}: No se especificó el proveedor.")
                     continue
 
-        current_table.append(row)
+                with st.spinner(f"[{file.name}] Extrayendo texto crudo y separando en lotes..."):
+                    text_chunks = extract_raw_text(file, batch_size=50)
 
-    if current_table and len(current_table) > 1:
-        temp_df = pd.DataFrame(current_table[1:], columns=current_table[0])
-        tables.append(temp_df)
-    elif current_table and len(tables) == 0:
-        # Just the original
-        tables.append(df)
+                master_json_list = []
+                total_chunks = len(text_chunks)
 
-    return tables
+                for idx, chunk in enumerate(text_chunks):
+                    with st.spinner(f"[{file.name}] Procesando Lote {idx + 1} de {total_chunks} mediante IA..."):
+                        json_data = call_gemini_engine(chunk, api_key, batch_num=(idx + 1))
 
-# ================= UI AND WIZARD LOGIC =================
+                        if json_data:
+                            master_json_list.extend(json_data)
 
-st.sidebar.title("Barter Plus v6.0")
-st.sidebar.markdown("---")
-modo = st.sidebar.radio("¿Qué deseas hacer?", ["Entrenar Sistema (Wizard)", "Normalizar (Ingesta Masiva)", "Inventario Maestro Unificado"])
+                        total_files = len(uploaded_files)
+                        base_progress = i / total_files
+                        chunk_progress = ((idx + 1) / total_chunks) / total_files
+                        progress_bar.progress(base_progress + chunk_progress)
 
-if modo == "Entrenar Sistema (Wizard)":
-    st.header("Wizard de Entrenamiento 🧙‍♂️")
-    st.write("Sube un archivo de ejemplo para enseñar al sistema cómo leer la lista de este proveedor.")
+                        time.sleep(4)
 
-    uploaded_file = st.file_uploader("Sube un Excel o PDF de ejemplo", type=["xlsx", "xls", "pdf"])
+                if master_json_list:
+                    with st.spinner(f"[{file.name}] Unificando e insertando resultados en la Base Maestra..."):
+                        ins, upd = process_and_unify(master_json_list, proveedor)
+                        all_inserts += ins
+                        all_updates += upd
 
-    if uploaded_file:
-        try:
-            # Handle reading files (simplistic for this example, focusing on Excel)
-            if uploaded_file.name.endswith(('xlsx', 'xls')):
-                xl = pd.ExcelFile(uploaded_file)
-                sheet_names = xl.sheet_names
-                selected_sheet = st.selectbox("Selecciona la Pestaña a procesar", sheet_names)
+            st.success(f"✅ ¡Proceso de Embudo IA finalizado! Productos Nuevos (Creados): {all_inserts} | Productos Actualizados: {all_updates}")
 
-                df_preview = pd.read_excel(xl, sheet_name=selected_sheet, nrows=50)
+    st.write("---")
+    st.subheader("2. Inventario Maestro (Exportación Final)")
 
-                # Enforce unique generic column names (Col_0, Col_1, etc.) for mapping
-                df_preview.columns = [f"Col_{i}" for i in range(len(df_preview.columns))]
-                st.dataframe(df_preview.head())
+    conn = get_connection()
+    df_maestro = pd.read_sql_query("SELECT sku_interno, proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion FROM productos_maestro", conn)
+    conn.close()
 
-                st.subheader("Mapeo de Columnas Críticas")
-                # Prepend None option
-                col_options = ["[Ninguno (No Existe)]"] + list(df_preview.columns)
+    st.dataframe(df_maestro, use_container_width=True, hide_index=True)
 
-                col_codigo = st.selectbox("Define Columna de CÓDIGO", col_options)
-                col_desc = st.selectbox("Define Columna de DESCRIPCIÓN", col_options)
-                col_precio = st.selectbox("Define Columna de PRECIO", col_options)
-                col_marca = st.selectbox("Define Columna de MARCA (Opcional)", col_options)
-
-                st.subheader("Inteligencia de Mapeo Guiado Complejo")
-                manejar_multiple = st.checkbox("¿Manejar Una Fila = Múltiples Códigos, Medidas, Precios?")
-                manejar_apiladas = st.checkbox("¿Manejar Tablas Apiladas Verticalmente (una sobre otra)?")
-
-                nombre_plantilla = st.text_input("Nombre de la Plantilla", placeholder="Ej: Lista_Proveedor_A")
-
-                if st.button("Guardar Plantilla"):
-                    if not nombre_plantilla:
-                        st.error("Por favor, ingresa un nombre para la plantilla.")
-                    else:
-                        config = {
-                            "col_codigo": col_codigo,
-                            "col_desc": col_desc,
-                            "col_precio": col_precio,
-                            "col_marca": col_marca,
-                            "manejar_multiple": manejar_multiple,
-                            "manejar_apiladas": manejar_apiladas,
-                            "sheet_name": selected_sheet
-                        }
-
-                        c = conn.cursor()
-                        # Use replace/insert to update if exists
-                        c.execute("INSERT OR REPLACE INTO plantillas (id, nombre, configuracion) VALUES (?, ?, ?)",
-                                  (str(uuid.uuid4()), nombre_plantilla, json.dumps(config)))
-                        conn.commit()
-                        st.success(f"Plantilla '{nombre_plantilla}' guardada con éxito.")
-
-            elif uploaded_file.name.endswith('pdf'):
-                st.warning("El procesamiento de PDF en el Wizard está limitado en este demo. Por favor use Excel para testear todas las funciones.")
-        except Exception as e:
-            st.error(f"Error procesando el archivo: {e}")
-
-elif modo == "Normalizar (Ingesta Masiva)":
-    st.header("Motor de Ingesta Masiva 🚀")
-
-    # Load templates
-    c = conn.cursor()
-    c.execute("SELECT id, nombre, configuracion FROM plantillas")
-    plantillas_db = c.fetchall()
-
-    if not plantillas_db:
-        st.warning("No hay plantillas guardadas. Ve al Wizard para crear una.")
-    else:
-        plantilla_dict = {p[1]: json.loads(p[2]) for p in plantillas_db}
-        selected_template_name = st.selectbox("Selecciona una Plantilla de Mapeo", list(plantilla_dict.keys()))
-        config = plantilla_dict[selected_template_name]
-
-        st.info(f"Usando plantilla configurada para hojas: '{config.get('sheet_name', 'N/A')}'")
-
-        uploaded_files = st.file_uploader("Sube archivos caóticos (Excel)", type=["xlsx", "xls"], accept_multiple_files=True)
-
-        if uploaded_files and st.button("Procesar Archivos"):
-            creados = 0
-            actualizados = 0
-            with st.spinner("Procesando..."):
-                for uf in uploaded_files:
-                    try:
-                        xl = pd.ExcelFile(uf)
-                        sheet = config.get('sheet_name')
-                        if sheet not in xl.sheet_names:
-                            st.warning(f"La pestaña '{sheet}' no existe en {uf.name}. Procesando primera pestaña por defecto.")
-                            sheet = xl.sheet_names[0]
-
-                        df = pd.read_excel(xl, sheet_name=sheet)
-
-                        # Apply smart alias (first pass)
-                        df = smart_alias_columns(df)
-
-                        # Apply Purger
-                        df = apply_purger(df)
-
-                        # Destacker
-                        tablas = destack_dataframe(df, is_stacked=config.get('manejar_apiladas', False))
-
-                        for tabla in tablas:
-                            # Force columns to Col_0, Col_1 to apply template
-                            tabla.columns = [f"Col_{i}" for i in range(len(tabla.columns))]
-
-                            for idx, row in tabla.iterrows():
-                                # Extract based on template mapping
-                                cod_col = config.get('col_codigo')
-                                desc_col = config.get('col_desc')
-                                precio_col = config.get('col_precio')
-                                marca_col = config.get('col_marca')
-
-                                codigo = str(row[cod_col]) if cod_col != "[Ninguno (No Existe)]" and cod_col in tabla.columns else ""
-                                desc = str(row[desc_col]) if desc_col != "[Ninguno (No Existe)]" and desc_col in tabla.columns else ""
-                                precio_raw = row[precio_col] if precio_col != "[Ninguno (No Existe)]" and precio_col in tabla.columns else 0.0
-                                marca = str(row[marca_col]) if marca_col != "[Ninguno (No Existe)]" and marca_col in tabla.columns else selected_template_name
-
-                                precio = limpiar_precio_argentino(precio_raw)
-
-                                if not desc or pd.isna(desc) or desc == 'nan':
-                                    continue
-
-                                # Auto-generate SKU if no valid code
-                                if not codigo or codigo == 'nan':
-                                    # Very basic auto-id for this demo, normally you query max id from DB
-                                    c.execute("SELECT COUNT(*) FROM productos_maestro")
-                                    count = c.fetchone()[0]
-                                    sku = generate_sku(marca, count + 1 + creados)
-                                else:
-                                    sku = generate_sku(marca, codigo)
-
-                                # Check DB
-                                c.execute("SELECT sku FROM productos_maestro WHERE sku = ?", (sku,))
-                                exists = c.fetchone()
-
-                                now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-                                if exists:
-                                    c.execute("""
-                                        UPDATE productos_maestro
-                                        SET precio_costo = ?, descripcion = ?, fecha_actualizacion = ?
-                                        WHERE sku = ?
-                                    """, (precio, desc, now, sku))
-                                    actualizados += 1
-                                else:
-                                    c.execute("""
-                                        INSERT INTO productos_maestro (sku, codigo_proveedor, descripcion, marca, precio_costo, fecha_actualizacion)
-                                        VALUES (?, ?, ?, ?, ?, ?)
-                                    """, (sku, codigo, desc, marca, precio, now))
-                                    creados += 1
-
-                        conn.commit()
-
-                    except Exception as e:
-                        st.error(f"Error procesando {uf.name}: {e}")
-
-            st.success("Procesamiento completado.")
-
-            st.subheader("Reporte Operativo")
-            col1, col2 = st.columns(2)
-            col1.metric("Productos Creados", creados)
-            col2.metric("Productos Actualizados", actualizados)
-
-elif modo == "Inventario Maestro Unificado":
-    st.header("Inventario Maestro Unificado 📦")
-
-    df_maestro = pd.read_sql_query("SELECT * FROM productos_maestro", conn)
-
-    if df_maestro.empty:
-        st.info("El inventario está vacío.")
-    else:
-        st.dataframe(df_maestro, use_container_width=True)
-
-        # Export
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df_maestro.to_excel(writer, index=False, sheet_name='Inventario')
-
+    if not df_maestro.empty:
+        st.success("La Base de Datos Maestra está lista para ser transferida al siguiente sistema.")
+        excel_data = to_excel(df_maestro)
         st.download_button(
-            label="Descargar Inventario Maestro a Excel",
-            data=output.getvalue(),
-            file_name="Inventario_Maestro.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            label="📥 Descargar Inventario_Maestro_Unificado.xlsx",
+            data=excel_data,
+            file_name='Inventario_Maestro_Unificado.xlsx',
+            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
+
+if __name__ == '__main__':
+    main()
