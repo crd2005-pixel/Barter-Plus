@@ -61,43 +61,37 @@ def init_db():
 
 conn = init_db()
 
-def clean_currency(value):
-    if pd.isna(value):
+def limpiar_precio_argentino(valor_crudo):
+    if pd.isna(valor_crudo):
         return 0.0
-    val_str = str(value).strip()
+    if not isinstance(valor_crudo, str):
+        try:
+            return float(valor_crudo)
+        except (ValueError, TypeError):
+            return 0.0
 
-    # Check if the string matches the general pattern of currency digits/symbols
-    if re.search(r'[\d\.,]', val_str):
-        # Remove anything that is not a digit, comma, or dot (like $ or spaces)
-        val_str = re.sub(r'[^\d\.,]', '', val_str)
+    # Eliminar letras, signos $ y espacios
+    s = re.sub(r'[^\d.,]', '', str(valor_crudo).strip())
+    if not s:
+        return 0.0
 
-        # Count dots and commas
-        dots = val_str.count('.')
-        commas = val_str.count(',')
+    # Si tiene punto y coma, el último es el separador decimal
+    if '.' in s and ',' in s:
+        if s.rfind(',') > s.rfind('.'): # Ej: 1.500,50
+            s = s.replace('.', '').replace(',', '.')
+        else: # Ej: 1,500.50
+            s = s.replace(',', '')
+    elif ',' in s: # Ej: 1500,50
+        s = s.replace(',', '.')
+    elif '.' in s: # Ej: 1.500 o 1500.50
+        partes = s.split('.')
+        # Si exactamente 3 dígitos siguen al último punto, es separador de miles ARS
+        if len(partes) > 1 and len(partes[-1]) == 3:
+            s = s.replace('.', '')
+        # Si son 1 o 2 dígitos, se asume decimal y se deja el punto intacto
 
-        # If it matches XX.XXX,XX (Latin format)
-        if dots > 0 and commas == 1 and val_str.rfind(',') > val_str.rfind('.'):
-            val_str = val_str.replace('.', '').replace(',', '.')
-        # If it matches XX,XXX.XX (US format)
-        elif commas > 0 and dots == 1 and val_str.rfind('.') > val_str.rfind(','):
-            val_str = val_str.replace(',', '')
-        # If it only has comma, treat as decimal if single
-        elif commas == 1 and dots == 0:
-            val_str = val_str.replace(',', '.')
-        elif commas > 1 and dots == 0:
-            val_str = val_str.replace(',', '')
-        # If it has dots but NO commas, it might be 1.500 (one thousand five hundred)
-        # or 1.50 (one point five). In Argentina format usually dot is thousands separator.
-        elif dots >= 1 and commas == 0:
-            # If the last dot has exactly 3 digits after it, assume it's a thousands separator
-            # Only if it's not a clear decimal like 1.50 (2 digits) or 1.5 (1 digit)
-            parts = val_str.split('.')
-            if len(parts[-1]) == 3:
-                val_str = val_str.replace('.', '')
-
-    val_str = re.sub(r'[^\d.]', '', val_str)
     try:
-        return float(val_str)
+        return round(float(s), 2)
     except ValueError:
         return 0.0
 
@@ -307,7 +301,7 @@ elif modo == "Normalizar (Ingesta Masiva)":
                                 precio_raw = row[precio_col] if precio_col != "[Ninguno (No Existe)]" and precio_col in tabla.columns else 0.0
                                 marca = str(row[marca_col]) if marca_col != "[Ninguno (No Existe)]" and marca_col in tabla.columns else selected_template_name
 
-                                precio = clean_currency(precio_raw)
+                                precio = limpiar_precio_argentino(precio_raw)
 
                                 if not desc or pd.isna(desc) or desc == 'nan':
                                     continue
