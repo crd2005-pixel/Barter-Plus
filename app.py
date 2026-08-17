@@ -7,6 +7,7 @@ import io
 import time
 from datetime import datetime
 import PyPDF2
+import re
 
 DB_NAME = "inventario_barter.db"
 
@@ -156,11 +157,22 @@ def limpiar_precio_argentino(valor_crudo):
     except ValueError:
         return 0.0
 
-def generate_sku(marca, item_id):
-    marca_prefix = str(marca)[:3].upper() if len(str(marca)) >= 3 else str(marca).upper().ljust(3, 'X')
-    return f"{marca_prefix}-{str(item_id).zfill(5)}"
+import hashlib
 
-def process_and_unify(json_data, proveedor):
+def generate_sku(proveedor, codigo_proveedor, marca, descripcion):
+    prov_prefix = str(proveedor)[:3].upper() if len(str(proveedor)) >= 3 else str(proveedor).upper().ljust(3, 'X')
+
+    cod = str(codigo_proveedor).strip()
+    if cod:
+        cod_clean = re.sub(r'[^A-Za-z0-9]', '', cod)
+        return f"{prov_prefix}-{cod_clean}"
+    else:
+        base_str = f"{proveedor}{marca}{descripcion}".encode('utf-8')
+        md5_hash = hashlib.md5(base_str).hexdigest()[:8].upper()
+        return f"{prov_prefix}-{md5_hash}"
+
+
+def process_and_unify(json_data, proveedor, marca_default=''):
     conn = get_connection()
     c = conn.cursor()
 
@@ -168,16 +180,28 @@ def process_and_unify(json_data, proveedor):
     inserts = 0
     updates = 0
 
+    known_brands = ['WEGA', 'BOSCH', 'MANN', 'FRAM', 'MAHLE', 'SHELL', 'YPF', 'CASTROL', 'TOTAL', 'ELF', 'MOTUL', 'VALVOLINE', 'PETRONAS', 'LIQUI MOLY']
+
     for item in json_data:
         cod_prov = str(item.get('codigo_proveedor', '')).strip()
         desc = str(item.get('descripcion', '')).strip()
-        marca = str(item.get('marca', 'GENERICA')).strip().upper()
+        marca = str(item.get('marca', '')).strip().upper()
+
+        if not marca or marca == 'GENERICA':
+            if marca_default:
+                marca = marca_default.upper()
+            else:
+                marca = 'GENERICA'
+                for b in known_brands:
+                    if re.search(r'\b' + re.escape(b) + r'\b', desc, re.IGNORECASE):
+                        marca = b
+                        break
 
         costo = limpiar_precio_argentino(item.get('costo_neto', '0'))
 
         caja = str(item.get('contenido_caja', '1')).strip()
 
-        if not desc or not cod_prov:
+        if not desc:
             continue
 
         c.execute("SELECT id FROM productos_maestro WHERE proveedor = ? AND codigo_proveedor = ?", (proveedor, cod_prov))
@@ -195,7 +219,7 @@ def process_and_unify(json_data, proveedor):
                          VALUES (?, ?, ?, ?, ?, ?, ?)''',
                          (proveedor, cod_prov, desc, marca, costo, caja, now))
             new_id = c.lastrowid
-            sku = generate_sku(marca, new_id)
+            sku = generate_sku(proveedor, cod_prov, marca, desc)
             c.execute("UPDATE productos_maestro SET sku_interno = ? WHERE id = ?", (sku, new_id))
             inserts += 1
 
@@ -229,8 +253,13 @@ def main():
     if uploaded_files:
         st.write("### Asignación de Proveedor")
         file_proveedores = {}
+        file_marcas = {}
         for file in uploaded_files:
-            file_proveedores[file.name] = st.text_input(f"Ingresa el Nombre del Proveedor para: {file.name}", key=f"prov_{file.name}").strip().upper()
+            col1, col2 = st.columns(2)
+            with col1:
+                file_proveedores[file.name] = st.text_input(f"Proveedor para: {file.name}", key=f"prov_{file.name}").strip().upper()
+            with col2:
+                file_marcas[file.name] = st.text_input(f"Marca Default (Opcional) para: {file.name}", key=f"marca_{file.name}").strip().upper()
 
         if st.button("Ejecutar Motor IA y Unificar"):
             if not api_key:
@@ -270,7 +299,9 @@ def main():
 
                 if master_json_list:
                     with st.spinner(f"[{file.name}] Unificando e insertando resultados en la Base Maestra..."):
-                        ins, upd = process_and_unify(master_json_list, proveedor)
+
+                        marca_def = file_marcas[file.name]
+                        ins, upd = process_and_unify(master_json_list, proveedor, marca_def)
                         all_inserts += ins
                         all_updates += upd
 
