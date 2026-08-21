@@ -1,0 +1,11 @@
+Gestor Barter.zip
+Unificador Maestro.zip
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+.venv
