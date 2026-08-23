@@ -1,11 +1,7 @@
-Gestor Barter.zip
-Unificador Maestro.zip
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
-venv/
-.env
-.venv
+*.py[cod]
+*$py.class
+*.sqlite3
+*.db
+*.log
+.DS_Store
