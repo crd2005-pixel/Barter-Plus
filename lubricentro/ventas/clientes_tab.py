@@ -118,7 +118,7 @@ class ClienteEditDialog(QDialog):
 
     def _load(self):
         with SessionLocal() as s:
-            c = s.query(Cliente).get(self._id)
+            c = s.get(Cliente, self._id)
             if not c: return
             self.ed_nombre.setText(getattr(c,"nombre","") or "")
             self.ed_doc.setText(getattr(c,"cuit_dni","") or "")
@@ -134,7 +134,7 @@ class ClienteEditDialog(QDialog):
         try:
             with SessionLocal() as s:
                 if self._id:
-                    c = s.query(Cliente).get(self._id)
+                    c = s.get(Cliente, self._id)
                     if not c:
                         QMessageBox.information(self,"Cliente","Cliente inexistente."); return
                 else:
@@ -256,7 +256,7 @@ class ClientesTab(QWidget):
             return
         try:
             with SessionLocal() as s:
-                c = s.query(Cliente).get(cid)
+                c = s.get(Cliente, cid)
                 if not c:
                     QMessageBox.information(self,"Clientes","Cliente inexistente."); return
                 s.delete(c); s.commit()

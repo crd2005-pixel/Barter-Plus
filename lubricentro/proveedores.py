@@ -137,7 +137,7 @@ class ListasPreciosTab(QWidget):
         if not prov_id:
             QMessageBox.warning(self, "Proveedor", "Debe seleccionar un proveedor antes de importar.")
             return
-        prov = self.session.query(Proveedor).get(prov_id)
+        prov = self.session.get(Proveedor, prov_id)
         if not prov:
             QMessageBox.warning(self, "Proveedor", "Proveedor no encontrado en la base de datos.")
             return
@@ -151,7 +151,7 @@ class ListasPreciosTab(QWidget):
         if not prov_id:
             QMessageBox.warning(self, "Proveedor", "Debe seleccionar un proveedor antes de importar.")
             return
-        prov = self.session.query(Proveedor).get(prov_id)
+        prov = self.session.get(Proveedor, prov_id)
         if not prov:
             QMessageBox.warning(self, "Proveedor", "Proveedor no encontrado en la base de datos.")
             return

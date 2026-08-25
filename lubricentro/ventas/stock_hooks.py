@@ -161,7 +161,7 @@ def _normalizar_cantidad(session, producto_id: int, cantidad_raw) -> Tuple[float
     Devuelve (cantidad_en_unidad_base_del_producto, unidad_base_str).
     """
     try:
-        prod = session.query(Producto).get(int(producto_id))
+        prod = session.get(Producto, int(producto_id))
     except Exception:
         prod = None
 
@@ -187,7 +187,7 @@ def descontar_stock_por_venta(venta_id: int, deposito_id_preferido: int = 1):
     """
     with SessionLocal() as s:
         try:
-            venta = s.query(Venta).get(int(venta_id))
+            venta = s.get(Venta, int(venta_id))
             if not venta:
                 return False
 
@@ -204,7 +204,7 @@ def descontar_stock_por_venta(venta_id: int, deposito_id_preferido: int = 1):
                 pid = getattr(it, "producto_id", None)
                 if not pid:
                     continue
-                prod = s.query(Producto).get(int(pid))
+                prod = s.get(Producto, int(pid))
                 if not prod:
                     continue
 
@@ -243,7 +243,7 @@ def revertir_stock_por_venta(venta_id: int):
     """
     with SessionLocal() as s:
         try:
-            venta = s.query(Venta).get(int(venta_id))
+            venta = s.get(Venta, int(venta_id))
             if not venta:
                 return False
 
@@ -258,7 +258,7 @@ def revertir_stock_por_venta(venta_id: int):
                 pid = getattr(it, "producto_id", None)
                 if not pid:
                     continue
-                prod = s.query(Producto).get(int(pid))
+                prod = s.get(Producto, int(pid))
                 if not prod:
                     continue
 

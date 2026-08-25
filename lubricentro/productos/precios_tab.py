@@ -364,7 +364,7 @@ class PreciosTab(QWidget):
         # El requerimiento dice "ajustes manuales", así que guardamos lo que ponga.
         try:
             with AppSession() as s:
-                p = s.query(Producto).get(pk)
+                p = s.get(Producto, pk)
                 if p:
                     p.precio_manual = new_val
                     s.commit()
@@ -443,7 +443,7 @@ class PreciosTab(QWidget):
     def _update_manual_price(self, pk, new_val):
         try:
             with AppSession() as s:
-                p = s.query(Producto).get(pk)
+                p = s.get(Producto, pk)
                 if p:
                     p.precio_manual = new_val
                     s.commit()
@@ -686,7 +686,7 @@ def on_consultar_precio_clicked(self):
         return
 
     with SessionLocal() as s:
-        prod = s.query(Producto).get(int(prod_id))
+        prod = s.get(Producto, int(prod_id))
         if not prod:
             QMessageBox.warning(self, "Consultar precio", "No se encontró el producto.")
             return

@@ -153,7 +153,7 @@ class StockRubroGroup(QWidget):
                     marca_nombre = ""
                     try:
                         if self.MarcaModel is not None and getattr(p, "marca_id", None):
-                            marca = s.query(self.MarcaModel).get(getattr(p, "marca_id"))
+                            marca = s.get(self.MarcaModel, getattr(p, "marca_id"))
                             marca_nombre = getattr(marca, "nombre", "") if marca else ""
                     except Exception:
                         pass
@@ -184,7 +184,7 @@ class StockRubroGroup(QWidget):
                     marca_nombre = ""
                     try:
                         if self.MarcaModel is not None and getattr(p, "marca_id", None):
-                            marca = s.query(self.MarcaModel).get(getattr(p, "marca_id"))
+                            marca = s.get(self.MarcaModel, getattr(p, "marca_id"))
                             marca_nombre = getattr(marca, "nombre", "") if marca else ""
                     except Exception:
                         pass
@@ -370,7 +370,7 @@ class StockRubroGroup(QWidget):
                     marca_nombre = ""
                     try:
                         if self.MarcaModel is not None and getattr(p, "marca_id", None):
-                            marca = s.query(self.MarcaModel).get(getattr(p, "marca_id"))
+                            marca = s.get(self.MarcaModel, getattr(p, "marca_id"))
                             marca_nombre = getattr(marca, "nombre", "") if marca else ""
                     except Exception:
                         pass
@@ -442,7 +442,7 @@ class StockRubroGroup(QWidget):
         if resp != QMessageBox.Yes:
             return
         with self.SessionLocal() as s:
-            p = s.query(self.ProductoModel).get(pid)
+            p = s.get(self.ProductoModel, pid)
             if not p:
                 QMessageBox.warning(self, "Borrar", "El producto ya no existe.")
             else:
@@ -485,7 +485,7 @@ class StockRubroGroup(QWidget):
         cant = datos["cantidad"]
         try:
             with self.SessionLocal() as s:
-                p = s.query(self.ProductoModel).get(pid)
+                p = s.get(self.ProductoModel, pid)
                 if not p:
                     QMessageBox.warning(self, "Ajuste", "El producto ya no existe.")
                     return

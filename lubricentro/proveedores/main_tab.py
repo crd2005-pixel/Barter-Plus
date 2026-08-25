@@ -1,8 +1,7 @@
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QTabWidget
 from .facturas import FacturasTab
 from .ctas import CuentasCorrientesTab
-from .import_listas import ImportadorListasTab
-from .comparativa import ComparativaListasTab
+from .import_maestro import ImportadorMaestroTab
 from proveedores.pedidos import PedidosTab
 
 class ProveedoresTab(QWidget):
@@ -12,8 +11,7 @@ class ProveedoresTab(QWidget):
         tabs = QTabWidget(); lay.addWidget(tabs)
         tabs.addTab(FacturasTab(on_after_save=self._after_change), "Facturas")
         tabs.addTab(CuentasCorrientesTab(), "Cuentas corrientes")
-        tabs.addTab(ImportadorListasTab(on_after_import=self._after_change), "Importar listas")
-        tabs.addTab(ComparativaListasTab(), "Comparativa")
+        tabs.addTab(ImportadorMaestroTab(on_after_import=self._after_change), "Importar Maestro")
 
         self.pedidos_tab = PedidosTab()
         tabs.addTab(self.pedidos_tab, "Pedidos")

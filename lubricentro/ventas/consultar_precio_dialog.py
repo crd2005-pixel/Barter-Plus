@@ -77,7 +77,7 @@ class ConsultarPrecioDialog(QDialog):
         with SessionLocal() as s:
             p = None
             if pid:
-                p = s.query(Producto).get(int(pid))
+                p = s.get(Producto, int(pid))
 
             if not p:
                 p = find_producto_robusto(s, token)

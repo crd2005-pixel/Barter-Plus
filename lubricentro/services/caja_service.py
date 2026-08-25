@@ -134,7 +134,7 @@ class CajaService:
 
     @classmethod
     def cerrar_caja(cls, session: Session, cierre_id: int, motivo: str) -> CierreCaja:
-        c = session.query(CierreCaja).get(cierre_id)
+        c = session.get(CierreCaja, cierre_id)
         if not c:
             raise ValueError("Cierre no encontrado")
 

@@ -15,7 +15,7 @@ class ConfigService:
         """Obtiene la configuración global del sistema."""
         cfg = session.query(Configuracion).first()
         if not cfg:
-            cfg = Configuracion()
+            cfg = Configuracion(nombre_negocio="Barter Plus")
             session.add(cfg)
             session.commit()
         return cfg

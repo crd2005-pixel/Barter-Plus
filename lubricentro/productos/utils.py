@@ -116,7 +116,7 @@ def costo_proveedor_iva_descuento(prod: Producto) -> Tuple[float, float, float]:
     desc = 0.0
     if Proveedor and prov_id:
         with SessionLocal() as s:
-            prov = s.query(Proveedor).get(int(prov_id))
+            prov = s.get(Proveedor, int(prov_id))
             if prov:
                 if not iva_linea:
                     iva = float(getattr(prov, "iva_pct", iva_default) or iva_default)

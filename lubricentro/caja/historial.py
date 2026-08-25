@@ -72,7 +72,7 @@ class HistorialCajaTab(QWidget):
         cid = self._selected_id()
         if not cid: return
         with SessionLocal() as s:
-            c = s.query(CierreCaja).get(cid)
+            c = s.get(CierreCaja, cid)
             items = s.query(CierreCajaItem).filter_by(cierre_id=cid).all()
             pagos = s.query(CierreCajaPago).filter_by(cierre_id=cid).all()
             aj = s.query(CierreCajaAjuste).filter_by(cierre_id=cid).all()

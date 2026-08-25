@@ -133,7 +133,7 @@ class FiltrosTab(QWidget):
             QMessageBox.warning(self, "Editar", "Seleccione un filtro.")
             return
         fid = int(self.tbl.item(r, 0).text())
-        f = self.session.query(Filtro).get(fid)
+        f = self.session.get(Filtro, fid)
         if not f: return
 
         # Tomar de la tabla los cambios
@@ -155,7 +155,7 @@ class FiltrosTab(QWidget):
             QMessageBox.warning(self, "Eliminar", "Seleccione un filtro.")
             return
         fid = int(self.tbl.item(r, 0).text())
-        f = self.session.query(Filtro).get(fid)
+        f = self.session.get(Filtro, fid)
         if f:
             self.session.delete(f); self.session.commit()
             QMessageBox.information(self, "OK", "Filtro eliminado.")
@@ -163,7 +163,7 @@ class FiltrosTab(QWidget):
 
     def ver_equivalencias(self, row, col):
         fid = int(self.tbl.item(row, 0).text())
-        f = self.session.query(Filtro).get(fid)
+        f = self.session.get(Filtro, fid)
         if not f: return
 
         eqs = self.session.query(EquivalenciaFiltro).filter_by(filtro_id=fid).all()

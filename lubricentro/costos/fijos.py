@@ -114,7 +114,7 @@ class ImpuestosWidget(QWidget):
         if not imp_id:
             QMessageBox.warning(self, "Impuesto", "Seleccione impuesto"); return
         with SessionLocal() as s:
-            imp = s.query(Impuesto).get(int(imp_id))
+            imp = s.get(Impuesto, int(imp_id))
             base = _to_date(self.dt_base.date())
             label = _periodo_label(imp.periodicidad, base)
             ini, fin = _periodo_rango(imp.periodicidad, base)
@@ -145,7 +145,7 @@ class ImpuestosWidget(QWidget):
             QMessageBox.warning(self, "Periodo", "Seleccione un periodo"); return
         per_id = int(self.tbl.item(row, 0).text())
         with SessionLocal() as s:
-            per = s.query(ImpuestoPeriodo).get(per_id)
+            per = s.get(ImpuestoPeriodo, per_id)
             if per:
                 per.pagado = True
                 s.commit()

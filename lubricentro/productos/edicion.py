@@ -420,7 +420,7 @@ class ProductoEditorDialog(QDialog):
 
     def _load(self):
         with SessionLocal() as s:
-            p = s.query(Producto).get(self.producto_id)
+            p = s.get(Producto, self.producto_id)
             if not p: return
 
             self.inp_cod_barras.setText(p.codigo_barras or "")
@@ -434,7 +434,7 @@ class ProductoEditorDialog(QDialog):
             # Marca
             m_nom = ""
             if p.marca_id and Marca:
-                m = s.query(Marca).get(p.marca_id)
+                m = s.get(Marca, p.marca_id)
                 if m: m_nom = m.nombre
             self.cmb_marca.setEditText(m_nom)
 
@@ -473,7 +473,7 @@ class ProductoEditorDialog(QDialog):
 
         with SessionLocal() as s:
             if self.producto_id:
-                p = s.query(Producto).get(self.producto_id)
+                p = s.get(Producto, self.producto_id)
             else:
                 p = Producto()
                 s.add(p)

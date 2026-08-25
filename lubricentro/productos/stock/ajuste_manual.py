@@ -225,7 +225,7 @@ class AjusteManualTab(QWidget):
         # guardar presentación y mínimo
         try:
             with SessionLocal() as s:
-                p = s.query(Producto).get(pid)
+                p = s.get(Producto, pid)
                 if not p:
                     QMessageBox.information(self, "Ajuste", "Producto inexistente.")
                     return
@@ -311,7 +311,7 @@ class AjusteManualTab(QWidget):
                         pid = int(row.get("id"))
                     except Exception:
                         continue
-                    p = s.query(Producto).get(pid)
+                    p = s.get(Producto, pid)
                     if not p:
                         continue
                     # mínimos y presentación desde CSV si vienen

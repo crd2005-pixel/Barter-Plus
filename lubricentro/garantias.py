@@ -119,7 +119,7 @@ class ReclamosGarantiaTab(QWidget):
         if not gid.isdigit():
             QMessageBox.warning(self, "Dato inválido", "Ingrese un ID de garantía válido")
             return
-        g = self.session.query(Garantia).get(int(gid))
+        g = self.session.get(Garantia, int(gid))
         if not g:
             QMessageBox.warning(self, "Garantía", "No existe garantía con ese ID")
             return

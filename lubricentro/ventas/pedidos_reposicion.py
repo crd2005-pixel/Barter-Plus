@@ -117,7 +117,7 @@ def evaluar_reposicion_por_venta(venta_id: int):
                 pass
                 # ----------------------------------------------------
 
-                prod = s.query(Producto).get(int(pid))
+                prod = s.get(Producto, int(pid))
                 if not prod: continue
 
                 stock_min = _get_stock_min(prod)

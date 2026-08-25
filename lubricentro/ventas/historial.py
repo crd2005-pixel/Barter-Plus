@@ -70,7 +70,7 @@ class DetalleVentaDialog(QDialog):
         layout = QVBoxLayout(self)
 
         with SessionLocal() as s:
-            v = s.query(Venta).get(venta_id)
+            v = s.get(Venta, venta_id)
             if not v:
                 QMessageBox.warning(self, "Venta", "No se encontró la venta.")
                 self.close(); return

@@ -24,7 +24,7 @@ def find_producto_robusto(session, token: str) -> Optional[Producto]:
     # 1) ID exacto
     try:
         pid = int(t)
-        p = session.query(Producto).get(pid)
+        p = session.get(Producto, pid)
         if p:
             return p
     except Exception:

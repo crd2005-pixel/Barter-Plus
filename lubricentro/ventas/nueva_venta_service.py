@@ -158,7 +158,7 @@ class NuevaVentaService:
             return None
         with SessionLocal() as s:
             try:
-                return s.query(Cliente).get(int(cid))
+                return s.get(Cliente, int(cid))
             except Exception:
                 return None
 
@@ -225,7 +225,7 @@ class NuevaVentaService:
 
     def resolver_producto_por_id(self, pid: int) -> Tuple[str, float]:
         with SessionLocal() as s:
-            p = s.query(Producto).get(int(pid))
+            p = s.get(Producto, int(pid))
             if not p:
                 return "", 0.0
             return getattr(p, "nombre", f"Producto {pid}"), self._precio_por_producto(s, p)
@@ -236,7 +236,7 @@ class NuevaVentaService:
         """
         if not pid: return False, 1.0, "Unidad"
         with SessionLocal() as s:
-            p = s.query(Producto).get(int(pid))
+            p = s.get(Producto, int(pid))
             if not p: return False, 1.0, "Unidad"
             # Detectar si es granel por flag venta_granel (si existe) o heurística
             es_granel = False
@@ -485,7 +485,7 @@ class NuevaVentaService:
         with SessionLocal() as s:
             # 1. Por ID directo
             if input_str.isdigit():
-                v = s.query(Venta).get(int(input_str))
+                v = s.get(Venta, int(input_str))
                 if v: return self._data_venta(v)
 
             # 2. Por comprobante (si existe col) o numero
@@ -547,7 +547,7 @@ class NuevaVentaService:
     def anular_venta(self, venta_id: int):
         with SessionLocal() as s:
             try:
-                v = s.query(Venta).get(int(venta_id))
+                v = s.get(Venta, int(venta_id))
                 if not v:
                     raise RuntimeError(f"Venta {venta_id} no encontrada")
 

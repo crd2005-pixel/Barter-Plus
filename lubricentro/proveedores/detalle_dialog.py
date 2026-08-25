@@ -93,7 +93,7 @@ class ProveedorDetalleDialog(QDialog):
                     from proveedores.bootstrap import bootstrap
                     P = bootstrap().get("Proveedor")
                     if P:
-                        p = s.query(P).get(self.proveedor_id)
+                        p = s.get(P, self.proveedor_id)
                         if p:
                             self.lbl_info.setText(f"Proveedor: {p.nombre or p.razon_social} (ID: {p.id})")
 
@@ -177,7 +177,7 @@ class ProveedorDetalleDialog(QDialog):
             else:
                 # Just delete movement (e.g. manual payment or adjustment)
                 with ProveedorService.get_session() as s:
-                    m = s.query(MovimientoProveedor).get(mid)
+                    m = s.get(MovimientoProveedor, mid)
                     if m:
                         s.delete(m)
                         s.commit()
@@ -214,7 +214,7 @@ class ProveedorDetalleDialog(QDialog):
     def _find_linked_invoice(self, mid):
         # Find FacturaProveedor that matches this movement
         with ProveedorService.get_session() as s:
-            m = s.query(MovimientoProveedor).get(mid)
+            m = s.get(MovimientoProveedor, mid)
             if not m: return None
 
             # Match by Provider, Date, Amount (Debe for Invoice/Remito)
@@ -243,7 +243,7 @@ class ProveedorDetalleDialog(QDialog):
     def _editar_manual(self, mid):
         # Simple dialog for fields
         with ProveedorService.get_session() as s:
-            m = s.query(MovimientoProveedor).get(mid)
+            m = s.get(MovimientoProveedor, mid)
             if not m: return
 
             dlg = QDialog(self)

@@ -452,7 +452,7 @@ class CajaTab(QWidget):
             return
 
         with SessionLocal() as s:
-            cierre = s.query(CierreCaja).get(cid)
+            cierre = s.get(CierreCaja, cid)
             if cierre:
                 dlg = DetalleCajaDialog(cierre, self)
                 dlg.exec_()

@@ -41,7 +41,7 @@ def _get(obj, *names, default=None):
 
 def _stock_total(session, prod_id):
     # Intentar leer del modelo Producto primero (legacy/simple)
-    p = session.query(Producto).get(prod_id)
+    p = session.get(Producto, prod_id)
     if p:
         for campo in ("stock", "existencia", "cantidad", "stock_actual", "cant_actual", "en_stock"):
             if hasattr(p, campo):
@@ -64,7 +64,7 @@ def _proveedor_de(p, s):
     pid = _get(p, "proveedor_id", "id_proveedor", default=None)
     if Proveedor and pid:
         try:
-            pr = s.query(Proveedor).get(pid)
+            pr = s.get(Proveedor, pid)
             if pr:
                 return getattr(pr, "id", None), getattr(pr, "nombre", "Proveedor")
         except Exception:
@@ -75,7 +75,7 @@ def _marca_de(p, s):
     mid = _get(p, "marca_id", default=None)
     if Marca and mid:
         try:
-            m = s.query(Marca).get(mid)
+            m = s.get(Marca, mid)
             if m:
                 return getattr(m, "nombre", "")
         except Exception:
@@ -134,14 +134,27 @@ def generar_sugerencias_pedido():
         except Exception:
             prods = []
 
-        # Pre-calculo de stocks agrupados por equivalencia
+        # Pre-calculo de stocks agrupados por equivalencia usando func.sum
+        from sqlalchemy import func
+        cache_stock = {}
+        stock_query = s.query(Stock.producto_id, func.coalesce(func.sum(Stock.cantidad), 0.0)).group_by(Stock.producto_id).all()
+        for pid, qty in stock_query:
+            cache_stock[pid] = float(qty)
+
         equivalencia_stock = {}
         # Primero necesitamos el stock de todos para sumar
-        # Optimizacion: cachear stock individual
-        cache_stock = {}
         for p in prods:
-            st = _stock_total(s, p.id)
-            cache_stock[p.id] = st
+            st = cache_stock.get(p.id, 0.0)
+
+            # fallback para legacy/simple si la tabla stock no tiene el registro pero p sí
+            if p.id not in cache_stock:
+                for campo in ("stock", "existencia", "cantidad", "stock_actual", "cant_actual", "en_stock"):
+                    if hasattr(p, campo):
+                        val = getattr(p, campo)
+                        if val is not None:
+                            st = float(val)
+                            cache_stock[p.id] = st
+                            break
 
             eq = getattr(p, "codigo_equivalencia", None)
             if eq:

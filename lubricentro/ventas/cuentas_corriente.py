@@ -359,7 +359,7 @@ class PlanesTarjetaDialog(QDialog):
 
         with SessionLocal() as s:
             if self._selected_id:
-                obj = s.query(TarjetaCoef).get(self._selected_id)
+                obj = s.get(TarjetaCoef, self._selected_id)
                 if not obj:
                     QMessageBox.warning(self, "Tarjetas", "No se encontró el registro seleccionado.")
                     return
@@ -391,7 +391,7 @@ class PlanesTarjetaDialog(QDialog):
             return
         keep_filters = self._current_filters()
         with SessionLocal() as s:
-            obj = s.query(TarjetaCoef).get(self._selected_id)
+            obj = s.get(TarjetaCoef, self._selected_id)
             if obj:
                 s.delete(obj)
                 s.commit()

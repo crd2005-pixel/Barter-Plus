@@ -185,7 +185,7 @@ class FacturaProveedorWidget(QWidget):
     # ---------------- Helper Methods for External Edit/Delete ----------------
     def _cargar_factura_para_edicion(self, fid):
         with ProvSession() as s:
-            f = s.query(FacturaProveedor).get(fid)
+            f = s.get(FacturaProveedor, fid)
             if not f: return
 
             # Load Header
@@ -241,7 +241,7 @@ class FacturaProveedorWidget(QWidget):
 
             # Delete Record
             with ProvSession() as s:
-                f = s.query(FacturaProveedor).get(fid)
+                f = s.get(FacturaProveedor, fid)
                 if f:
                     s.query(FacturaItem).filter(FacturaItem.factura_id == fid).delete()
                     s.delete(f)
@@ -257,7 +257,7 @@ class FacturaProveedorWidget(QWidget):
         items_to_revert = []
 
         with ProvSession() as s:
-            f = s.query(FacturaProveedor).get(fid)
+            f = s.get(FacturaProveedor, fid)
             if not f: return
 
             # Items
@@ -284,7 +284,7 @@ class FacturaProveedorWidget(QWidget):
                     # Calculate bulk reversal
                     qty_revert = item["qty"]
 
-                    prod_obj = ms.query(Producto).get(pid)
+                    prod_obj = ms.get(Producto, pid)
                     if prod_obj:
                         is_granel = False
                         try:
@@ -469,7 +469,7 @@ class FacturaProveedorWidget(QWidget):
             # Try to find list price for this product
             # We need a fresh session or use the helper
             with MainSession() as s:
-               p_fresh = s.query(Producto).get(pid_main)
+               p_fresh = s.get(Producto, pid_main)
                info = find_price_plus_iva_for_product(p_fresh)
                if info["ok"] and info["base"] > 0:
                    price = info["base"] # Costo lista
@@ -562,7 +562,7 @@ class FacturaProveedorWidget(QWidget):
                 self._revertir_stock_y_movimientos(current_fid)
                 # Cleanup old records (simple strategy: delete old items and header, re-create)
                 with ProvSession() as s:
-                    f = s.query(FacturaProveedor).get(current_fid)
+                    f = s.get(FacturaProveedor, current_fid)
                     if f:
                         s.query(FacturaItem).filter(FacturaItem.factura_id == current_fid).delete()
                         s.delete(f)
@@ -705,7 +705,7 @@ class FacturaProveedorWidget(QWidget):
 
                         # Check bulk/granel logic
                         qty_to_add = it["qty"]
-                        prod_obj = ms.query(Producto).get(pid)
+                        prod_obj = ms.get(Producto, pid)
                         if prod_obj:
                             # If venta_granel is set, it means the product is sold in smaller units (e.g. Liters)
                             # but bought in packs (e.g. Drums).
@@ -729,7 +729,7 @@ class FacturaProveedorWidget(QWidget):
                         stk.cantidad += qty_to_add
 
                         # Update Cost?
-                        prod = ms.query(Producto).get(pid)
+                        prod = ms.get(Producto, pid)
                         if prod:
                             prod.costo = it["price"]
                             # Logic to update retail price could go here or trigger a recalc flag
