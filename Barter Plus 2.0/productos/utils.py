@@ -88,7 +88,25 @@ def total_prorrateable_mes(ref: Optional[dt.date] = None) -> float:
     return float(round(total, 2))
 
 def _min_precio_proveedor(prod: Producto) -> Tuple[Optional[float], Optional[int], Optional[float]]:
-    return None, getattr(prod, "proveedor_id", None), None
+    with SessionLocal() as s:
+        if ProveedorPrecio:
+            row = s.query(ProveedorPrecio).filter(ProveedorPrecio.producto_id == prod.id).order_by(ProveedorPrecio.precio.asc()).first()
+            if row:
+                return float(row.precio or 0.0), int(row.proveedor_id or 0), float(getattr(row, "iva_pct", 0.0) or 0.0)
+        if ItemListaProveedor and ListaPrecioProveedor:
+            row2 = s.query(ItemListaProveedor).filter(ItemListaProveedor.producto_id == prod.id).order_by(ItemListaProveedor.precio.asc()).first()
+            if row2:
+                prov_id = s.query(ListaPrecioProveedor.proveedor_id).filter(ListaPrecioProveedor.id == row2.lista_id).scalar()
+                return float(row2.precio or 0.0), int(prov_id or 0), float(getattr(row2, "iva_pct", 0.0) or 0.0)
+    if min_costo_proveedor_externo is not None:
+        try:
+            costo, prov_id, iva_pct = min_costo_proveedor_externo(prod)
+            if costo is not None:
+                return float(costo), (int(prov_id) if prov_id else 0), float(iva_pct or 0.0)
+        except Exception:
+            pass
+    return None, None, None
+
 def costo_proveedor_iva_descuento(prod: Producto) -> Tuple[float, float, float]:
     precio, prov_id, iva_linea = _min_precio_proveedor(prod)
     if precio is None:

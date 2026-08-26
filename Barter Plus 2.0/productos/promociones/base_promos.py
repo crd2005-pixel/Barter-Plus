@@ -82,21 +82,8 @@ def _total_prorrateable_mes() -> float:
     return float(_tpm() or 0.0)
 
 def _denominador_total(s) -> float:
-    denom = 0.0
-    for p in s.query(Producto).all():
-        try:
-            info = find_price_plus_iva_for_product(p) or {}
-            mas_iva = float(info.get("mas_iva", 0.0)) if isinstance(info, dict) else float(info or 0.0)
-        except Exception:
-            mas_iva = 0.0
-        try:
-            stk = float(get_stock_qty_for_product(p) or 0.0)
-        except Exception:
-            stk = 0.0
-        if mas_iva > 0 and stk > 0:
-            denom += mas_iva * stk
-    return denom
-
+    # Disabled for performance, prorrateo is off
+    return 0.0
 def _precio_final_base(p: Producto, total_fijos: float, denom_total: float, ganancia_pct: float) -> float:
     """
     Precio Final (el de Precios, sin promo):
