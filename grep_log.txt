@@ -1,0 +1,8 @@
+src/lubricentro/Run.bat:set "ERRLOG=%LOGDIR%\errores_BarterPlus.log"
+src/lubricentro/Lubricentro.bat:set "ERRLOG=%LOGDIR%\errores_BarterPlus.log"
+src/lubricentro/ventas/stock_hooks.py:- Loggea errores a logs/errores_BarterPlus.log
+src/lubricentro/ventas/stock_hooks.py:        with open("logs/errores_BarterPlus.log", "a", encoding="utf-8") as f:
+src/lubricentro/ventas/nueva_venta_service.py:        with open("logs/errores_BarterPlus.log", "a", encoding="utf-8") as f:
+src/lubricentro/ventas/main_tab.py:ERRLOG = os.path.join(LOGDIR, "errores_BarterPlus.log")
+src/lubricentro/ventas/main_tab.py:        QMessageBox.critical(None, "Ventas", f"{prefix}\n\nRevise logs/errores_BarterPlus.log")
+src/lubricentro/ventas/pedidos_reposicion.py:        with open("logs/errores_BarterPlus.log", "a", encoding="utf-8") as f:

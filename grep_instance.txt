@@ -1,0 +1,4 @@
+src/lubricentro/check_row_type.py:print(f"Is instance of tuple? {isinstance(row, tuple)}")
+src/lubricentro/check_row_type.py:    if isinstance(row, tuple):
+src/lubricentro/proveedores/import_listas.py:        if isinstance(force_list_percents, tuple) and len(force_list_percents) == 2:
+src/lubricentro/ventas/nueva_venta_tab.py:                    if isinstance(p, (list, tuple)):
