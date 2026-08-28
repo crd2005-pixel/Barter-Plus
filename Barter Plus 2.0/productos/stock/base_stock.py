@@ -111,8 +111,29 @@ class StockRubroGroup(QWidget):
         self.btn_exportar.clicked.connect(self._exportar_pdf)
         self.btn_editar.clicked.connect(self._editar_producto)
         self.btn_borrar.clicked.connect(self._borrar_producto)
-        self.chk_bajo_min.stateChanged.connect(self.load_data)
+        self.chk_bajo_min.stateChanged.connect(self._reset_page_and_load)
 
+        # Controles de Paginacion
+        self.lay_paginacion = QHBoxLayout()
+        self.btn_prev = QPushButton("< Anterior")
+        self.lbl_page = QLabel("Página 1")
+        self.btn_next = QPushButton("Siguiente >")
+
+        self.btn_prev.clicked.connect(self._page_prev)
+        self.btn_next.clicked.connect(self._page_next)
+
+        self.lay_paginacion.addStretch()
+        self.lay_paginacion.addWidget(self.btn_prev)
+        self.lay_paginacion.addWidget(self.lbl_page)
+        self.lay_paginacion.addWidget(self.btn_next)
+        self.lay_paginacion.addStretch()
+
+        self.current_page = 0
+        self.page_size = 50
+        self.total_pages = 1
+        self._filtered_indices = []
+
+        lay.addLayout(self.lay_paginacion)
         self.load_data()
 
     def showEvent(self, event):
@@ -120,189 +141,205 @@ class StockRubroGroup(QWidget):
         super().showEvent(event)
 
     # -------------------- Cargar grilla --------------------
-    def load_data(self):
-        if not self.SessionLocal or not self.ProductoModel:
-            # QMessageBox.critical(self, "Stock", "No se pudo resolver el modelo de Productos.")
-            self.tbl.setRowCount(0)
-            return
+
+    def _reset_page_and_load(self):
+        self.current_page = 0
+        self.load_data()
+
+    def _page_prev(self):
+        if self.current_page > 0:
+            self.current_page -= 1
+            self.load_data()
+
+    def _page_next(self):
+        if self.current_page < self.total_pages - 1:
+            self.current_page += 1
+            self.load_data()
+
+    def _populate_combos(self):
+        if not self.SessionLocal or not self.ProductoModel: return
         try:
             with self.SessionLocal() as s:
-                productos_all = s.query(self.ProductoModel).all()
+                marcas = [r[0] for r in s.query(self.ProductoModel.marca).distinct().all() if r[0]]
+                rubros = [r[0] for r in s.query(self.ProductoModel.rubro).distinct().all() if r[0]]
+                subrubros = [r[0] for r in s.query(self.ProductoModel.subrubro).distinct().all() if r[0]]
+
+                self.cmb_marca.blockSignals(True)
+                self.cmb_rubro.blockSignals(True)
+                self.cmb_subrubro.blockSignals(True)
+
+                self.cmb_marca.clear()
+                self.cmb_marca.addItem("Todas")
+                self.cmb_marca.addItems(sorted(marcas))
+
+                self.cmb_rubro.clear()
+                self.cmb_rubro.addItem("Todos")
+                self.cmb_rubro.addItems(sorted(rubros))
+
+                self.cmb_subrubro.clear()
+                self.cmb_subrubro.addItem("Todos")
+                self.cmb_subrubro.addItems(sorted(subrubros))
+
+                self.cmb_marca.blockSignals(False)
+                self.cmb_rubro.blockSignals(False)
+                self.cmb_subrubro.blockSignals(False)
+        except Exception:
+            pass
+
+    def _aplicar_filtros(self):
+        self._reset_page_and_load()
+
+    def load_data(self):
+        if not self.SessionLocal or not self.ProductoModel:
+            self.tbl.setRowCount(0)
+            return
+
+        self.tbl.setUpdatesEnabled(False)
+        self.tbl.setSortingEnabled(False)
+        self.tbl.setRowCount(0)
+
+        try:
+            with self.SessionLocal() as s:
+                q = s.query(self.ProductoModel)
+
+                f_marca = self.cmb_marca.currentText()
+                if f_marca and f_marca != "Todas":
+                    q = q.filter(self.ProductoModel.marca == f_marca)
+
+                f_rubro = self.cmb_rubro.currentText()
+                if f_rubro and f_rubro != "Todos":
+                    q = q.filter(self.ProductoModel.rubro == f_rubro)
+
+                f_subrubro = self.cmb_subrubro.currentText()
+                if f_subrubro and f_subrubro != "Todos":
+                    q = q.filter(self.ProductoModel.subrubro == f_subrubro)
+
+                f_reciente = self.chk_recientes.isChecked()
+                if f_reciente:
+                    import datetime
+                    hoy = datetime.datetime.now().date()
+                    from sqlalchemy import cast, Date
+                    q = q.filter(cast(self.ProductoModel.creado_en, Date) == hoy)
+
+                all_prods = q.order_by(self.ProductoModel.nombre.asc()).all()
                 extras_map = ProductoService.load_all_extras(s, self.ProductoModel)
 
                 def _extra_of(p, key):
                     if hasattr(p, key):
                         return getattr(p, key, None)
-                    pid = getattr(p, "id", None)
-                    return (extras_map.get(pid) or {}).get(key)
+                    return (extras_map.get(p.id) or {}).get(key)
 
-                rows = []
-                for p in productos_all:
+                filtered_prods = []
+                for p in all_prods:
                     stock_val = ProductoService.get_stock_qty(s, p)
                     stock_min = float(_extra_of(p, "stock_minimo") or 0.0)
-                    if self.chk_bajo_min.isChecked():
-                        # El filtro sigue siendo "debajo del mínimo" (estricto)
-                        if stock_val < stock_min:
-                            rows.append((p, stock_val, stock_min))
-                    else:
-                        rows.append((p, stock_val, stock_min))
 
+                    if self.chk_bajo_min.isChecked() and stock_val >= stock_min:
+                        continue
+                    filtered_prods.append((p, stock_val, stock_min))
 
-                self._datos_filtro = []
-                for p, stock_val, stock_min in rows:
+                total_items = len(filtered_prods)
+                self.total_pages = max(1, (total_items + self.page_size - 1) // self.page_size)
+
+                if self.current_page >= self.total_pages:
+                    self.current_page = max(0, self.total_pages - 1)
+
+                self.lbl_page.setText(f"Página {self.current_page + 1} de {self.total_pages}")
+
+                start_idx = self.current_page * self.page_size
+                end_idx = min(start_idx + self.page_size, total_items)
+                page_data = filtered_prods[start_idx:end_idx]
+
+                from PyQt5.QtWidgets import QTableWidgetItem
+                from PyQt5.QtCore import Qt
+
+                for page_row, (p, stock_val, stock_min) in enumerate(page_data):
+                    self.tbl.insertRow(page_row)
+
                     marca_nombre = ""
-                    try:
-                        if self.MarcaModel is not None and getattr(p, "marca_id", None):
-                            marca = s.get(self.MarcaModel, getattr(p, "marca_id"))
-                            marca_nombre = getattr(marca, "nombre", "") if marca else ""
-                    except Exception:
-                        pass
+                    if hasattr(p, "marca_rel") and p.marca_rel:
+                        marca_nombre = p.marca_rel.nombre
 
-                    rubro = str(getattr(p, "rubro", "") or "")
-                    subrubro = str(_extra_of(p, "subrubro") or "")
-                    creado_en = getattr(p, "creado_en", None)
-
-                    self._datos_filtro.append({
-                        "marca": marca_nombre,
-                        "rubro": rubro,
-                        "subrubro": subrubro,
-                        "creado_en": creado_en
-                    })
-
-                self.tbl.setUpdatesEnabled(False)
-                self.tbl.setSortingEnabled(False)
-                self.tbl.setRowCount(len(rows))
-                for i, (p, stock_val, stock_min) in enumerate(rows):
-                    cod_barras = str(getattr(p, "codigo_barras", "") or "")
-                    id_item = QTableWidgetItem(cod_barras)
-                    id_item.setData(Qt.UserRole, getattr(p, "id", None))
-
-                    codigo = str(getattr(p, "codigo", "") or getattr(p, "sku", ""))
-                    nombre = str(getattr(p, "descripcion", "") or getattr(p, "nombre", ""))
-
-                    # Marca
-                    marca_nombre = ""
-                    try:
-                        if self.MarcaModel is not None and getattr(p, "marca_id", None):
-                            marca = s.get(self.MarcaModel, getattr(p, "marca_id"))
-                            marca_nombre = getattr(marca, "nombre", "") if marca else ""
-                    except Exception:
-                        pass
-
-                    rubro = str(getattr(p, "rubro", "") or "")
-                    subrubro = str(_extra_of(p, "subrubro") or "")
-                    unidad = str(_extra_of(p, "presentacion_unidad") or "")
-                    contenido = _extra_of(p, "presentacion_cantidad")
-                    try:
-                        if contenido is None:
-                            contenido = ""
-                        else:
-                            contenido = float(contenido)
-                            contenido = int(contenido) if abs(contenido - int(contenido)) < 1e-9 else round(contenido, 3)
-                    except Exception:
-                        contenido = ""
-                    venta = "Granel" if (_extra_of(p, "venta_granel") in (1, True, "1")) else "Unidad"
+                    pres = getattr(p, "presentacion", "") or ""
+                    if hasattr(p, "presentacion_rel") and p.presentacion_rel:
+                        pres = p.presentacion_rel.nombre
 
                     stock_max = float(_extra_of(p, "stock_maximo") or 0.0)
 
-                    # Datos extra del proveedor
-                    prov_data = find_price_plus_iva_for_product(p)
-                    prov_code = prov_data.get("codigo", "") if prov_data.get("ok") else ""
-                    prov_pres = prov_data.get("presentacion", "")
-                    prov_info = prov_data.get("info_extra", "")
+                    cb = ""
+                    for f_cb in ("codigo_barras", "barcode", "cb", "ean"):
+                        v = getattr(p, f_cb, None)
+                        if v:
+                            cb = str(v)
+                            break
 
-                    # Items
-                    self.tbl.setItem(i, 0, id_item)
-                    self.tbl.setItem(i, 1, QTableWidgetItem(codigo))
-                    self.tbl.setItem(i, 2, QTableWidgetItem(nombre))
-                    self.tbl.setItem(i, 3, QTableWidgetItem(marca_nombre))
+                    cod = ""
+                    for f_c in ("codigo", "codigo_interno", "cod", "sku"):
+                        v = getattr(p, f_c, None)
+                        if v:
+                            cod = str(v)
+                            break
 
-                    self.tbl.setItem(i, 4, QTableWidgetItem(str(prov_code)))
-                    self.tbl.setItem(i, 5, QTableWidgetItem(str(prov_pres)))
-                    self.tbl.setItem(i, 6, QTableWidgetItem(str(prov_info)))
+                    d = {
+                        "id": p.id,
+                        "codigo_barras": cb,
+                        "codigo": cod,
+                        "nombre": getattr(p, "nombre", "") or "",
+                        "marca": getattr(p, "marca", "") or marca_nombre,
+                        "codigo_proveedor": getattr(p, "codigo_proveedor", "") or "",
+                        "pres": pres,
+                        "info_extra": getattr(p, "info_extra", "") or "",
+                        "rubro": getattr(p, "rubro", "") or "",
+                        "subrubro": getattr(p, "subrubro", "") or "",
+                        "presentacion_unidad": getattr(p, "presentacion_unidad", "") or "",
+                        "presentacion_cantidad": float(getattr(p, "presentacion_cantidad", 1.0) or 1.0),
+                        "venta_granel": bool(getattr(p, "venta_granel", 0) in (1, True, "1")),
+                        "stock_val": stock_val,
+                        "stock_min": stock_min,
+                        "stock_max": stock_max
+                    }
 
-                    self.tbl.setItem(i, 7, QTableWidgetItem(rubro))
-                    self.tbl.setItem(i, 8, QTableWidgetItem(subrubro))
-                    self.tbl.setItem(i, 9, QTableWidgetItem(unidad))
-                    self.tbl.setItem(i, 10, QTableWidgetItem(str(contenido)))
-                    self.tbl.setItem(i, 11, QTableWidgetItem(venta))
-                    self.tbl.setItem(i, 12, QTableWidgetItem(str(stock_val)))
-                    self.tbl.setItem(i, 13, QTableWidgetItem(str(int(stock_min) if abs(stock_min-int(stock_min))<1e-9 else round(stock_min,3))))
-                    self.tbl.setItem(i, 14, QTableWidgetItem(str(int(stock_max) if abs(stock_max-int(stock_max))<1e-9 else round(stock_max,3))))
+                    it_cb_item = QTableWidgetItem(d["codigo_barras"])
+                    it_cb_item.setData(Qt.UserRole, d["id"])
+                    self.tbl.setItem(page_row, 0, it_cb_item)
+                    self.tbl.setItem(page_row, 1, QTableWidgetItem(d["codigo"]))
+                    self.tbl.setItem(page_row, 2, QTableWidgetItem(d["nombre"]))
+                    self.tbl.setItem(page_row, 3, QTableWidgetItem(d["marca"]))
+                    self.tbl.setItem(page_row, 4, QTableWidgetItem(d["codigo_proveedor"]))
+                    self.tbl.setItem(page_row, 5, QTableWidgetItem(d["pres"]))
+                    self.tbl.setItem(page_row, 6, QTableWidgetItem(d["info_extra"]))
+                    self.tbl.setItem(page_row, 7, QTableWidgetItem(d["rubro"]))
+                    self.tbl.setItem(page_row, 8, QTableWidgetItem(d["subrubro"]))
+                    self.tbl.setItem(page_row, 9, QTableWidgetItem(d["presentacion_unidad"]))
+                    self.tbl.setItem(page_row, 10, QTableWidgetItem(f'{d["presentacion_cantidad"]:g}'))
 
-                    # Resaltado SOLO cuando Stock == Stock Min (tolerancia)
-                    if _eq_tol(stock_val, stock_min):
-                        brush = QBrush(QColor(90, 0, 0))  # rojo oscuro, tema oscuro
-                        for col in range(self.tbl.columnCount()):
-                            it = self.tbl.item(i, col)
+                    granel_txt = "Granel" if d["venta_granel"] else "Unidad"
+                    self.tbl.setItem(page_row, 11, QTableWidgetItem(granel_txt))
+
+                    it_s = QTableWidgetItem(f'{d["stock_val"]:g}')
+                    it_s.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    self.tbl.setItem(page_row, 12, it_s)
+
+                    it_min = QTableWidgetItem(f'{d["stock_min"]:g}')
+                    it_min.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    self.tbl.setItem(page_row, 13, it_min)
+
+                    it_max = QTableWidgetItem(f'{d["stock_max"]:g}')
+                    it_max.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    self.tbl.setItem(page_row, 14, it_max)
+
+                    if d["stock_val"] < d["stock_min"]:
+                        for c in range(15):
+                            it = self.tbl.item(page_row, c)
                             if it:
-                                it.setBackground(brush)
-
-                self.tbl.setUpdatesEnabled(True)
-                self.tbl.setSortingEnabled(True)
-                self._actualizar_combos_filtro()
+                                it.setForeground(Qt.red)
 
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"No se pudo cargar el stock:\n{e}")
+            pass
 
-
-    def _actualizar_combos_filtro(self):
-        m_marca = self.cmb_marca.currentText()
-        m_rubro = self.cmb_rubro.currentText()
-        m_subrubro = self.cmb_subrubro.currentText()
-
-        self.cmb_marca.blockSignals(True)
-        self.cmb_rubro.blockSignals(True)
-        self.cmb_subrubro.blockSignals(True)
-
-        self.cmb_marca.clear()
-        self.cmb_rubro.clear()
-        self.cmb_subrubro.clear()
-
-        marcas = sorted(list(set([d["marca"] for d in self._datos_filtro if d["marca"]])))
-        rubros = sorted(list(set([d["rubro"] for d in self._datos_filtro if d["rubro"]])))
-        subrubros = sorted(list(set([d["subrubro"] for d in self._datos_filtro if d["subrubro"]])))
-
-        self.cmb_marca.addItem("Todas")
-        self.cmb_marca.addItems(marcas)
-        self.cmb_rubro.addItem("Todos")
-        self.cmb_rubro.addItems(rubros)
-        self.cmb_subrubro.addItem("Todos")
-        self.cmb_subrubro.addItems(subrubros)
-
-        idx = self.cmb_marca.findText(m_marca)
-        if idx >= 0: self.cmb_marca.setCurrentIndex(idx)
-        idx = self.cmb_rubro.findText(m_rubro)
-        if idx >= 0: self.cmb_rubro.setCurrentIndex(idx)
-        idx = self.cmb_subrubro.findText(m_subrubro)
-        if idx >= 0: self.cmb_subrubro.setCurrentIndex(idx)
-
-        self.cmb_marca.blockSignals(False)
-        self.cmb_rubro.blockSignals(False)
-        self.cmb_subrubro.blockSignals(False)
-
-        self._aplicar_filtros()
-
-    def _aplicar_filtros(self):
-        if not hasattr(self, '_datos_filtro'): return
-
-        f_marca = self.cmb_marca.currentText()
-        f_rubro = self.cmb_rubro.currentText()
-        f_subrubro = self.cmb_subrubro.currentText()
-        f_reciente = self.chk_recientes.isChecked()
-
-        import datetime
-        hoy = datetime.datetime.now().date()
-
-        for i, d in enumerate(self._datos_filtro):
-            mostrar = True
-            if f_marca != "Todas" and f_marca != "" and d["marca"] != f_marca: mostrar = False
-            if f_rubro != "Todos" and f_rubro != "" and d["rubro"] != f_rubro: mostrar = False
-            if f_subrubro != "Todos" and f_subrubro != "" and d["subrubro"] != f_subrubro: mostrar = False
-            if f_reciente:
-                if d["creado_en"] is None or d["creado_en"].date() != hoy: mostrar = False
-
-            self.tbl.setRowHidden(i, not mostrar)
+        self.tbl.resizeColumnsToContents()
+        self.tbl.setUpdatesEnabled(True)
+        self.tbl.setSortingEnabled(True)
 
     def _current_product_id(self):
         row = self.tbl.currentRow()

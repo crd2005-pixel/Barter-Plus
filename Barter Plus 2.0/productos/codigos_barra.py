@@ -537,6 +537,7 @@ from PyQt5.QtCore import QMarginsF # Import needed
 class CodigosBarraTab(QWidget):
     def __init__(self):
         super().__init__()
+        self._selected_ids = set()
         self._setup_ui()
         self._load_data()
 
@@ -577,6 +578,25 @@ class CodigosBarraTab(QWidget):
         self.cmb_subrubro.currentIndexChanged.connect(self._aplicar_filtros)
         self.chk_recientes.stateChanged.connect(self._aplicar_filtros)
 
+        # Controles de paginacion
+        self.lay_paginacion = QHBoxLayout()
+        self.btn_prev = QPushButton("< Anterior")
+        self.lbl_page = QLabel("Página 1")
+        self.btn_next = QPushButton("Siguiente >")
+
+        self.btn_prev.clicked.connect(self._page_prev)
+        self.btn_next.clicked.connect(self._page_next)
+
+        self.lay_paginacion.addStretch()
+        self.lay_paginacion.addWidget(self.btn_prev)
+        self.lay_paginacion.addWidget(self.lbl_page)
+        self.lay_paginacion.addWidget(self.btn_next)
+        self.lay_paginacion.addStretch()
+
+        self.current_page = 0
+        self.page_size = 50
+        self._filtered_indices = []
+
 
         bar.addStretch()
 
@@ -603,6 +623,7 @@ class CodigosBarraTab(QWidget):
         self.tbl.setColumnWidth(1, 60)
         self.tbl.setColumnWidth(2, 120)
         layout.addWidget(self.tbl)
+        layout.addLayout(self.lay_paginacion)
 
     def refresh(self):
         self._load_data()
@@ -638,39 +659,33 @@ class CodigosBarraTab(QWidget):
                 subrubro = str(getattr(p, "subrubro", "") or "")
                 creado_en = getattr(p, "creado_en", None)
 
+                cod = ""
+                for fn in ("codigo","sku","cod"):
+                    if hasattr(p, fn) and getattr(p, fn):
+                        cod = str(getattr(p, fn))
+                        break
+
+                cb = (getattr(p, "codigo_barras", None) or getattr(p, "barcode", None) or getattr(p, "cb", None) or getattr(p, "ean", None) or "").strip()
+
+                try:
+                    from ventas.precio_busquedas import precio_vigente
+                    pr = precio_vigente(s, p)
+                except:
+                    pr = 0.0
+
                 self._datos_filtro.append({
+                    "id": p.id,
+                    "codigo": cod,
+                    "nombre": getattr(p, "nombre", "") or "",
                     "marca": m_nombre or "",
+                    "cb": cb,
                     "rubro": rubro,
                     "subrubro": subrubro,
-                    "creado_en": creado_en
+                    "creado_en": creado_en,
+                    "precio": pr
                 })
 
-            self.tbl.setUpdatesEnabled(False)
-            self.tbl.setSortingEnabled(False)
-            self.tbl.setRowCount(len(rows))
-            for r, (p, m_nombre) in enumerate(rows):
-                ck = QTableWidgetItem()
-                ck.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-                ck.setCheckState(Qt.Checked if not p.codigo_barras else Qt.Unchecked)
-                self.tbl.setItem(r, 0, ck)
-
-                self.tbl.setItem(r, 1, QTableWidgetItem(str(p.id)))
-                self.tbl.setItem(r, 2, QTableWidgetItem(m_nombre or ""))
-                self.tbl.setItem(r, 3, QTableWidgetItem(p.nombre))
-
-                cb_text = p.codigo_barras if p.codigo_barras else ""
-                item_cb = QTableWidgetItem(cb_text)
-                if not cb_text:
-                    item_cb.setBackground(QColor("#fff9c4"))
-                self.tbl.setItem(r, 4, item_cb)
-
-                self.tbl.item(r, 1).setData(Qt.UserRole, p.id)
-            self.tbl.setUpdatesEnabled(True)
-            self.tbl.setSortingEnabled(True)
-            self._actualizar_combos_filtro()
-
-
-
+        self._actualizar_combos_filtro()
     def _actualizar_combos_filtro(self):
         m_marca = self.cmb_marca.currentText()
         m_rubro = self.cmb_rubro.currentText()
@@ -708,6 +723,18 @@ class CodigosBarraTab(QWidget):
 
         self._aplicar_filtros()
 
+
+    def _page_prev(self):
+        if self.current_page > 0:
+            self.current_page -= 1
+            self._render_page()
+
+    def _page_next(self):
+        max_page = max(0, (len(self._filtered_indices) - 1) // self.page_size)
+        if self.current_page < max_page:
+            self.current_page += 1
+            self._render_page()
+
     def _aplicar_filtros(self):
         if not hasattr(self, '_datos_filtro'): return
 
@@ -719,39 +746,85 @@ class CodigosBarraTab(QWidget):
         import datetime
         hoy = datetime.datetime.now().date()
 
+        self._filtered_indices = []
         for i, d in enumerate(self._datos_filtro):
             mostrar = True
-            if f_marca != "Todas" and f_marca != "" and d["marca"] != f_marca: mostrar = False
-            if f_rubro != "Todos" and f_rubro != "" and d["rubro"] != f_rubro: mostrar = False
-            if f_subrubro != "Todos" and f_subrubro != "" and d["subrubro"] != f_subrubro: mostrar = False
+            if f_marca != "Todas" and f_marca != "" and d.get("marca") != f_marca: mostrar = False
+            if f_rubro != "Todos" and f_rubro != "" and d.get("rubro") != f_rubro: mostrar = False
+            if f_subrubro != "Todos" and f_subrubro != "" and d.get("subrubro") != f_subrubro: mostrar = False
             if f_reciente:
-                if d["creado_en"] is None or d["creado_en"].date() != hoy: mostrar = False
+                if d.get("creado_en") is None or d.get("creado_en").date() != hoy: mostrar = False
 
-            self.tbl.setRowHidden(i, not mostrar)
+            if mostrar:
+                self._filtered_indices.append(i)
 
-    def _asignar_codigos_faltantes(self):
-        count = 0
-        with SessionLocal() as s:
-            prods = s.query(Producto).filter(Producto.activo == True).all()
-            for p in prods:
-                if not p.codigo_barras or not p.codigo_barras.strip():
-                    nuevo_codigo = f"INT{p.id:06d}"
-                    p.codigo_barras = nuevo_codigo
-                    count += 1
-            if count > 0:
-                s.commit()
-                QMessageBox.information(self, "Generar", f"Se generaron {count} códigos nuevos.")
-                self._load_data()
+        self.current_page = 0
+        self._render_page()
+
+    def _render_page(self):
+        try:
+            self.tbl.itemChanged.disconnect(self._on_item_changed)
+        except Exception:
+            pass
+
+        self.tbl.setUpdatesEnabled(False)
+        self.tbl.setSortingEnabled(False)
+        self.tbl.setRowCount(0)
+
+        start_idx = self.current_page * self.page_size
+        end_idx = min(start_idx + self.page_size, len(self._filtered_indices))
+
+        max_page = max(1, (len(self._filtered_indices) + self.page_size - 1) // self.page_size)
+        self.lbl_page.setText(f"Página {self.current_page + 1} de {max_page}")
+
+        for page_row, idx in enumerate(self._filtered_indices[start_idx:end_idx]):
+            self.tbl.insertRow(page_row)
+            d = self._datos_filtro[idx]
+
+            chk = QTableWidgetItem()
+            chk.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            chk.setData(Qt.UserRole, d["id"])
+            if d["id"] in self._selected_ids:
+                chk.setCheckState(Qt.Checked)
             else:
-                QMessageBox.information(self, "Generar", "No había productos sin código.")
+                chk.setCheckState(Qt.Unchecked)
+            self.tbl.setItem(page_row, 0, chk)
+
+            it_id = QTableWidgetItem(str(d["id"]))
+            it_id.setData(Qt.UserRole, d["id"])
+            it_id.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            self.tbl.setItem(page_row, 1, it_id)
+
+            it_marca = QTableWidgetItem(d.get("marca") or "")
+            it_marca.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            self.tbl.setItem(page_row, 2, it_marca)
+
+            it_nombre = QTableWidgetItem(d.get("nombre") or "")
+            it_nombre.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            self.tbl.setItem(page_row, 3, it_nombre)
+
+            it_cb = QTableWidgetItem(d.get("cb") or "")
+            it_cb.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            self.tbl.setItem(page_row, 4, it_cb)
+
+        self.tbl.resizeColumnsToContents()
+        self.tbl.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self.tbl.setUpdatesEnabled(True)
+        self.tbl.setSortingEnabled(True)
+        self.tbl.itemChanged.connect(self._on_item_changed)
+
+    def _on_item_changed(self, item):
+        if item.column() == 0:
+            pid = self.tbl.item(item.row(), 1).data(Qt.UserRole)
+            if pid is not None:
+                if item.checkState() == Qt.Checked:
+                    self._selected_ids.add(pid)
+                else:
+                    self._selected_ids.discard(pid)
 
     def _get_selected_ids(self):
-        ids = []
-        for r in range(self.tbl.rowCount()):
-            if self.tbl.item(r, 0).checkState() == Qt.Checked:
-                pid = self.tbl.item(r, 1).data(Qt.UserRole)
-                ids.append(pid)
-        return ids
+        return list(self._selected_ids)
+
 
     def _open_print_preview(self):
         ids = self._get_selected_ids()
