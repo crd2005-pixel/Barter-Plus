@@ -553,6 +553,26 @@ class CodigosBarraTab(QWidget):
 
         self.chk_solo_sin_codigo = QCheckBox("Ver solo sin código")
         self.chk_solo_sin_codigo.stateChanged.connect(self._load_data)
+
+        # Controles de paginacion
+        self.lay_paginacion = QHBoxLayout()
+        self.btn_prev = QPushButton("< Anterior")
+        self.lbl_page = QLabel("Página 1")
+        self.btn_next = QPushButton("Siguiente >")
+
+        self.btn_prev.clicked.connect(self._page_prev)
+        self.btn_next.clicked.connect(self._page_next)
+
+        self.lay_paginacion.addStretch()
+        self.lay_paginacion.addWidget(self.btn_prev)
+        self.lay_paginacion.addWidget(self.lbl_page)
+        self.lay_paginacion.addWidget(self.btn_next)
+        self.lay_paginacion.addStretch()
+
+        self.current_page = 0
+        self.page_size = 50
+        self._filtered_indices = []
+
         bar.addWidget(self.chk_solo_sin_codigo)
 
         # Filtros
@@ -577,25 +597,6 @@ class CodigosBarraTab(QWidget):
         self.cmb_rubro.currentIndexChanged.connect(self._aplicar_filtros)
         self.cmb_subrubro.currentIndexChanged.connect(self._aplicar_filtros)
         self.chk_recientes.stateChanged.connect(self._aplicar_filtros)
-
-        # Controles de paginacion
-        self.lay_paginacion = QHBoxLayout()
-        self.btn_prev = QPushButton("< Anterior")
-        self.lbl_page = QLabel("Página 1")
-        self.btn_next = QPushButton("Siguiente >")
-
-        self.btn_prev.clicked.connect(self._page_prev)
-        self.btn_next.clicked.connect(self._page_next)
-
-        self.lay_paginacion.addStretch()
-        self.lay_paginacion.addWidget(self.btn_prev)
-        self.lay_paginacion.addWidget(self.lbl_page)
-        self.lay_paginacion.addWidget(self.btn_next)
-        self.lay_paginacion.addStretch()
-
-        self.current_page = 0
-        self.page_size = 50
-        self._filtered_indices = []
 
 
         bar.addStretch()
@@ -783,8 +784,7 @@ class CodigosBarraTab(QWidget):
 
             chk = QTableWidgetItem()
             chk.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-            chk.setData(Qt.UserRole, d["id"])
-            if d["id"] in self._selected_ids:
+            if hasattr(self, '_selected_ids') and d["id"] in self._selected_ids:
                 chk.setCheckState(Qt.Checked)
             else:
                 chk.setCheckState(Qt.Unchecked)
@@ -814,6 +814,9 @@ class CodigosBarraTab(QWidget):
         self.tbl.itemChanged.connect(self._on_item_changed)
 
     def _on_item_changed(self, item):
+        if not hasattr(self, '_selected_ids'):
+            self._selected_ids = set()
+
         if item.column() == 0:
             pid = self.tbl.item(item.row(), 1).data(Qt.UserRole)
             if pid is not None:
@@ -823,8 +826,25 @@ class CodigosBarraTab(QWidget):
                     self._selected_ids.discard(pid)
 
     def _get_selected_ids(self):
+        if not hasattr(self, '_selected_ids'):
+            self._selected_ids = set()
         return list(self._selected_ids)
 
+    def _asignar_codigos_faltantes(self):
+        count = 0
+        with SessionLocal() as s:
+            prods = s.query(Producto).filter(Producto.activo == True).all()
+            for p in prods:
+                if not p.codigo_barras or not p.codigo_barras.strip():
+                    nuevo_codigo = f"INT{p.id:06d}"
+                    p.codigo_barras = nuevo_codigo
+                    count += 1
+            if count > 0:
+                s.commit()
+                QMessageBox.information(self, "Generar", f"Se generaron {count} códigos nuevos.")
+                self._load_data()
+            else:
+                QMessageBox.information(self, "Generar", "No había productos sin código.")
 
     def _open_print_preview(self):
         ids = self._get_selected_ids()

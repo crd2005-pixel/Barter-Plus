@@ -131,25 +131,6 @@ class PreciosTab(QWidget):
         self.cmb_subrubro.currentIndexChanged.connect(self._aplicar_filtros)
         self.chk_recientes.stateChanged.connect(self._aplicar_filtros)
 
-        # Controles de Paginación
-        self.lay_paginacion = QHBoxLayout()
-        self.btn_prev = QPushButton("< Anterior")
-        self.lbl_page = QLabel("Página 1")
-        self.btn_next = QPushButton("Siguiente >")
-
-        self.btn_prev.clicked.connect(self._page_prev)
-        self.btn_next.clicked.connect(self._page_next)
-
-        self.lay_paginacion.addStretch()
-        self.lay_paginacion.addWidget(self.btn_prev)
-        self.lay_paginacion.addWidget(self.lbl_page)
-        self.lay_paginacion.addWidget(self.btn_next)
-        self.lay_paginacion.addStretch()
-
-        self.current_page = 0
-        self.page_size = 50
-        self._filtered_indices = []
-
 
         # Tabla de precios
         self.tbl = QTableWidget(self)
@@ -170,7 +151,6 @@ class PreciosTab(QWidget):
         header.setStretchLastSection(True)
         header.setSectionResizeMode(QHeaderView.ResizeToContents)
         lay.addWidget(self.tbl)
-        lay.addLayout(self.lay_paginacion)
 
         self.btn_calc.clicked.connect(self._on_recalc_clicked)  # guarda y recalcula
         self.btn_pdf.clicked.connect(self._export_pdf)
@@ -250,6 +230,60 @@ class PreciosTab(QWidget):
         self._recalc_all()  # primer cálculo automático
         self._actualizar_combos_filtro()
 
+    def _render_table(self):
+        # Desconectar señal para evitar bucles al repoblar
+        try:
+            self.tbl.itemChanged.disconnect(self._on_item_changed)
+        except Exception:
+            pass
+
+        self.tbl.setUpdatesEnabled(False)
+        self.tbl.setSortingEnabled(False)
+        self.tbl.setRowCount(len(self._rows))
+
+        for r, row in enumerate(self._rows):
+            def setc(col, val, align_right=False, editable=False):
+                text = "" if val is None else str(val)
+                item = QTableWidgetItem(text)
+                flags = Qt.ItemIsEnabled | Qt.ItemIsSelectable
+                if editable:
+                    flags |= Qt.ItemIsEditable
+                item.setFlags(flags)
+
+                if align_right:
+                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                elif col in (0, 4, 9):
+                    item.setTextAlignment(Qt.AlignCenter)
+
+                # Guardar PK en la columna 13 (Precio Final) para identificar fila al editar
+                if col == 13:
+                    item.setData(Qt.UserRole, row["pk"])
+
+                self.tbl.setItem(r, col, item)
+
+            setc(0, row["id"])
+            setc(1, row["codigo"])
+            setc(2, row["nombre"])
+            setc(3, row["marca"])
+            setc(4, row["lista_id"])
+            setc(5, _fmt(row["base"]), True)
+            setc(6, _fmt(row["desc_pct"]), True)
+            setc(7, _fmt(row["iva_pct"]), True)
+            setc(8, _fmt(row["mas_iva"]), True)
+            setc(9, _fmt(row["stock"]), True)
+            setc(10, _fmt(row["prorr"]), True)
+            setc(11, _fmt(row["precio_cp"]), True)
+            setc(12, _fmt(row["calculado"]), True)
+            # Columna 13 editable para ajuste manual
+            setc(13, _fmt(row["final"]), True, editable=True)
+
+        self.tbl.resizeColumnsToContents()
+        self.tbl.itemChanged.connect(self._on_item_changed)
+        self.tbl.setUpdatesEnabled(True)
+        self.tbl.setSortingEnabled(True)
+        self._aplicar_filtros()
+
+
 
     def _actualizar_combos_filtro(self):
         m_marca = self.cmb_marca.currentText()
@@ -288,17 +322,6 @@ class PreciosTab(QWidget):
 
         self._aplicar_filtros()
 
-    def _page_prev(self):
-        if self.current_page > 0:
-            self.current_page -= 1
-            self._render_page()
-
-    def _page_next(self):
-        max_page = max(0, (len(self._filtered_indices) - 1) // self.page_size)
-        if self.current_page < max_page:
-            self.current_page += 1
-            self._render_page()
-
     def _aplicar_filtros(self):
         if not hasattr(self, '_rows'): return
 
@@ -310,7 +333,6 @@ class PreciosTab(QWidget):
         import datetime
         hoy = datetime.datetime.now().date()
 
-        self._filtered_indices = []
         for i, r in enumerate(self._rows):
             mostrar = True
             if f_marca != "Todas" and f_marca != "" and r.get("marca", "") != f_marca: mostrar = False
@@ -319,72 +341,7 @@ class PreciosTab(QWidget):
             if f_reciente:
                 if r.get("creado_en") is None or r.get("creado_en").date() != hoy: mostrar = False
 
-            if mostrar:
-                self._filtered_indices.append(i)
-
-        self.current_page = 0
-        self._render_page()
-
-    def _render_page(self):
-        try:
-            self.tbl.itemChanged.disconnect(self._on_item_changed)
-        except Exception:
-            pass
-
-        self.tbl.setUpdatesEnabled(False)
-        self.tbl.setSortingEnabled(False)
-        self.tbl.setRowCount(0)
-
-        start_idx = self.current_page * self.page_size
-        end_idx = min(start_idx + self.page_size, len(self._filtered_indices))
-
-        max_page = max(1, (len(self._filtered_indices) + self.page_size - 1) // self.page_size)
-        self.lbl_page.setText(f"Página {self.current_page + 1} de {max_page}")
-
-        for page_row, idx in enumerate(self._filtered_indices[start_idx:end_idx]):
-            self.tbl.insertRow(page_row)
-            row = self._rows[idx]
-
-            def setc(col, val, align_right=False, editable=False):
-                text = "" if val is None else str(val)
-                item = QTableWidgetItem(text)
-                flags = Qt.ItemIsEnabled | Qt.ItemIsSelectable
-                if editable:
-                    flags |= Qt.ItemIsEditable
-                item.setFlags(flags)
-
-                if align_right:
-                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                elif col in (0, 4, 9):
-                    item.setTextAlignment(Qt.AlignCenter)
-
-                if col == 13:
-                    item.setData(Qt.UserRole, row["pk"])
-
-                self.tbl.setItem(page_row, col, item)
-
-            setc(0, row["id"])
-            setc(1, row["codigo"])
-            setc(2, row["nombre"])
-            setc(3, row["marca"])
-            setc(4, row["lista_id"])
-            setc(5, _fmt(row["base"]), True)
-            setc(6, _fmt(row["desc_pct"]), True)
-            setc(7, _fmt(row["iva_pct"]), True)
-            setc(8, _fmt(row["mas_iva"]), True)
-            setc(9, _fmt(row["stock"]), True)
-            setc(10, _fmt(row["prorr"]), True)
-            setc(11, _fmt(row["precio_cp"]), True)
-            setc(12, _fmt(row["calculado"]), True)
-            setc(13, _fmt(row["final"]), True, editable=True)
-
-        self.tbl.resizeColumnsToContents()
-        self.tbl.itemChanged.connect(self._on_item_changed)
-        self.tbl.setUpdatesEnabled(True)
-        self.tbl.setSortingEnabled(True)
-
-    def _render_table(self):
-        self._render_page()
+            self.tbl.setRowHidden(i, not mostrar)
 
     def _on_item_changed(self, item):
         """Maneja la edición manual del precio final."""
@@ -495,7 +452,15 @@ class PreciosTab(QWidget):
             for r in self._rows:
                 if r["pk"] == pk:
                     r["precio_manual"] = new_val
-                    precio_cp = r["precio_cp"]
+                    # Recalculate only this row logic to update display immediately
+                    # Reuse logic from _recalc_all but targeted
+
+                    # NOTE: To simplify, we just trigger _recalc_all or update the single row dict and redisplay.
+                    # Since _recalc_all is fast enough for memory update, let's just trigger it or part of it.
+                    # But _recalc_all depends on 'denom' which doesn't change by changing manual price of one item.
+
+                    # Let's re-run logic for this row locally to be fast
+                    precio_cp = r["precio_cp"] # Base + Prorr (already calc)
                     gan = float(self.sp_gan.value() or 0.0) / 100.0
                     if gan >= 1.0: gan = 0.9999
 
@@ -513,7 +478,8 @@ class PreciosTab(QWidget):
                     r["final"] = float(round(final, 2))
                     break
 
-            self._render_page()
+            # Refresh UI (only the affected cell really needed, but re-render is safe)
+            self._render_table()
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo actualizar: {e}")
@@ -527,27 +493,50 @@ class PreciosTab(QWidget):
         self._recalc_all()
 
     def _recalc_all(self):
+        # Total de gastos fijos mensual (Costos → Gastos fijos / Sueldos)
         total_fijos = float(total_prorrateable_mes() or 0.0)
+        # Formato $X.XXX,YY
         self.lbl_fijos.setText(
             f"Gastos fijos mes: ${total_fijos:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
         )
 
         gan = float(self.sp_gan.value() or 0.0) / 100.0
-        if gan >= 1.0: gan = 0.9999
+        if gan >= 1.0:
+            gan = 0.9999  # evita división por cero
+
+        # denominador = Σ(+IVA_j * stock_j) de productos con stock>0 y +IVA>0
+        denom = 0.0
+        for row in self._rows:
+            if row["stock"] > 0 and row["mas_iva"] > 0:
+                denom += row["mas_iva"] * row["stock"]
 
         for row in self._rows:
+            base_val = 0.0
+            # Desactivado prorrateo temporalmente por solicitud del usuario
+            # if denom > 0 and row["stock"] > 0 and row["mas_iva"] > 0:
+            #     base_val = row["mas_iva"] * row["stock"]
+            #     prorr = total_fijos * (base_val / denom)
+            # else:
+            #     prorr = 0.0
             prorr = 0.0
+
             precio_cp = row["mas_iva"] + prorr
             if (1.0 - gan) > 1e-9:
                 final_raw = precio_cp / (1.0 - gan)
             else:
                 final_raw = precio_cp
 
+            # Lógica granel en la tabla
             if row.get("venta_granel") and row.get("presentacion_cantidad", 1.0) > 0:
                 final_raw = final_raw / row.get("presentacion_cantidad", 1.0)
 
+            # Guardo el raw calculado
             row["calculado"] = float(round(final_raw, 2))
+
+            # Redondeo a 100
             final = float(round(final_raw, -2))
+
+            # Si hay precio manual (override), usarlo
             manual = float(row.get("precio_manual", 0.0) or 0.0)
             if manual > 0:
                 final = manual
@@ -556,7 +545,7 @@ class PreciosTab(QWidget):
             row["precio_cp"] = float(round(precio_cp, 2))
             row["final"] = float(round(final, 2))
 
-        self._render_page()
+        self._render_table()
 
     # ------------------------------------------------------------------
     # Exportar PDF
