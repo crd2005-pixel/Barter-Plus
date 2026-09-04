@@ -208,7 +208,7 @@ class PreciosTab(QWidget):
                 "nombre": getattr(p, "nombre", "") or "",
                 "marca": info.get("marca", ""),
                 "lista_id": info.get("lista_id", None),
-                "base": float(getattr(p, "costo_neto", 0.0) or 0.0),        # costo lista
+                "base": float(getattr(p, "costo", 0.0) or 0.0),        # costo lista
                 "desc_pct": float(info.get("desc_pct", 0.0)),
                 "iva_pct": float(info.get("iva_pct", 0.0)),
                 "mas_iva": float(info.get("mas_iva", 0.0)),  # +IVA listo para prorratear
