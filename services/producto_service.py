@@ -126,3 +126,20 @@ class ProductoService:
             except Exception as e:
                 session.rollback()
                 raise e
+
+    @staticmethod
+    def calcular_margen_inverso(costo: float, iva: float, precio_final: float) -> float:
+        """
+        Calcula el margen aplicado dado un costo, IVA y precio final.
+        Fórmula: Margen = (1 - (PM / PF)) * 100
+        Donde PM = costo * (1 + iva/100)
+        """
+        if costo <= 0 or precio_final <= 0:
+            return 0.0
+
+        precio_mayorista = costo * (1 + (iva / 100))
+        if precio_mayorista >= precio_final:
+            return 0.0 # Caso atípico o sin margen
+
+        margen = (1 - (precio_mayorista / precio_final)) * 100
+        return round(margen, 2)
