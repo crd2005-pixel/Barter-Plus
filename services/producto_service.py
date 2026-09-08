@@ -5,21 +5,34 @@ from sqlalchemy import select
 
 class ProductoService:
     @staticmethod
-    def calcular_precio_final(costo: float, iva: float, margen: float) -> float:
+    def calcular_precio_final(costo: float, margen: float) -> float:
         """
         Calcula el precio final usando la fórmula financiera de margen estricta:
         PF = PM / (1 - (Margen / 100))
-        Donde PM (Precio Mayorista) = costo * (1 + (iva / 100))
+        Donde PM es el costo base.
+        Incluye redondeo de negocio:
+        - Si PF <= 6000: redondea a la centena superior.
+        - Si PF > 6000: redondea al millar superior.
         """
+        import math
+
         if margen >= 100:
             raise ValueError("El margen no puede ser del 100% o superior, causa división por cero.")
 
-        precio_mayorista = costo * (1 + (iva / 100))
         if margen == 0:
-            return precio_mayorista
+            pf = costo
+        else:
+            pf = costo / (1 - (margen / 100))
 
-        precio_final = precio_mayorista / (1 - (margen / 100))
-        return round(precio_final, 2)
+        # Regla de Redondeo de Negocio
+        if pf <= 6000:
+            # Redondeo a la centena superior
+            pf_redondeado = math.ceil(pf / 100.0) * 100.0
+        else:
+            # Redondeo al millar superior
+            pf_redondeado = math.ceil(pf / 1000.0) * 1000.0
+
+        return pf_redondeado
 
     @staticmethod
     def crear_producto(nombre: str, costo: float, iva: float = 21.0,
@@ -51,7 +64,7 @@ class ProductoService:
                 if not producto:
                     return None
 
-                pf = ProductoService.calcular_precio_final(producto.costo, producto.iva, margen)
+                pf = ProductoService.calcular_precio_final(producto.costo, margen)
                 producto.precio_minorista = pf
 
                 session.commit()
@@ -118,7 +131,7 @@ class ProductoService:
                             producto.precio_minorista = data['precio_minorista']
                         elif 'margen' in data and 'costo' in data:
                             producto.precio_minorista = ProductoService.calcular_precio_final(
-                                data['costo'], producto.iva, data['margen']
+                                data['costo'], data['margen']
                             )
                         count += 1
                 session.commit()
@@ -128,18 +141,17 @@ class ProductoService:
                 raise e
 
     @staticmethod
-    def calcular_margen_inverso(costo: float, iva: float, precio_final: float) -> float:
+    def calcular_margen_inverso(costo: float, precio_final: float) -> float:
         """
-        Calcula el margen aplicado dado un costo, IVA y precio final.
+        Calcula el margen aplicado dado un costo base y un precio final.
         Fórmula: Margen = (1 - (PM / PF)) * 100
-        Donde PM = costo * (1 + iva/100)
+        Donde PM = costo
         """
         if costo <= 0 or precio_final <= 0:
             return 0.0
 
-        precio_mayorista = costo * (1 + (iva / 100))
-        if precio_mayorista >= precio_final:
+        if costo >= precio_final:
             return 0.0 # Caso atípico o sin margen
 
-        margen = (1 - (precio_mayorista / precio_final)) * 100
+        margen = (1 - (costo / precio_final)) * 100
         return round(margen, 2)

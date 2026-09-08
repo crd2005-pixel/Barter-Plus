@@ -6,12 +6,14 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QBrush
 from services.producto_service import ProductoService
+from ui.components.pagination import PaginationWidget
 
 class PreciosTab(QWidget):
     def __init__(self):
         super().__init__()
         self.layout = QVBoxLayout(self)
         self.productos_db = []
+        self.filas_mostrar_totales = [] # Todas las filas filtradas
 
         # --- ZONA DE FILTROS ---
         self.filtros_group = QGroupBox("Carga y Filtros de Productos")
@@ -27,7 +29,7 @@ class PreciosTab(QWidget):
         self.combo_filtro_valor.setEnabled(False)
         self.combo_filtro_valor.setMinimumWidth(200)
 
-        self.btn_cargar_datos = QPushButton("Cargar Grilla")
+        self.btn_cargar_datos = QPushButton("Cargar Grilla Filtrada")
 
         self.filtros_layout.addWidget(self.radio_masivo)
         self.filtros_layout.addWidget(self.radio_proveedor)
@@ -70,6 +72,10 @@ class PreciosTab(QWidget):
         self.tabla.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.tabla.setAlternatingRowColors(True)
         self.layout.addWidget(self.tabla)
+
+        self.paginacion = PaginationWidget(limit=50)
+        self.paginacion.page_changed.connect(self.render_tabla_pagina)
+        self.layout.addWidget(self.paginacion)
 
         # --- ACCIONES FINALES ---
         self.acciones_layout = QHBoxLayout()
@@ -122,7 +128,7 @@ class PreciosTab(QWidget):
         # Refresh de memoria por si hubo cambios en otras pestañas
         self.recargar_memoria()
 
-        filas_mostrar = []
+        self.filas_mostrar_totales = []
         filtro_val = self.combo_filtro_valor.currentText()
 
         for p in self.productos_db:
@@ -135,99 +141,108 @@ class PreciosTab(QWidget):
                 if not p.marca or p.marca.nombre != filtro_val: continue
 
             # Calcular margen actual para mostrar
-            margen_actual = ProductoService.calcular_margen_inverso(p.costo, p.iva, p.precio_minorista)
+            margen_actual = ProductoService.calcular_margen_inverso(p.costo, p.precio_minorista)
 
-            filas_mostrar.append({
+            self.filas_mostrar_totales.append({
                 'id': p.id,
                 'sku': p.sku or "",
                 'nombre': p.nombre,
                 'costo': p.costo,
-                'iva': p.iva,
                 'margen_actual': margen_actual,
-                'precio_final_actual': p.precio_minorista
+                'precio_final_actual': p.precio_minorista,
+                'ha_cambiado': False
             })
 
-        self.tabla.setRowCount(len(filas_mostrar))
-        for r, data in enumerate(filas_mostrar):
-            for c in range(6):
-                item = QTableWidgetItem()
-                item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
-                self.tabla.setItem(r, c, item)
-
-            self.tabla.item(r, 0).setText(str(data['id']))
-            self.tabla.item(r, 1).setText(data['sku'])
-            self.tabla.item(r, 2).setText(data['nombre'])
-
-            # Guardamos el IVA en el UserRole del costo para cálculos futuros
-            item_costo = self.tabla.item(r, 3)
-            item_costo.setText(f"{data['costo']:.2f}")
-            item_costo.setData(Qt.ItemDataRole.UserRole, data['iva'])
-
-            self.tabla.item(r, 4).setText(f"{data['margen_actual']:.2f}")
-            self.tabla.item(r, 5).setText(f"{data['precio_final_actual']:.2f}")
-
+        self.paginacion.set_total_items(len(self.filas_mostrar_totales))
         self.btn_impactar.setEnabled(False) # Aún no hay cambios
-        QMessageBox.information(self, "Carga Completa", f"Se cargaron {len(filas_mostrar)} productos en la grilla.")
+        QMessageBox.information(self, "Carga Completa", f"Se cargaron {len(self.filas_mostrar_totales)} productos en el filtro actual.")
+
+    def render_tabla_pagina(self, page_index):
+        sl = self.paginacion.get_slice()
+        datos_pagina = self.filas_mostrar_totales[sl]
+
+        self.tabla.setRowCount(len(datos_pagina))
+        color_resalte = QBrush(QColor(46, 125, 50, 80)) # Verde con alpha
+
+        for r, data in enumerate(datos_pagina):
+            item_id = QTableWidgetItem(str(data['id']))
+            item_id.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+
+            item_sku = QTableWidgetItem(data['sku'])
+            item_sku.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+
+            item_nom = QTableWidgetItem(data['nombre'])
+            item_nom.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+
+            item_costo = QTableWidgetItem(f"$ {data['costo']:.2f}")
+            item_costo.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+
+            item_margen = QTableWidgetItem(f"{data['margen_actual']:.2f} %")
+            item_margen.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+
+            item_pf = QTableWidgetItem(f"$ {data['precio_final_actual']:.2f}")
+            item_pf.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+
+            if data['ha_cambiado']:
+                item_margen.setBackground(color_resalte)
+                item_pf.setBackground(color_resalte)
+
+            self.tabla.setItem(r, 0, item_id)
+            self.tabla.setItem(r, 1, item_sku)
+            self.tabla.setItem(r, 2, item_nom)
+            self.tabla.setItem(r, 3, item_costo)
+            self.tabla.setItem(r, 4, item_margen)
+            self.tabla.setItem(r, 5, item_pf)
 
     def previsualizar_calculo(self):
-        if self.tabla.rowCount() == 0:
+        if not self.filas_mostrar_totales:
             QMessageBox.warning(self, "Error", "La grilla está vacía. Cargue datos primero.")
             return
 
         margen_usuario = self.spin_margen.value()
 
-        # Definir color de resalte sutil (Verde claro para tema oscuro, cambiaremos si es necesario)
-        color_resalte = QBrush(QColor(46, 125, 50, 80)) # Verde con alpha
+        # Iterar sobre TODAS las filas filtradas (en memoria) para recalcular
+        hay_cambios = False
+        for data in self.filas_mostrar_totales:
+            costo = data['costo']
+            pf_ant = data['precio_final_actual']
 
-        for r in range(self.tabla.rowCount()):
+            # Calcular nuevo precio con el Service (que ya incluye redondeo de negocio)
             try:
-                # Obtener costo e IVA de la tabla
-                costo = float(self.tabla.item(r, 3).text().replace(',', '.'))
-                iva = self.tabla.item(r, 3).data(Qt.ItemDataRole.UserRole)
-
-                # Obtener precio final anterior para comparar
-                pf_ant = float(self.tabla.item(r, 5).text().replace(',', '.'))
-
-                # Calcular nuevo precio
-                pf_nuevo = ProductoService.calcular_precio_final(costo, iva, margen_usuario)
-
-                # Actualizar celdas
-                item_margen = self.tabla.item(r, 4)
-                item_pf = self.tabla.item(r, 5)
-
-                item_margen.setText(f"{margen_usuario:.2f}")
-                item_pf.setText(f"{pf_nuevo:.2f}")
-
-                # Resaltar si cambió
-                if abs(pf_nuevo - pf_ant) > 0.01:
-                    item_margen.setBackground(color_resalte)
-                    item_pf.setBackground(color_resalte)
-
+                pf_nuevo = ProductoService.calcular_precio_final(costo, margen_usuario)
             except ValueError:
                 continue
 
-        self.btn_impactar.setEnabled(True)
+            if abs(pf_nuevo - pf_ant) > 0.01:
+                data['margen_actual'] = margen_usuario
+                data['precio_final_actual'] = pf_nuevo
+                data['ha_cambiado'] = True
+                hay_cambios = True
+
+        # Re-renderizar la página actual para reflejar cambios
+        self.render_tabla_pagina(self.paginacion.current_page)
+
+        if hay_cambios:
+            self.btn_impactar.setEnabled(True)
 
     def impactar_db(self):
+        # Solamente tomar las filas que cambiaron dentro del subset filtrado
+        actualizaciones = [
+            {'id': d['id'], 'precio_minorista': d['precio_final_actual']}
+            for d in self.filas_mostrar_totales if d['ha_cambiado']
+        ]
+
+        if not actualizaciones:
+            QMessageBox.information(self, "Sin cambios", "No hay cambios para guardar.")
+            return
+
         reply = QMessageBox.question(
             self, "Confirmación Crítica",
-            "Se actualizarán todos los precios previsualizados en la base de datos de SQLite.\n¿Proceder?",
+            f"Se actualizarán {len(actualizaciones)} precios finales en la base de datos de SQLite.\n¿Proceder?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
+
         if reply == QMessageBox.StandardButton.Yes:
-            actualizaciones = []
-            for r in range(self.tabla.rowCount()):
-                try:
-                    pid = int(self.tabla.item(r, 0).text())
-                    pf_nuevo = float(self.tabla.item(r, 5).text().replace(',', '.'))
-
-                    actualizaciones.append({
-                        'id': pid,
-                        'precio_minorista': pf_nuevo
-                    })
-                except Exception:
-                    continue
-
             try:
                 afectados = ProductoService.actualizar_precios_masivo(actualizaciones)
                 QMessageBox.information(self, "Transacción Exitosa", f"Se aplicaron los nuevos precios a {afectados} productos.")

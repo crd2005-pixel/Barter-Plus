@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from services.producto_service import ProductoService
+from ui.components.pagination import PaginationWidget
 
 class ProductoDialog(QDialog):
     def __init__(self, parent=None, producto_id=None):
@@ -32,7 +33,7 @@ class ProductoDialog(QDialog):
 
         self.layout.addRow("Nombre:", self.nombre_input)
         self.layout.addRow("Código de Barras:", self.codigo_input)
-        self.layout.addRow("Costo:", self.costo_input)
+        self.layout.addRow("Costo Base:", self.costo_input)
         self.layout.addRow("Margen (%):", self.margen_input)
         self.layout.addRow("Precio Final Sugerido:", self.precio_final_label)
 
@@ -58,8 +59,7 @@ class ProductoDialog(QDialog):
         costo = self.costo_input.value()
         margen = self.margen_input.value()
         try:
-            # Asumimos 21% de IVA por defecto para el cálculo rápido visual
-            pf = ProductoService.calcular_precio_final(costo, 21.0, margen)
+            pf = ProductoService.calcular_precio_final(costo, margen)
             self.precio_final_label.setText(f"$ {pf:.2f}")
         except ValueError:
             self.precio_final_label.setText("Error (Margen >= 100%)")
@@ -71,7 +71,9 @@ class ProductoDialog(QDialog):
                 self.nombre_input.setText(prod.nombre)
                 self.codigo_input.setText(prod.codigo_barras or "")
                 self.costo_input.setValue(prod.costo)
-                # Estimamos un margen si quisieramos, por simplicidad lo dejamos en default o requeriría un campo margen en bd.
+                # Estimamos margen
+                m_inv = ProductoService.calcular_margen_inverso(prod.costo, prod.precio_minorista)
+                self.margen_input.setValue(m_inv)
                 self.recalcular_precio()
 
     def guardar(self):
@@ -104,6 +106,7 @@ class ProductosTab(QWidget):
     def __init__(self):
         super().__init__()
         self.layout = QVBoxLayout(self)
+        self.productos_db = []
 
         # --- Barra superior (Buscador y Acciones) ---
         self.top_bar = QHBoxLayout()
@@ -111,10 +114,10 @@ class ProductosTab(QWidget):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Buscar por nombre, código...")
         self.search_input.setMinimumWidth(300)
-        self.search_input.textChanged.connect(self.cargar_tabla)
+        self.search_input.textChanged.connect(self.cargar_datos)
 
         self.btn_buscar = QPushButton("Buscar")
-        self.btn_buscar.clicked.connect(self.cargar_tabla)
+        self.btn_buscar.clicked.connect(self.cargar_datos)
 
         self.btn_nuevo = QPushButton("Nuevo Producto")
         self.btn_editar = QPushButton("Editar")
@@ -142,25 +145,34 @@ class ProductosTab(QWidget):
 
         self.layout.addWidget(self.tabla)
 
+        self.paginacion = PaginationWidget(limit=50)
+        self.paginacion.page_changed.connect(self.render_tabla_pagina)
+        self.layout.addWidget(self.paginacion)
+
         # --- Conexiones ---
         self.btn_nuevo.clicked.connect(self.abrir_dialogo_nuevo)
         self.btn_editar.clicked.connect(self.abrir_dialogo_editar)
 
         # Cargar datos iniciales
-        self.cargar_tabla()
+        self.cargar_datos()
 
-    def cargar_tabla(self):
+    def cargar_datos(self):
         busqueda = self.search_input.text().strip()
-        productos = ProductoService.listar_todos(busqueda)
+        self.productos_db = ProductoService.listar_todos(busqueda)
+        self.paginacion.set_total_items(len(self.productos_db))
 
-        self.tabla.setRowCount(len(productos))
-        for row, prod in enumerate(productos):
+    def render_tabla_pagina(self, page_index):
+        sl = self.paginacion.get_slice()
+        productos_pagina = self.productos_db[sl]
+
+        self.tabla.setRowCount(len(productos_pagina))
+        for row, prod in enumerate(productos_pagina):
             self.tabla.setItem(row, 0, QTableWidgetItem(str(prod.id)))
             self.tabla.setItem(row, 1, QTableWidgetItem(prod.sku or ""))
             self.tabla.setItem(row, 2, QTableWidgetItem(prod.codigo_barras or ""))
             self.tabla.setItem(row, 3, QTableWidgetItem(prod.nombre))
-            self.tabla.setItem(row, 4, QTableWidgetItem(f"${prod.costo:.2f}"))
-            self.tabla.setItem(row, 5, QTableWidgetItem(f"${prod.precio_minorista:.2f}"))
+            self.tabla.setItem(row, 4, QTableWidgetItem(f"$ {prod.costo:.2f}"))
+            self.tabla.setItem(row, 5, QTableWidgetItem(f"$ {prod.precio_minorista:.2f}"))
 
             # Guardamos el ID en el item para facilitar la edición
             self.tabla.item(row, 0).setData(Qt.ItemDataRole.UserRole, prod.id)
@@ -168,7 +180,7 @@ class ProductosTab(QWidget):
     def abrir_dialogo_nuevo(self):
         dialog = ProductoDialog(self)
         if dialog.exec():
-            self.cargar_tabla()
+            self.cargar_datos()
 
     def abrir_dialogo_editar(self):
         # Obtener ID seleccionado
@@ -182,4 +194,4 @@ class ProductosTab(QWidget):
 
         dialog = ProductoDialog(self, producto_id=producto_id)
         if dialog.exec():
-            self.cargar_tabla()
+            self.cargar_datos()
