@@ -3,6 +3,7 @@ from database.models.venta import Venta, DetalleVenta
 from database.models.producto import Producto
 from database.models.cliente import Cliente, ClienteCuentaCorriente
 from database.models.caja import Caja, MovimientoCaja
+from database.models.contabilidad import AsientoDiario, LibroIVA
 from typing import List, Dict, Optional
 import datetime as dt
 
@@ -10,10 +11,11 @@ class VentaService:
     @staticmethod
     def procesar_venta(detalles: List[Dict], cliente_id: Optional[int] = None,
                        metodo_pago: str = "Efectivo", monto_abonado: float = 0.0,
-                       descuento_global: float = 0.0, recargo_global: float = 0.0) -> Venta:
+                       descuento_global: float = 0.0, recargo_global: float = 0.0,
+                       tipo_comprobante: str = "Remito") -> Venta:
         """
         Procesa una venta completa.
-        `detalles` es una lista de diccionarios: {'producto_id': int, 'cantidad': float, 'precio_unitario': float}
+        `detalles` es una lista de diccionarios: {'producto_id': int, 'cantidad': float, 'precio_unitario': float, 'descuento_unitario': float}
         El precio_unitario ya debe venir calculado (ej. con el -10% de cliente si aplica).
         """
         with get_session() as session:
@@ -22,6 +24,7 @@ class VentaService:
                     cliente_id=cliente_id,
                     metodo_pago=metodo_pago,
                     estado="Completada",
+                    tipo_comprobante=tipo_comprobante,
                     descuento=descuento_global,
                     recargo=recargo_global
                 )
@@ -37,6 +40,8 @@ class VentaService:
 
                     cantidad = item['cantidad']
                     precio = item['precio_unitario']
+                    desc_unitario = item.get('descuento_unitario', 0.0)
+                    precio_final_item = precio - desc_unitario
 
                     # Disminuir stock real, considerando fraccionamiento
                     descuento_stock = cantidad
@@ -45,7 +50,7 @@ class VentaService:
 
                     producto.stock_actual -= descuento_stock
 
-                    subtotal_item = cantidad * precio
+                    subtotal_item = cantidad * precio_final_item
                     subtotal_venta += subtotal_item
 
                     detalle = DetalleVenta(
@@ -55,6 +60,7 @@ class VentaService:
                         descripcion=producto.nombre,
                         cantidad=cantidad,
                         precio_unitario=precio,
+                        descuento_unitario=desc_unitario,
                         subtotal=subtotal_item
                     )
                     session.add(detalle)
@@ -89,6 +95,37 @@ class VentaService:
                 else:
                     # Tarjeta, Transferencia, etc. (se abona exacto en este flujo simple)
                     nueva_venta.vuelto = 0.0
+
+                # Contabilidad y Fiscalidad
+                if tipo_comprobante == "Factura":
+                    iva_asumido = total_final - (total_final / 1.21)
+                    neto_gravado = total_final / 1.21
+
+                    l_iva = LibroIVA(
+                        tipo="Venta",
+                        comprobante=f"Factura #{nueva_venta.id}",
+                        neto_gravado=neto_gravado,
+                        iva_21=iva_asumido,
+                        total=total_final,
+                        venta_id=nueva_venta.id
+                    )
+                    session.add(l_iva)
+
+                    asiento = AsientoDiario(
+                        descripcion=f"Venta Facturada #{nueva_venta.id}",
+                        debe=total_final,
+                        cuenta="Caja" if metodo_pago != "Cuenta Corriente" else "Deudores por Ventas",
+                        venta_id=nueva_venta.id
+                    )
+                    session.add(asiento)
+
+                    asiento_ventas = AsientoDiario(
+                        descripcion=f"Ingreso por Ventas #{nueva_venta.id}",
+                        haber=total_final,
+                        cuenta="Ingresos por Ventas",
+                        venta_id=nueva_venta.id
+                    )
+                    session.add(asiento_ventas)
 
                 # Impactar en Caja (si no es cuenta corriente pura)
                 if metodo_pago != "Cuenta Corriente":

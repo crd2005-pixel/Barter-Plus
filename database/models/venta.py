@@ -26,6 +26,7 @@ class Venta(Base):
 
     vuelto: Mapped[float] = mapped_column(default=0.0)
     estado: Mapped[str] = mapped_column(String, default="Completada") # Completada, Anulada, Presupuesto
+    tipo_comprobante: Mapped[str] = mapped_column(String, default="Remito") # Remito, Factura
     notas: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     # Relaciones
@@ -46,6 +47,7 @@ class DetalleVenta(Base):
 
     cantidad: Mapped[float] = mapped_column(default=1.0)
     precio_unitario: Mapped[float] = mapped_column(default=0.0)
+    descuento_unitario: Mapped[float] = mapped_column(default=0.0)
     subtotal: Mapped[float] = mapped_column(default=0.0)
 
     # Relaciones

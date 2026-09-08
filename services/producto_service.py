@@ -259,3 +259,15 @@ class ProductoService:
             if producto:
                 session.expunge(producto)
             return producto
+
+    @staticmethod
+    def agregar_pedido_manual(detalle: str) -> None:
+        from database.models.contabilidad import PedidoManual
+        with get_session() as session:
+            try:
+                pedido = PedidoManual(detalle=detalle)
+                session.add(pedido)
+                session.commit()
+            except Exception as e:
+                session.rollback()
+                raise e

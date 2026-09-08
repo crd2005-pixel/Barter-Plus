@@ -3,12 +3,15 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QLabel, QMessageBox,
     QComboBox, QFormLayout, QGroupBox, QInputDialog, QSplitter
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QStringListModel
 from PyQt6.QtGui import QFont, QColor, QBrush, QShortcut, QKeySequence
+from PyQt6.QtWidgets import QCompleter
 from services.producto_service import ProductoService
+from services.cliente_service import ClienteService
 from services.venta_service import VentaService
 from database.conexion import get_session
 from database.models.cliente import Cliente
+from database.models.producto import Producto
 from sqlalchemy import select
 
 class VentasTab(QWidget):
@@ -33,13 +36,25 @@ class VentasTab(QWidget):
         self.combo_tipo_cliente = QComboBox()
         self.combo_tipo_cliente.addItems(["Cliente Común", "Cliente Especial (-10%)"])
 
-        self.form_cliente.addRow("Cliente:", self.combo_clientes)
+        self.btn_nuevo_cliente = QPushButton("+")
+        self.btn_nuevo_cliente.setToolTip("Agregar Nuevo Cliente")
+        self.btn_nuevo_cliente.setFixedWidth(30)
+
+        box_cli = QHBoxLayout()
+        box_cli.addWidget(self.combo_clientes)
+        box_cli.addWidget(self.btn_nuevo_cliente)
+
+        self.form_cliente.addRow("Cliente:", box_cli)
         self.form_cliente.addRow("Tipo:", self.combo_tipo_cliente)
 
         self.form_pago = QFormLayout()
         self.combo_pago = QComboBox()
         self.combo_pago.addItems(["Efectivo", "Transferencia", "Débito", "Tarjeta", "Cuenta Corriente", "Combinada"])
 
+        self.combo_comprobante = QComboBox()
+        self.combo_comprobante.addItems(["Remito", "Factura"])
+
+        self.form_pago.addRow("Comprobante:", self.combo_comprobante)
         self.form_pago.addRow("Método Pago:", self.combo_pago)
 
         self.box_opciones.addLayout(self.form_cliente)
@@ -49,7 +64,7 @@ class VentasTab(QWidget):
         self.btn_consulta_rapida = QPushButton("Consultar Precio (F2)")
         self.btn_consulta_rapida.setStyleSheet("padding: 10px; font-weight: bold; background-color: #f39c12; color: white;")
 
-        self.btn_sugerir_pedido = QPushButton("Sugerir Pedido")
+        self.btn_sugerir_pedido = QPushButton("Anotar Pedido Manual")
         self.btn_sugerir_pedido.setStyleSheet("padding: 10px; font-weight: bold; background-color: #8e44ad; color: white;")
 
         self.box_opciones.addWidget(self.btn_sugerir_pedido)
@@ -83,14 +98,17 @@ class VentasTab(QWidget):
 
         self.top_layout.addLayout(self.box_ingreso)
 
+        # --- QCompleter SETUP ---
+        self.setup_completers()
+
         # --- GRILLA DEL CARRITO ---
         self.bottom_widget = QWidget()
         self.bottom_layout = QVBoxLayout(self.bottom_widget)
         self.bottom_layout.setContentsMargins(0,0,0,0)
 
-        self.tabla = QTableWidget(0, 6)
+        self.tabla = QTableWidget(0, 7)
         self.tabla.setHorizontalHeaderLabels([
-            "ID", "Código", "Producto", "Precio Unitario", "Cantidad", "Subtotal"
+            "ID", "Código", "Producto", "Precio Unitario", "Cant.", "Desc. Unid ($)", "Subtotal"
         ])
         self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.tabla.horizontalHeader().setStretchLastSection(True)
@@ -98,9 +116,10 @@ class VentasTab(QWidget):
 
         self.tabla.setColumnWidth(0, 50)
         self.tabla.setColumnWidth(1, 150)
-        self.tabla.setColumnWidth(2, 350)
-        self.tabla.setColumnWidth(3, 120)
-        self.tabla.setColumnWidth(4, 100)
+        self.tabla.setColumnWidth(2, 250)
+        self.tabla.setColumnWidth(3, 100)
+        self.tabla.setColumnWidth(4, 80)
+        self.tabla.setColumnWidth(5, 100)
 
         self.bottom_layout.addWidget(self.tabla)
 
@@ -149,6 +168,7 @@ class VentasTab(QWidget):
         self.btn_descuento.clicked.connect(self.aplicar_descuento_global)
         self.btn_consulta_rapida.clicked.connect(self.consultar_precio_rapido)
         self.btn_sugerir_pedido.clicked.connect(self.sugerir_pedido)
+        self.btn_nuevo_cliente.clicked.connect(self.crear_cliente_rapido)
 
         # --- ATAJOS DE TECLADO ---
         shortcut_f12 = QShortcut(QKeySequence("F12"), self)
@@ -158,6 +178,39 @@ class VentasTab(QWidget):
         shortcut_f2.activated.connect(self.consultar_precio_rapido)
 
         self.cargar_clientes()
+
+    def setup_completers(self):
+        # Completer Clientes
+        self.completer_cli = QCompleter()
+        self.completer_cli.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.completer_cli.setFilterMode(Qt.MatchFlag.MatchContains)
+        self.combo_clientes.setCompleter(self.completer_cli)
+
+        # Completer Productos
+        self.completer_prod = QCompleter()
+        self.completer_prod.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.completer_prod.setFilterMode(Qt.MatchFlag.MatchContains)
+        self.txt_codigo.setCompleter(self.completer_prod)
+        self.cargar_completer_productos()
+
+    def cargar_completer_productos(self):
+        with get_session() as session:
+            prods = session.scalars(select(Producto.nombre)).all()
+            model = QStringListModel(prods)
+            self.completer_prod.setModel(model)
+
+    def crear_cliente_rapido(self):
+        nombre, ok = QInputDialog.getText(self, "Nuevo Cliente", "Nombre del cliente:")
+        if ok and nombre.strip():
+            try:
+                nuevo = ClienteService.crear_cliente(nombre.strip())
+                self.cargar_clientes()
+                # Seleccionarlo
+                index = self.combo_clientes.findData(nuevo.id)
+                if index >= 0:
+                    self.combo_clientes.setCurrentIndex(index)
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo crear: {e}")
 
     def consultar_precio_rapido(self):
         query, ok = QInputDialog.getText(self, "Consultar Precio (F2)", "Ingrese nombre o código de barras:")
@@ -209,29 +262,30 @@ class VentasTab(QWidget):
                     QMessageBox.warning(self, "No Encontrado", f"No se encontró ningún producto con: {query}")
 
     def sugerir_pedido(self):
-        sugerencias = ProductoService.obtener_sugerencias_pedido()
-        if not sugerencias:
-            QMessageBox.information(self, "Sugerencias", "No hay productos que requieran reposición en este momento.")
-            return
-
-        msg = f"Se detectaron {len(sugerencias)} productos para reponer:\n\n"
-        for s in sugerencias[:10]: # Mostrar los primeros 10 en la alerta
-            msg += f"- {s['producto'].nombre} (Pedir: {s['cantidad_pedir']})\n"
-
-        if len(sugerencias) > 10:
-            msg += f"...y {len(sugerencias) - 10} más."
-
-        QMessageBox.information(self, "Sugerencias de Pedido", msg)
+        nota, ok = QInputDialog.getText(self, "Anotar Pedido Manual", "El cliente solicita:")
+        if ok and nota.strip():
+            try:
+                ProductoService.agregar_pedido_manual(nota.strip())
+                QMessageBox.information(self, "Éxito", "Pedido manual registrado en la base de datos.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo guardar: {e}")
 
     def cargar_clientes(self):
         with get_session() as session:
             clientes = session.scalars(select(Cliente)).all()
             self.combo_clientes.clear()
             self.combo_clientes.addItem("Consumidor Final", None)
+            nombres = []
             for c in clientes:
                 self.combo_clientes.addItem(c.nombre, c.id)
+                nombres.append(c.nombre)
+
+            model = QStringListModel(["Consumidor Final"] + nombres)
+            self.completer_cli.setModel(model)
 
     def showEvent(self, event):
+        super().showEvent(event)
+        self.cargar_completer_productos()
         super().showEvent(event)
         self.txt_codigo.setFocus()
 
@@ -292,7 +346,8 @@ class VentasTab(QWidget):
                 'codigo': prod.codigo_barras or prod.sku or "N/A",
                 'nombre': nombre_mostrar,
                 'precio_base': precio_base_calculado,
-                'cantidad': cant_input
+                'cantidad': cant_input,
+                'descuento_unit': 0.0
             })
 
         self.actualizar_ui()
@@ -312,7 +367,10 @@ class VentasTab(QWidget):
 
         for r, item in enumerate(self.carrito):
             precio_unitario = item['precio_base'] * 0.9 if es_especial else item['precio_base']
-            subtotal = item['cantidad'] * precio_unitario
+            precio_neto = precio_unitario - item['descuento_unit']
+            if precio_neto < 0: precio_neto = 0.0
+
+            subtotal = item['cantidad'] * precio_neto
             subtotal_general += subtotal
 
             i_id = QTableWidgetItem(str(item['id']))
@@ -331,6 +389,9 @@ class VentasTab(QWidget):
 
             i_can = QTableWidgetItem(f"{item['cantidad']:.2f}")
 
+            # Descuento unitario (Editable)
+            i_desc = QTableWidgetItem(f"{item['descuento_unit']:.2f}")
+
             i_sub = QTableWidgetItem(f"$ {subtotal:.2f}")
             i_sub.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
 
@@ -339,7 +400,8 @@ class VentasTab(QWidget):
             self.tabla.setItem(r, 2, i_nom)
             self.tabla.setItem(r, 3, i_pre)
             self.tabla.setItem(r, 4, i_can)
-            self.tabla.setItem(r, 5, i_sub)
+            self.tabla.setItem(r, 5, i_desc)
+            self.tabla.setItem(r, 6, i_sub)
 
         total_final = subtotal_general - self.descuento_global
         if total_final < 0: total_final = 0.0
@@ -350,15 +412,25 @@ class VentasTab(QWidget):
         self.tabla.itemChanged.connect(self.modificar_cantidad_grid)
 
     def modificar_cantidad_grid(self, item):
-        if item.column() == 4: # Cantidad
-            try:
-                row = item.row()
-                nueva_cant = float(item.text().replace(',', '.'))
+        col = item.column()
+        row = item.row()
 
+        if col == 4: # Cantidad
+            try:
+                nueva_cant = float(item.text().replace(',', '.'))
                 if nueva_cant <= 0:
                     self.carrito.pop(row)
                 else:
                     self.carrito[row]['cantidad'] = nueva_cant
+                self.actualizar_ui()
+            except ValueError:
+                self.actualizar_ui()
+
+        elif col == 5: # Descuento Unitario
+            try:
+                nuevo_desc = float(item.text().replace(',', '.'))
+                if nuevo_desc < 0: nuevo_desc = 0.0
+                self.carrito[row]['descuento_unit'] = nuevo_desc
                 self.actualizar_ui()
             except ValueError:
                 self.actualizar_ui()
@@ -371,6 +443,7 @@ class VentasTab(QWidget):
         total_float = float(total_txt)
 
         metodo = self.combo_pago.currentText()
+        tipo_comprobante = self.combo_comprobante.currentText()
         cliente_id = self.combo_clientes.currentData()
 
         # Validar si es Cta Cte
@@ -404,7 +477,8 @@ class VentasTab(QWidget):
                     detalles_final.append({
                         'producto_id': item['id'],
                         'cantidad': item['cantidad'],
-                        'precio_unitario': precio_unitario
+                        'precio_unitario': precio_unitario,
+                        'descuento_unitario': item['descuento_unit']
                     })
 
                 venta = VentaService.procesar_venta(
@@ -412,7 +486,8 @@ class VentasTab(QWidget):
                     cliente_id=cliente_id,
                     metodo_pago=metodo,
                     monto_abonado=monto_abonado,
-                    descuento_global=self.descuento_global
+                    descuento_global=self.descuento_global,
+                    tipo_comprobante=tipo_comprobante
                 )
 
                 vuelto = venta.vuelto
