@@ -131,12 +131,14 @@ class ProductosTab(QWidget):
         self.layout.addLayout(self.top_bar)
 
         # --- Tabla de Productos ---
-        self.tabla = QTableWidget(0, 5)
-        self.tabla.setHorizontalHeaderLabels(["ID", "Cód. Barras", "Nombre", "Costo", "Precio Final"])
+        self.tabla = QTableWidget(0, 6)
+        self.tabla.setHorizontalHeaderLabels(["ID", "SKU", "Cód. Barras", "Nombre", "Costo", "Precio Final"])
         self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.tabla.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.tabla.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.tabla.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.tabla.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.tabla.setAlternatingRowColors(True)
 
         self.layout.addWidget(self.tabla)
 
@@ -154,10 +156,11 @@ class ProductosTab(QWidget):
         self.tabla.setRowCount(len(productos))
         for row, prod in enumerate(productos):
             self.tabla.setItem(row, 0, QTableWidgetItem(str(prod.id)))
-            self.tabla.setItem(row, 1, QTableWidgetItem(prod.codigo_barras or ""))
-            self.tabla.setItem(row, 2, QTableWidgetItem(prod.nombre))
-            self.tabla.setItem(row, 3, QTableWidgetItem(f"${prod.costo:.2f}"))
-            self.tabla.setItem(row, 4, QTableWidgetItem(f"${prod.precio_minorista:.2f}"))
+            self.tabla.setItem(row, 1, QTableWidgetItem(prod.sku or ""))
+            self.tabla.setItem(row, 2, QTableWidgetItem(prod.codigo_barras or ""))
+            self.tabla.setItem(row, 3, QTableWidgetItem(prod.nombre))
+            self.tabla.setItem(row, 4, QTableWidgetItem(f"${prod.costo:.2f}"))
+            self.tabla.setItem(row, 5, QTableWidgetItem(f"${prod.precio_minorista:.2f}"))
 
             # Guardamos el ID en el item para facilitar la edición
             self.tabla.item(row, 0).setData(Qt.ItemDataRole.UserRole, prod.id)

@@ -29,15 +29,23 @@ class PreciosTab(QWidget):
         self.mapeo_group = QGroupBox("Mapeo de Columnas")
         self.mapeo_layout = QHBoxLayout()
 
-        self.combo_codigo = QComboBox()
+        # Se renombra para reflejar la regla de negocio: se cruza por SKU Interno, no EAN
+        self.combo_sku_excel = QComboBox()
+
+        # Opciones para elegir con qué campo de la DB cruzar (por defecto SKU Interno)
+        self.combo_db_match = QComboBox()
+        self.combo_db_match.addItems(["sku (SKU Interno)", "nombre", "codigo_proveedor"])
+
         self.combo_costo = QComboBox()
         self.combo_proveedor = QComboBox()
         self.combo_rubro = QComboBox()
         self.combo_marca = QComboBox()
 
-        self.mapeo_layout.addWidget(QLabel("Cód. Barras/SKU:"))
-        self.mapeo_layout.addWidget(self.combo_codigo)
-        self.mapeo_layout.addWidget(QLabel("Costo Nuevo:"))
+        self.mapeo_layout.addWidget(QLabel("Cruzar con DB en:"))
+        self.mapeo_layout.addWidget(self.combo_db_match)
+        self.mapeo_layout.addWidget(QLabel("Col. SKU Excel:"))
+        self.mapeo_layout.addWidget(self.combo_sku_excel)
+        self.mapeo_layout.addWidget(QLabel("Col. Costo Nuevo:"))
         self.mapeo_layout.addWidget(self.combo_costo)
 
         # Agregamos mapeo de filtros
@@ -92,12 +100,13 @@ class PreciosTab(QWidget):
         self.layout.addWidget(self.aumentos_group)
 
         # --- ZONA DE PREVISUALIZACIÓN ---
-        self.tabla = QTableWidget(0, 6)
+        self.tabla = QTableWidget(0, 7)
         self.tabla.setHorizontalHeaderLabels([
-            "ID BD", "Nombre", "Costo Anterior", "Costo Nuevo", "Margen %", "Precio Final"
+            "ID BD", "SKU Interno", "Nombre", "Costo Anterior", "Costo Nuevo", "Margen %", "Precio Final"
         ])
         self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.tabla.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.tabla.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.tabla.setAlternatingRowColors(True)
         self.layout.addWidget(self.tabla)
 
         # --- ACCIONES FINALES ---
@@ -175,7 +184,7 @@ class PreciosTab(QWidget):
             # Cargar columnas en los combos
             columnas = self.df.columns.tolist()
 
-            for combo in [self.combo_codigo, self.combo_costo, self.combo_proveedor, self.combo_rubro, self.combo_marca]:
+            for combo in [self.combo_sku_excel, self.combo_costo, self.combo_proveedor, self.combo_rubro, self.combo_marca]:
                 combo.clear()
                 combo.addItems(["-- Seleccionar --"] + columnas)
 
@@ -196,11 +205,12 @@ class PreciosTab(QWidget):
         if self.df is None:
             return
 
-        col_codigo = self.combo_codigo.currentText()
+        col_sku = self.combo_sku_excel.currentText()
         col_costo = self.combo_costo.currentText()
+        campo_db_match = self.combo_db_match.currentText().split(' ')[0] # Ej: 'sku', 'nombre', 'codigo_proveedor'
 
-        if col_codigo == "-- Seleccionar --" or col_costo == "-- Seleccionar --":
-            QMessageBox.warning(self, "Advertencia", "Debe mapear las columnas de Código y Costo Nuevo.")
+        if col_sku == "-- Seleccionar --" or col_costo == "-- Seleccionar --":
+            QMessageBox.warning(self, "Advertencia", "Debe mapear la columna de SKU del Excel y el Costo Nuevo.")
             return
 
         # Obtener lógica de filtrado
@@ -228,14 +238,21 @@ class PreciosTab(QWidget):
 
         # 1. Traer todos los productos para cruzar (en memoria para no trabar BD)
         self.productos_db = ProductoService.listar_todos()
-        db_dict = {p.codigo_barras: p for p in self.productos_db if p.codigo_barras}
+
+        # Crear diccionario de búsqueda dinámico según el campo elegido
+        db_dict = {}
+        for p in self.productos_db:
+            val = getattr(p, campo_db_match, None)
+            if val:
+                db_dict[str(val).strip().lower()] = p
 
         # 2. Iterar DataFrame y cruzar
         margen_global = self.spin_margen.value()
 
         filas_preview = []
         for index, row in df_filtrado.iterrows():
-            cod = str(row.get(col_codigo, "")).strip()
+            # Limpiar valor para la búsqueda
+            val_excel = str(row.get(col_sku, "")).strip().lower()
             # Parsear costo nuevo, asumiendo formato numérico.
             try:
                 # Intenta limpiar si es string tipo "$ 1.500,50" (basado en memoria de reglas)
@@ -245,8 +262,8 @@ class PreciosTab(QWidget):
             except ValueError:
                 costo_nuevo = 0.0
 
-            if cod in db_dict and costo_nuevo > 0:
-                prod = db_dict[cod]
+            if val_excel in db_dict and costo_nuevo > 0:
+                prod = db_dict[val_excel]
 
                 try:
                     pf = ProductoService.calcular_precio_final(costo_nuevo, prod.iva, margen_global)
@@ -255,6 +272,7 @@ class PreciosTab(QWidget):
 
                 filas_preview.append({
                     'id': prod.id,
+                    'sku': prod.sku or "",
                     'nombre': prod.nombre,
                     'costo_ant': prod.costo,
                     'costo_nuevo': costo_nuevo,
@@ -264,7 +282,7 @@ class PreciosTab(QWidget):
                 })
 
         if not filas_preview:
-            QMessageBox.information(self, "Sin coincidencias", "No se encontraron códigos de barras coincidentes entre el archivo (con los filtros aplicados) y la base de datos.")
+            QMessageBox.information(self, "Sin coincidencias", f"No se encontraron coincidencias cruzando '{col_sku}' (Excel) con '{campo_db_match}' (BD) tras aplicar filtros.")
             return
 
         # 3. Llenar QTableWidget
@@ -275,6 +293,10 @@ class PreciosTab(QWidget):
             # ID
             item_id = QTableWidgetItem(str(data['id']))
             item_id.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+
+            # SKU
+            item_sku = QTableWidgetItem(data['sku'])
+            item_sku.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
 
             # Nombre
             item_nom = QTableWidgetItem(data['nombre'])
@@ -296,11 +318,12 @@ class PreciosTab(QWidget):
             item_pf.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
 
             self.tabla.setItem(row_idx, 0, item_id)
-            self.tabla.setItem(row_idx, 1, item_nom)
-            self.tabla.setItem(row_idx, 2, item_ca)
-            self.tabla.setItem(row_idx, 3, item_cn)
-            self.tabla.setItem(row_idx, 4, item_m)
-            self.tabla.setItem(row_idx, 5, item_pf)
+            self.tabla.setItem(row_idx, 1, item_sku)
+            self.tabla.setItem(row_idx, 2, item_nom)
+            self.tabla.setItem(row_idx, 3, item_ca)
+            self.tabla.setItem(row_idx, 4, item_cn)
+            self.tabla.setItem(row_idx, 5, item_m)
+            self.tabla.setItem(row_idx, 6, item_pf)
 
         self._is_updating = False
 
@@ -315,15 +338,15 @@ class PreciosTab(QWidget):
         col = item.column()
         row = item.row()
 
-        # Si edita Costo Nuevo (3) o Margen (4)
-        if col in (3, 4):
+        # Si edita Costo Nuevo (4) o Margen (5) debido a que agregamos columna SKU
+        if col in (4, 5):
             try:
                 self._is_updating = True
 
                 # Obtener valores actuales
-                item_cn = self.tabla.item(row, 3)
-                item_m = self.tabla.item(row, 4)
-                item_pf = self.tabla.item(row, 5)
+                item_cn = self.tabla.item(row, 4)
+                item_m = self.tabla.item(row, 5)
+                item_pf = self.tabla.item(row, 6)
 
                 cn_val = float(item_cn.text().replace(',', '.'))
                 m_val = float(item_m.text().replace(',', '.'))
@@ -350,8 +373,8 @@ class PreciosTab(QWidget):
             for row in range(self.tabla.rowCount()):
                 try:
                     pid = int(self.tabla.item(row, 0).text())
-                    c_nuevo = float(self.tabla.item(row, 3).text().replace(',', '.'))
-                    pf_nuevo = float(self.tabla.item(row, 5).text().replace(',', '.'))
+                    c_nuevo = float(self.tabla.item(row, 4).text().replace(',', '.'))
+                    pf_nuevo = float(self.tabla.item(row, 6).text().replace(',', '.'))
 
                     actualizaciones.append({
                         'id': pid,
@@ -386,11 +409,12 @@ class PreciosTab(QWidget):
             for row in range(self.tabla.rowCount()):
                 data.append({
                     "ID": int(self.tabla.item(row, 0).text()),
-                    "Nombre": self.tabla.item(row, 1).text(),
-                    "Costo Anterior": float(self.tabla.item(row, 2).text().replace(',', '.')),
-                    "Costo Nuevo": float(self.tabla.item(row, 3).text().replace(',', '.')),
-                    "Margen %": float(self.tabla.item(row, 4).text().replace(',', '.')),
-                    "Precio Final": float(self.tabla.item(row, 5).text().replace(',', '.'))
+                    "SKU Interno": self.tabla.item(row, 1).text(),
+                    "Nombre": self.tabla.item(row, 2).text(),
+                    "Costo Anterior": float(self.tabla.item(row, 3).text().replace(',', '.')),
+                    "Costo Nuevo": float(self.tabla.item(row, 4).text().replace(',', '.')),
+                    "Margen %": float(self.tabla.item(row, 5).text().replace(',', '.')),
+                    "Precio Final": float(self.tabla.item(row, 6).text().replace(',', '.'))
                 })
 
             df_export = pd.DataFrame(data)
