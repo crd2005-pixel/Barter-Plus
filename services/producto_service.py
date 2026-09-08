@@ -1,6 +1,6 @@
 from database.conexion import get_session
 from database.models.producto import Producto
-from typing import Optional
+from typing import Optional, List
 from sqlalchemy import select
 
 class ProductoService:
@@ -32,13 +32,10 @@ class ProductoService:
                     costo=costo,
                     iva=iva,
                     codigo_barras=codigo_barras,
-                    # Se usa stock_maximo temporalmente en pruebas para representar stock actual,
-                    # dado que el modelo actual no lo posee.
                     stock_maximo=stock_inicial
                 )
                 session.add(nuevo_producto)
                 session.commit()
-                # Refrescar y luego 'expunge' para poder usar el objeto fuera de la sesión
                 session.refresh(nuevo_producto)
                 session.expunge(nuevo_producto)
                 return nuevo_producto
@@ -73,3 +70,22 @@ class ProductoService:
             if producto:
                 session.expunge(producto)
             return producto
+
+    @staticmethod
+    def buscar_por_id(producto_id: int) -> Optional[Producto]:
+        with get_session() as session:
+            producto = session.get(Producto, producto_id)
+            if producto:
+                session.expunge(producto)
+            return producto
+
+    @staticmethod
+    def listar_todos(busqueda: str = "") -> List[Producto]:
+        with get_session() as session:
+            stmt = select(Producto)
+            if busqueda:
+                stmt = stmt.where(Producto.nombre.icontains(busqueda) | Producto.codigo_barras.icontains(busqueda))
+            productos = session.scalars(stmt).all()
+            for p in productos:
+                session.expunge(p)
+            return list(productos)
