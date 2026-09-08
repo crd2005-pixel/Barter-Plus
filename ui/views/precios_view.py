@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QLabel, QComboBox, QRadioButton,
-    QDoubleSpinBox, QMessageBox, QGroupBox, QFormLayout
+    QDoubleSpinBox, QMessageBox, QGroupBox, QFormLayout, QSplitter
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QBrush
@@ -14,6 +14,13 @@ class PreciosTab(QWidget):
         self.layout = QVBoxLayout(self)
         self.productos_db = []
         self.filas_mostrar_totales = [] # Todas las filas filtradas
+
+        self.splitter = QSplitter(Qt.Orientation.Vertical)
+
+        # Contenedor superior (Filtros y Motor)
+        self.top_widget = QWidget()
+        self.top_layout = QVBoxLayout(self.top_widget)
+        self.top_layout.setContentsMargins(0, 0, 0, 0)
 
         # --- ZONA DE FILTROS ---
         self.filtros_group = QGroupBox("Carga y Filtros de Productos")
@@ -41,7 +48,7 @@ class PreciosTab(QWidget):
         self.filtros_layout.addWidget(self.btn_cargar_datos)
 
         self.filtros_group.setLayout(self.filtros_layout)
-        self.layout.addWidget(self.filtros_group)
+        self.top_layout.addWidget(self.filtros_group)
 
         # --- MOTOR DE MÁRGENES ---
         self.motor_group = QGroupBox("Motor de Márgenes")
@@ -61,7 +68,12 @@ class PreciosTab(QWidget):
         self.motor_layout.addStretch()
 
         self.motor_group.setLayout(self.motor_layout)
-        self.layout.addWidget(self.motor_group)
+        self.top_layout.addWidget(self.motor_group)
+
+        # Contenedor inferior (Grilla y Paginación)
+        self.bottom_widget = QWidget()
+        self.bottom_layout = QVBoxLayout(self.bottom_widget)
+        self.bottom_layout.setContentsMargins(0, 0, 0, 0)
 
         # --- ZONA DE PREVISUALIZACIÓN ---
         self.tabla = QTableWidget(0, 6)
@@ -79,11 +91,18 @@ class PreciosTab(QWidget):
         self.tabla.setColumnWidth(4, 100)
 
         self.tabla.setAlternatingRowColors(True)
-        self.layout.addWidget(self.tabla)
+        self.bottom_layout.addWidget(self.tabla)
 
         self.paginacion = PaginationWidget(limit=50)
         self.paginacion.page_changed.connect(self.render_tabla_pagina)
-        self.layout.addWidget(self.paginacion)
+        self.bottom_layout.addWidget(self.paginacion)
+
+        self.splitter.addWidget(self.top_widget)
+        self.splitter.addWidget(self.bottom_widget)
+        # 30% top, 70% grid
+        self.splitter.setSizes([200, 500])
+
+        self.layout.addWidget(self.splitter)
 
         # --- ACCIONES FINALES ---
         self.acciones_layout = QHBoxLayout()

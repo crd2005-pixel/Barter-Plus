@@ -1,7 +1,7 @@
 import pandas as pd
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QMessageBox,
-    QLabel, QComboBox, QFormLayout, QGroupBox, QTableWidget, QTableWidgetItem, QHeaderView
+    QLabel, QComboBox, QFormLayout, QGroupBox, QTableWidget, QTableWidgetItem, QHeaderView, QSplitter
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QBrush
@@ -15,6 +15,13 @@ class ProveedoresTab(QWidget):
         self.layout = QVBoxLayout(self)
         self.df = None
         self.filas_preview = []
+
+        self.splitter = QSplitter(Qt.Orientation.Vertical)
+
+        # Contenedor superior (Carga y Mapeo)
+        self.top_widget = QWidget()
+        self.top_layout = QVBoxLayout(self.top_widget)
+        self.top_layout.setContentsMargins(0, 0, 0, 0)
 
         # --- ZONA DE IMPORTACIÓN MAESTRA ---
         self.import_group = QGroupBox("Importar Lista Maestra de Proveedores")
@@ -56,7 +63,12 @@ class ProveedoresTab(QWidget):
         self.import_layout.addLayout(self.box_acciones_prev)
 
         self.import_group.setLayout(self.import_layout)
-        self.layout.addWidget(self.import_group)
+        self.top_layout.addWidget(self.import_group)
+
+        # Contenedor inferior (Previsualización)
+        self.bottom_widget = QWidget()
+        self.bottom_layout = QVBoxLayout(self.bottom_widget)
+        self.bottom_layout.setContentsMargins(0, 0, 0, 0)
 
         # --- ZONA DE PREVISUALIZACIÓN Y APROBACIÓN ---
         self.preview_group = QGroupBox("Previsualización de Cambios (Por Impactar)")
@@ -91,7 +103,13 @@ class ProveedoresTab(QWidget):
         self.preview_layout.addLayout(self.box_acciones_finales)
 
         self.preview_group.setLayout(self.preview_layout)
-        self.layout.addWidget(self.preview_group)
+        self.bottom_layout.addWidget(self.preview_group)
+
+        self.splitter.addWidget(self.top_widget)
+        self.splitter.addWidget(self.bottom_widget)
+        self.splitter.setSizes([250, 450])
+
+        self.layout.addWidget(self.splitter)
 
         # Conexiones
         self.btn_cargar.clicked.connect(self.cargar_archivo)

@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit,
     QTableWidget, QTableWidgetItem, QHeaderView, QDialog,
-    QLabel, QFormLayout, QMessageBox, QDoubleSpinBox, QComboBox
+    QLabel, QFormLayout, QMessageBox, QDoubleSpinBox, QComboBox, QSplitter
 )
 from PyQt6.QtCore import Qt
 from services.producto_service import ProductoService
@@ -123,6 +123,13 @@ class ProductosTab(QWidget):
         self.layout = QVBoxLayout(self)
         self.productos_db = []
 
+        self.splitter = QSplitter(Qt.Orientation.Vertical)
+
+        # Contenedor superior (Formularios/Filtros)
+        self.top_widget = QWidget()
+        self.top_layout = QVBoxLayout(self.top_widget)
+        self.top_layout.setContentsMargins(0, 0, 0, 0)
+
         # --- Barra superior (Buscador y Acciones) ---
         self.top_bar = QHBoxLayout()
 
@@ -149,7 +156,12 @@ class ProductosTab(QWidget):
         self.top_bar.addWidget(self.btn_editar)
         self.top_bar.addWidget(self.btn_eliminar)
 
-        self.layout.addLayout(self.top_bar)
+        self.top_layout.addLayout(self.top_bar)
+
+        # Contenedor inferior (Grilla)
+        self.bottom_widget = QWidget()
+        self.bottom_layout = QVBoxLayout(self.bottom_widget)
+        self.bottom_layout.setContentsMargins(0, 0, 0, 0)
 
         # --- Tabla de Productos ---
         self.tabla = QTableWidget(0, 7)
@@ -170,11 +182,18 @@ class ProductosTab(QWidget):
         self.tabla.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.tabla.setAlternatingRowColors(True)
 
-        self.layout.addWidget(self.tabla)
+        self.bottom_layout.addWidget(self.tabla)
 
         self.paginacion = PaginationWidget(limit=50)
         self.paginacion.page_changed.connect(self.render_tabla_pagina)
-        self.layout.addWidget(self.paginacion)
+        self.bottom_layout.addWidget(self.paginacion)
+
+        self.splitter.addWidget(self.top_widget)
+        self.splitter.addWidget(self.bottom_widget)
+        # Establecer tamaño relativo (20% top, 80% grid)
+        self.splitter.setSizes([100, 400])
+
+        self.layout.addWidget(self.splitter)
 
         # --- Conexiones ---
         self.btn_nuevo.clicked.connect(self.abrir_dialogo_nuevo)
