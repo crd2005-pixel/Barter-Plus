@@ -18,19 +18,17 @@ def run_tests():
         codigo_barras="1234567890",
         stock_inicial=50.0
     )
-    print(f"Producto creado: {producto.nombre} | ID: {producto.id} | Costo: {producto.costo} | Stock: {producto.stock_maximo}")
+    print(f"Producto creado: {producto.nombre} | ID: {producto.id} | Costo: {producto.costo} | Stock: {producto.stock_actual}")
 
     # b) Simular una actualización de precio aplicando un margen (ej. 30%)
     print("\n[2] Actualizando precio con margen del 30%...")
-    # PM = 1000 * 1.21 = 1210
-    # PF = 1210 / (1 - 0.30) = 1210 / 0.70 = 1728.57
     producto_actualizado = ProductoService.actualizar_precio(producto.id, margen=30.0)
     print(f"Precio actualizado: {producto_actualizado.precio_minorista}")
 
     # c) Simular una venta de ese producto (ej. venta de 2 unidades)
     print("\n[3] Simulando venta de 2 unidades...")
     detalles_venta = [
-        {'producto_id': producto_actualizado.id, 'cantidad': 2.0}
+        {'producto_id': producto_actualizado.id, 'cantidad': 2.0, 'precio_unitario': producto_actualizado.precio_minorista}
     ]
     venta = VentaService.procesar_venta(detalles=detalles_venta, metodo_pago="Efectivo", monto_abonado=4000.0)
     print(f"Venta Procesada: ID {venta.id} | Total: {venta.total} | Vuelto: {venta.vuelto}")
@@ -39,7 +37,7 @@ def run_tests():
     print("\n[4] Verificando resultados finales...")
     with get_session() as session:
         producto_db = session.get(Producto, producto_actualizado.id)
-        print(f"Stock Final del Producto '{producto_db.nombre}': {producto_db.stock_maximo} (Debería ser 48.0)")
+        print(f"Stock Final del Producto '{producto_db.nombre}': {producto_db.stock_actual} (Debería ser 48.0)")
 
 if __name__ == "__main__":
     run_tests()

@@ -38,8 +38,12 @@ class VentaService:
                     cantidad = item['cantidad']
                     precio = item['precio_unitario']
 
-                    # Disminuir stock (usando stock_maximo como acordado en la fase actual)
-                    producto.stock_maximo -= cantidad
+                    # Disminuir stock real, considerando fraccionamiento
+                    descuento_stock = cantidad
+                    if producto.es_granel and producto.divisor_granel > 0:
+                        descuento_stock = cantidad / producto.divisor_granel
+
+                    producto.stock_actual -= descuento_stock
 
                     subtotal_item = cantidad * precio
                     subtotal_venta += subtotal_item

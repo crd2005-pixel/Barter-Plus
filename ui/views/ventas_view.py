@@ -165,7 +165,14 @@ class VentasTab(QWidget):
                 )
                 prod = session.scalars(stmt).first()
                 if prod:
-                    QMessageBox.information(self, "Consulta de Precio", f"Producto: {prod.nombre}\nPrecio Final: $ {prod.precio_minorista:.2f}\nStock Actual: {prod.stock_maximo}")
+                    msg = f"Producto: {prod.nombre}\n"
+                    if prod.es_granel and prod.divisor_granel > 0:
+                        pf_frac = prod.precio_minorista / prod.divisor_granel
+                        msg += f"Precio Final Fraccionado: $ {pf_frac:.2f} (Base: $ {prod.precio_minorista:.2f} / {prod.divisor_granel})\n"
+                    else:
+                        msg += f"Precio Final: $ {prod.precio_minorista:.2f}\n"
+                    msg += f"Stock Actual: {prod.stock_actual:.2f}"
+                    QMessageBox.information(self, "Consulta de Precio", msg)
                 else:
                     QMessageBox.warning(self, "No Encontrado", f"No se encontró ningún producto con: {query}")
 
@@ -215,8 +222,13 @@ class VentasTab(QWidget):
             return
 
         # Advertencia Stock
-        if prod.stock_maximo <= 0:
+        if prod.stock_actual <= 0:
             QMessageBox.warning(self, "Stock Agotado", f"El producto '{prod.nombre}' tiene stock <= 0. La venta continuará.")
+
+        # Fraccionamiento de Precio si es granel
+        precio_base_calculado = prod.precio_minorista
+        if prod.es_granel and prod.divisor_granel > 0:
+            precio_base_calculado = prod.precio_minorista / prod.divisor_granel
 
         # Revisar si ya está en carrito
         encontrado = False
@@ -227,11 +239,12 @@ class VentasTab(QWidget):
                 break
 
         if not encontrado:
+            nombre_mostrar = f"{prod.nombre} (Granel)" if prod.es_granel else prod.nombre
             self.carrito.append({
                 'id': prod.id,
                 'codigo': prod.codigo_barras or prod.sku or "N/A",
-                'nombre': prod.nombre,
-                'precio_base': prod.precio_minorista,
+                'nombre': nombre_mostrar,
+                'precio_base': precio_base_calculado,
                 'cantidad': cant_input
             })
 

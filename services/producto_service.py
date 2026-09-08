@@ -37,7 +37,10 @@ class ProductoService:
     @staticmethod
     def crear_producto(nombre: str, costo: float, iva: float = 21.0,
                        codigo_barras: Optional[str] = None,
-                       stock_inicial: float = 0.0) -> Producto:
+                       stock_inicial: float = 0.0,
+                       es_granel: bool = False,
+                       divisor_granel: float = 1.0,
+                       stock_minimo: float = 0.0) -> Producto:
         with get_session() as session:
             try:
                 nuevo_producto = Producto(
@@ -45,7 +48,10 @@ class ProductoService:
                     costo=costo,
                     iva=iva,
                     codigo_barras=codigo_barras,
-                    stock_maximo=stock_inicial
+                    stock_actual=stock_inicial,
+                    stock_minimo=stock_minimo,
+                    es_granel=es_granel,
+                    divisor_granel=divisor_granel
                 )
                 session.add(nuevo_producto)
                 session.commit()
@@ -157,7 +163,41 @@ class ProductoService:
         return round(margen, 2)
 
     @staticmethod
-    def actualizar_producto_manual(producto_id: int, nombre: str, codigo_barras: str, costo: float, margen: float, stock: float) -> Optional[Producto]:
+    def obtener_sugerencias_pedido() -> List[Producto]:
+        """
+        Retorna la lista de productos que requieren reposición de stock.
+        Reglas:
+        A) stock_actual <= stock_minimo (siempre que mínimo > 0)
+        B) stock_actual <= 0 (incluso si mínimo es 0 o nulo)
+        """
+        from sqlalchemy.orm import joinedload
+        with get_session() as session:
+            # Seleccionar productos activos
+            stmt = select(Producto).options(
+                joinedload(Producto.proveedor),
+                joinedload(Producto.marca)
+            ).where(Producto.activo == True)
+
+            productos_activos = session.scalars(stmt).all()
+            sugerencias = []
+
+            for p in productos_activos:
+                # Regla B
+                if p.stock_actual <= 0:
+                    sugerencias.append(p)
+                # Regla A
+                elif p.stock_minimo > 0 and p.stock_actual <= p.stock_minimo:
+                    sugerencias.append(p)
+
+            for s in sugerencias:
+                session.expunge(s)
+
+            return sugerencias
+
+    @staticmethod
+    def actualizar_producto_manual(producto_id: int, nombre: str, codigo_barras: str, costo: float,
+                                   margen: float, stock: float, es_granel: bool = False,
+                                   divisor_granel: float = 1.0, stock_minimo: float = 0.0) -> Optional[Producto]:
         with get_session() as session:
             try:
                 producto = session.get(Producto, producto_id)
@@ -167,8 +207,10 @@ class ProductoService:
                 producto.nombre = nombre
                 producto.codigo_barras = codigo_barras if codigo_barras else None
                 producto.costo = costo
-                # Asignar stock (usando stock_maximo temporalmente como acordado)
-                producto.stock_maximo = stock
+                producto.stock_actual = stock
+                producto.stock_minimo = stock_minimo
+                producto.es_granel = es_granel
+                producto.divisor_granel = divisor_granel
 
                 pf = ProductoService.calcular_precio_final(costo, margen)
                 producto.precio_minorista = pf
@@ -180,3 +222,24 @@ class ProductoService:
             except Exception as e:
                 session.rollback()
                 raise e
+
+    @staticmethod
+    def buscar_por_query_flexible(query: str) -> Optional[Producto]:
+        """
+        Busca un producto por código de barras, SKU interno o coincidencia parcial de nombre.
+        """
+        from sqlalchemy.orm import joinedload
+        with get_session() as session:
+            stmt = select(Producto).options(
+                joinedload(Producto.categoria),
+                joinedload(Producto.marca),
+                joinedload(Producto.proveedor)
+            ).where(
+                (Producto.codigo_barras == query) |
+                (Producto.sku == query) |
+                (Producto.nombre.icontains(query))
+            )
+            producto = session.scalars(stmt).first()
+            if producto:
+                session.expunge(producto)
+            return producto

@@ -33,19 +33,50 @@ class ProductoDialog(QDialog):
         self.stock_input.setDecimals(2)
         self.stock_input.setValue(0.0)
 
+        self.stock_min_input = QDoubleSpinBox()
+        self.stock_min_input.setMaximum(999999.0)
+        self.stock_min_input.setDecimals(2)
+        self.stock_min_input.setValue(0.0)
+
+        from PyQt6.QtWidgets import QCheckBox
+        self.es_granel_check = QCheckBox("Se vende a granel")
+        self.divisor_granel_input = QDoubleSpinBox()
+        self.divisor_granel_input.setRange(1.0, 999999.0)
+        self.divisor_granel_input.setValue(1.0)
+        self.divisor_granel_input.setEnabled(False)
+
         self.precio_final_label = QLabel("$ 0.00")
         self.precio_final_label.setStyleSheet("font-weight: bold; font-size: 14px;")
 
         self.layout.addRow("Nombre:", self.nombre_input)
         self.layout.addRow("Código de Barras:", self.codigo_input)
-        self.layout.addRow("Stock Actual:", self.stock_input)
-        self.layout.addRow("Costo Base:", self.costo_input)
+
+        # Grupo de Stock
+        stock_layout = QHBoxLayout()
+        stock_layout.addWidget(QLabel("Actual:"))
+        stock_layout.addWidget(self.stock_input)
+        stock_layout.addWidget(QLabel("Mínimo:"))
+        stock_layout.addWidget(self.stock_min_input)
+        self.layout.addRow("Inventario:", stock_layout)
+
+        # Grupo de Granel
+        granel_layout = QHBoxLayout()
+        granel_layout.addWidget(self.es_granel_check)
+        granel_layout.addWidget(QLabel("Partes/Divisor:"))
+        granel_layout.addWidget(self.divisor_granel_input)
+        self.layout.addRow("Fraccionamiento:", granel_layout)
+
+        self.layout.addRow("Costo Base (Unidad entera):", self.costo_input)
         self.layout.addRow("Margen (%):", self.margen_input)
         self.layout.addRow("Precio Final Calculado:", self.precio_final_label)
 
         # Conectar señales para cálculo en tiempo real
         self.costo_input.valueChanged.connect(self.recalcular_precio)
         self.margen_input.valueChanged.connect(self.recalcular_precio)
+        self.es_granel_check.stateChanged.connect(self.toggle_granel)
+
+    def toggle_granel(self):
+        self.divisor_granel_input.setEnabled(self.es_granel_check.isChecked())
 
         # Botones
         self.btn_layout = QHBoxLayout()
@@ -76,7 +107,12 @@ class ProductoDialog(QDialog):
             if prod:
                 self.nombre_input.setText(prod.nombre)
                 self.codigo_input.setText(prod.codigo_barras or "")
-                self.stock_input.setValue(prod.stock_maximo) # Usando stock_maximo temporalmente como acordado
+                self.stock_input.setValue(prod.stock_actual)
+                self.stock_min_input.setValue(prod.stock_minimo)
+
+                self.es_granel_check.setChecked(prod.es_granel)
+                self.divisor_granel_input.setValue(prod.divisor_granel if prod.divisor_granel else 1.0)
+
                 self.costo_input.setValue(prod.costo)
                 # Estimamos margen
                 m_inv = ProductoService.calcular_margen_inverso(prod.costo, prod.precio_minorista)
@@ -89,6 +125,9 @@ class ProductoDialog(QDialog):
         costo = self.costo_input.value()
         margen = self.margen_input.value()
         stock = self.stock_input.value()
+        stock_min = self.stock_min_input.value()
+        es_granel = self.es_granel_check.isChecked()
+        divisor = self.divisor_granel_input.value() if es_granel else 1.0
 
         if not nombre:
             QMessageBox.warning(self, "Error", "El nombre es obligatorio.")
@@ -100,7 +139,10 @@ class ProductoDialog(QDialog):
                     nombre=nombre,
                     costo=costo,
                     codigo_barras=codigo if codigo else None,
-                    stock_inicial=stock
+                    stock_inicial=stock,
+                    es_granel=es_granel,
+                    divisor_granel=divisor,
+                    stock_minimo=stock_min
                 )
                 ProductoService.actualizar_precio(nuevo.id, margen)
             else:
@@ -110,7 +152,10 @@ class ProductoDialog(QDialog):
                     codigo_barras=codigo,
                     costo=costo,
                     margen=margen,
-                    stock=stock
+                    stock=stock,
+                    es_granel=es_granel,
+                    divisor_granel=divisor,
+                    stock_minimo=stock_min
                 )
             self.accept()
         except Exception as e:
@@ -226,7 +271,7 @@ class ProductosTab(QWidget):
             self.tabla.setItem(row, 1, QTableWidgetItem(prod.sku or ""))
             self.tabla.setItem(row, 2, QTableWidgetItem(prod.codigo_barras or ""))
             self.tabla.setItem(row, 3, QTableWidgetItem(prod.nombre))
-            self.tabla.setItem(row, 4, QTableWidgetItem(str(prod.stock_maximo)))
+            self.tabla.setItem(row, 4, QTableWidgetItem(f"{prod.stock_actual:.2f}"))
             self.tabla.setItem(row, 5, QTableWidgetItem(f"$ {prod.costo:.2f}"))
             self.tabla.setItem(row, 6, QTableWidgetItem(f"$ {prod.precio_minorista:.2f}"))
 

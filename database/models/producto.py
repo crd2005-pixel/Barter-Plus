@@ -47,10 +47,15 @@ class Producto(Base):
     iva: Mapped[float] = mapped_column(default=21.0)
 
     # Inventario
+    stock_actual: Mapped[float] = mapped_column(default=0.0)
     stock_minimo: Mapped[float] = mapped_column(default=0.0)
     stock_maximo: Mapped[float] = mapped_column(default=0.0)
 
-    # Detalles para presentación
+    # Fraccionamiento y Granel
+    es_granel: Mapped[bool] = mapped_column(default=False)
+    divisor_granel: Mapped[float] = mapped_column(default=1.0)
+
+    # Detalles para presentación (Legacy/Auxiliar)
     venta_granel: Mapped[bool] = mapped_column(default=False)
     presentacion_cantidad: Mapped[float] = mapped_column(default=1.0)
     presentacion_unidad: Mapped[str] = mapped_column(String, default="Unidad")

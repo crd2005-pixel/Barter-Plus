@@ -1,6 +1,7 @@
 from database.conexion import get_session
 from database.models.cliente import Cliente, ClienteCuentaCorriente
 from typing import Optional
+from sqlalchemy import select
 
 class ClienteService:
     @staticmethod
@@ -47,3 +48,11 @@ class ClienteService:
             except Exception as e:
                 session.rollback()
                 raise e
+
+    @staticmethod
+    def listar_todos() -> list[Cliente]:
+        with get_session() as session:
+            clientes = session.scalars(select(Cliente)).all()
+            for c in clientes:
+                session.expunge(c)
+            return list(clientes)
