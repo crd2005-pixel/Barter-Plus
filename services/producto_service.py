@@ -40,7 +40,8 @@ class ProductoService:
                        stock_inicial: float = 0.0,
                        es_granel: bool = False,
                        divisor_granel: float = 1.0,
-                       stock_minimo: float = 0.0) -> Producto:
+                       stock_minimo: float = 0.0,
+                       stock_maximo: float = 0.0) -> Producto:
         with get_session() as session:
             try:
                 nuevo_producto = Producto(
@@ -50,6 +51,7 @@ class ProductoService:
                     codigo_barras=codigo_barras,
                     stock_actual=stock_inicial,
                     stock_minimo=stock_minimo,
+                    stock_maximo=stock_maximo,
                     es_granel=es_granel,
                     divisor_granel=divisor_granel
                 )
@@ -163,16 +165,17 @@ class ProductoService:
         return round(margen, 2)
 
     @staticmethod
-    def obtener_sugerencias_pedido() -> List[Producto]:
+    def obtener_sugerencias_pedido() -> List[dict]:
         """
         Retorna la lista de productos que requieren reposición de stock.
-        Reglas:
+        Reglas de Reabastecimiento:
         A) stock_actual <= stock_minimo (siempre que mínimo > 0)
         B) stock_actual <= 0 (incluso si mínimo es 0 o nulo)
+        Fórmula matemática de pedido:
+        Cantidad a Pedir = stock_maximo - stock_actual
         """
         from sqlalchemy.orm import joinedload
         with get_session() as session:
-            # Seleccionar productos activos
             stmt = select(Producto).options(
                 joinedload(Producto.proveedor),
                 joinedload(Producto.marca)
@@ -182,22 +185,34 @@ class ProductoService:
             sugerencias = []
 
             for p in productos_activos:
-                # Regla B
+                pedir = False
+
                 if p.stock_actual <= 0:
-                    sugerencias.append(p)
-                # Regla A
+                    pedir = True
                 elif p.stock_minimo > 0 and p.stock_actual <= p.stock_minimo:
-                    sugerencias.append(p)
+                    pedir = True
+
+                if pedir:
+                    # Aplicar fórmula estricta
+                    cantidad_pedir = p.stock_maximo - p.stock_actual
+                    if cantidad_pedir <= 0:
+                        cantidad_pedir = 1.0 # Pedido mínimo por seguridad si máximo está mal configurado
+
+                    sugerencias.append({
+                        'producto': p,
+                        'cantidad_pedir': cantidad_pedir
+                    })
 
             for s in sugerencias:
-                session.expunge(s)
+                session.expunge(s['producto'])
 
             return sugerencias
 
     @staticmethod
     def actualizar_producto_manual(producto_id: int, nombre: str, codigo_barras: str, costo: float,
                                    margen: float, stock: float, es_granel: bool = False,
-                                   divisor_granel: float = 1.0, stock_minimo: float = 0.0) -> Optional[Producto]:
+                                   divisor_granel: float = 1.0, stock_minimo: float = 0.0,
+                                   stock_maximo: float = 0.0) -> Optional[Producto]:
         with get_session() as session:
             try:
                 producto = session.get(Producto, producto_id)
@@ -209,6 +224,7 @@ class ProductoService:
                 producto.costo = costo
                 producto.stock_actual = stock
                 producto.stock_minimo = stock_minimo
+                producto.stock_maximo = stock_maximo
                 producto.es_granel = es_granel
                 producto.divisor_granel = divisor_granel
 

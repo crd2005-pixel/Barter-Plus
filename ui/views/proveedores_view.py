@@ -20,6 +20,8 @@ class ProveedoresTab(QWidget):
 
         # Contenedor superior (Carga y Mapeo)
         self.top_widget = QWidget()
+        from PyQt6.QtWidgets import QSizePolicy
+        self.top_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Ignored)
         self.top_layout = QVBoxLayout(self.top_widget)
         self.top_layout.setContentsMargins(0, 0, 0, 0)
 

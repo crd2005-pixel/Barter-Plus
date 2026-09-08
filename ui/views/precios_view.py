@@ -19,6 +19,8 @@ class PreciosTab(QWidget):
 
         # Contenedor superior (Filtros y Motor)
         self.top_widget = QWidget()
+        from PyQt6.QtWidgets import QSizePolicy
+        self.top_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Ignored)
         self.top_layout = QVBoxLayout(self.top_widget)
         self.top_layout.setContentsMargins(0, 0, 0, 0)
 

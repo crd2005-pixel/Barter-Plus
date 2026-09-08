@@ -38,6 +38,11 @@ class ProductoDialog(QDialog):
         self.stock_min_input.setDecimals(2)
         self.stock_min_input.setValue(0.0)
 
+        self.stock_max_input = QDoubleSpinBox()
+        self.stock_max_input.setMaximum(999999.0)
+        self.stock_max_input.setDecimals(2)
+        self.stock_max_input.setValue(0.0)
+
         from PyQt6.QtWidgets import QCheckBox
         self.es_granel_check = QCheckBox("Se vende a granel")
         self.divisor_granel_input = QDoubleSpinBox()
@@ -53,10 +58,12 @@ class ProductoDialog(QDialog):
 
         # Grupo de Stock
         stock_layout = QHBoxLayout()
-        stock_layout.addWidget(QLabel("Actual:"))
+        stock_layout.addWidget(QLabel("Act:"))
         stock_layout.addWidget(self.stock_input)
-        stock_layout.addWidget(QLabel("Mínimo:"))
+        stock_layout.addWidget(QLabel("Mín:"))
         stock_layout.addWidget(self.stock_min_input)
+        stock_layout.addWidget(QLabel("Máx:"))
+        stock_layout.addWidget(self.stock_max_input)
         self.layout.addRow("Inventario:", stock_layout)
 
         # Grupo de Granel
@@ -103,12 +110,15 @@ class ProductoDialog(QDialog):
 
     def cargar_datos(self):
         if self.producto_id:
-            prod = ProductoService.buscar_por_id(self.producto_id)
+            # Castear a int por seguridad si viene del TableWidget
+            prod_id = int(self.producto_id)
+            prod = ProductoService.buscar_por_id(prod_id)
             if prod:
                 self.nombre_input.setText(prod.nombre)
                 self.codigo_input.setText(prod.codigo_barras or "")
                 self.stock_input.setValue(prod.stock_actual)
                 self.stock_min_input.setValue(prod.stock_minimo)
+                self.stock_max_input.setValue(prod.stock_maximo)
 
                 self.es_granel_check.setChecked(prod.es_granel)
                 self.divisor_granel_input.setValue(prod.divisor_granel if prod.divisor_granel else 1.0)
@@ -126,6 +136,7 @@ class ProductoDialog(QDialog):
         margen = self.margen_input.value()
         stock = self.stock_input.value()
         stock_min = self.stock_min_input.value()
+        stock_max = self.stock_max_input.value()
         es_granel = self.es_granel_check.isChecked()
         divisor = self.divisor_granel_input.value() if es_granel else 1.0
 
@@ -142,12 +153,13 @@ class ProductoDialog(QDialog):
                     stock_inicial=stock,
                     es_granel=es_granel,
                     divisor_granel=divisor,
-                    stock_minimo=stock_min
+                    stock_minimo=stock_min,
+                    stock_maximo=stock_max
                 )
                 ProductoService.actualizar_precio(nuevo.id, margen)
             else:
                 ProductoService.actualizar_producto_manual(
-                    producto_id=self.producto_id,
+                    producto_id=int(self.producto_id),
                     nombre=nombre,
                     codigo_barras=codigo,
                     costo=costo,
@@ -155,7 +167,8 @@ class ProductoDialog(QDialog):
                     stock=stock,
                     es_granel=es_granel,
                     divisor_granel=divisor,
-                    stock_minimo=stock_min
+                    stock_minimo=stock_min,
+                    stock_maximo=stock_max
                 )
             self.accept()
         except Exception as e:
@@ -172,6 +185,8 @@ class ProductosTab(QWidget):
 
         # Contenedor superior (Formularios/Filtros)
         self.top_widget = QWidget()
+        from PyQt6.QtWidgets import QSizePolicy
+        self.top_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Ignored)
         self.top_layout = QVBoxLayout(self.top_widget)
         self.top_layout.setContentsMargins(0, 0, 0, 0)
 

@@ -47,7 +47,12 @@ class VentasTab(QWidget):
         self.box_opciones.addStretch()
 
         self.btn_consulta_rapida = QPushButton("Consultar Precio (F2)")
-        self.btn_consulta_rapida.setStyleSheet("padding: 10px; font-weight: bold;")
+        self.btn_consulta_rapida.setStyleSheet("padding: 10px; font-weight: bold; background-color: #f39c12; color: white;")
+
+        self.btn_sugerir_pedido = QPushButton("Sugerir Pedido")
+        self.btn_sugerir_pedido.setStyleSheet("padding: 10px; font-weight: bold; background-color: #8e44ad; color: white;")
+
+        self.box_opciones.addWidget(self.btn_sugerir_pedido)
         self.box_opciones.addWidget(self.btn_consulta_rapida)
 
         self.top_layout.addLayout(self.box_opciones)
@@ -143,6 +148,7 @@ class VentasTab(QWidget):
         self.combo_tipo_cliente.currentIndexChanged.connect(self.actualizar_ui)
         self.btn_descuento.clicked.connect(self.aplicar_descuento_global)
         self.btn_consulta_rapida.clicked.connect(self.consultar_precio_rapido)
+        self.btn_sugerir_pedido.clicked.connect(self.sugerir_pedido)
 
         # --- ATAJOS DE TECLADO ---
         shortcut_f12 = QShortcut(QKeySequence("F12"), self)
@@ -165,16 +171,57 @@ class VentasTab(QWidget):
                 )
                 prod = session.scalars(stmt).first()
                 if prod:
-                    msg = f"Producto: {prod.nombre}\n"
+                    from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel
+                    dialog = QDialog(self)
+                    dialog.setWindowTitle("Consulta de Precio")
+                    dialog.resize(400, 250)
+                    lay = QVBoxLayout(dialog)
+
+                    lbl_nom = QLabel(f"<b>Producto:</b> {prod.nombre}")
+                    lbl_nom.setWordWrap(True)
+                    lbl_nom.setStyleSheet("font-size: 16px;")
+
+                    pf = prod.precio_minorista
                     if prod.es_granel and prod.divisor_granel > 0:
-                        pf_frac = prod.precio_minorista / prod.divisor_granel
-                        msg += f"Precio Final Fraccionado: $ {pf_frac:.2f} (Base: $ {prod.precio_minorista:.2f} / {prod.divisor_granel})\n"
-                    else:
-                        msg += f"Precio Final: $ {prod.precio_minorista:.2f}\n"
-                    msg += f"Stock Actual: {prod.stock_actual:.2f}"
-                    QMessageBox.information(self, "Consulta de Precio", msg)
+                        pf = pf / prod.divisor_granel
+
+                    lbl_pf = QLabel(f"$ {pf:.2f}")
+                    lbl_pf.setStyleSheet("font-size: 32px; font-weight: bold; color: #2e7d32;")
+                    lbl_pf.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+                    margen_neto = pf - prod.costo
+
+                    lbl_detalles = QLabel(
+                        f"<b>Costo:</b> $ {prod.costo:.2f}<br>"
+                        f"<b>Margen Neto:</b> $ {margen_neto:.2f}<br>"
+                        f"<b>Stock Actual:</b> {prod.stock_actual:.2f}"
+                    )
+                    lbl_detalles.setStyleSheet("font-size: 14px;")
+
+                    lay.addWidget(lbl_nom)
+                    lay.addStretch()
+                    lay.addWidget(lbl_pf)
+                    lay.addStretch()
+                    lay.addWidget(lbl_detalles)
+
+                    dialog.exec()
                 else:
                     QMessageBox.warning(self, "No Encontrado", f"No se encontró ningún producto con: {query}")
+
+    def sugerir_pedido(self):
+        sugerencias = ProductoService.obtener_sugerencias_pedido()
+        if not sugerencias:
+            QMessageBox.information(self, "Sugerencias", "No hay productos que requieran reposición en este momento.")
+            return
+
+        msg = f"Se detectaron {len(sugerencias)} productos para reponer:\n\n"
+        for s in sugerencias[:10]: # Mostrar los primeros 10 en la alerta
+            msg += f"- {s['producto'].nombre} (Pedir: {s['cantidad_pedir']})\n"
+
+        if len(sugerencias) > 10:
+            msg += f"...y {len(sugerencias) - 10} más."
+
+        QMessageBox.information(self, "Sugerencias de Pedido", msg)
 
     def cargar_clientes(self):
         with get_session() as session:
