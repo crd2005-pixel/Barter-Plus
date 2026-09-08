@@ -155,3 +155,28 @@ class ProductoService:
 
         margen = (1 - (costo / precio_final)) * 100
         return round(margen, 2)
+
+    @staticmethod
+    def actualizar_producto_manual(producto_id: int, nombre: str, codigo_barras: str, costo: float, margen: float, stock: float) -> Optional[Producto]:
+        with get_session() as session:
+            try:
+                producto = session.get(Producto, producto_id)
+                if not producto:
+                    return None
+
+                producto.nombre = nombre
+                producto.codigo_barras = codigo_barras if codigo_barras else None
+                producto.costo = costo
+                # Asignar stock (usando stock_maximo temporalmente como acordado)
+                producto.stock_maximo = stock
+
+                pf = ProductoService.calcular_precio_final(costo, margen)
+                producto.precio_minorista = pf
+
+                session.commit()
+                session.refresh(producto)
+                session.expunge(producto)
+                return producto
+            except Exception as e:
+                session.rollback()
+                raise e

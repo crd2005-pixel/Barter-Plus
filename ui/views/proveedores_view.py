@@ -66,8 +66,14 @@ class ProveedoresTab(QWidget):
         self.tabla.setHorizontalHeaderLabels([
             "SKU Interno", "Nombre", "Proveedor", "Costo Anterior", "Costo Nuevo"
         ])
-        self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.tabla.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+
+        # Ergonomía: Columnas interactivas
+        self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.tabla.horizontalHeader().setStretchLastSection(True)
+        self.tabla.setColumnWidth(0, 150)
+        self.tabla.setColumnWidth(1, 300)
+        self.tabla.setColumnWidth(2, 150)
+
         self.tabla.setAlternatingRowColors(True)
         self.tabla.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.preview_layout.addWidget(self.tabla)

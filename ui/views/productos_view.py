@@ -28,14 +28,20 @@ class ProductoDialog(QDialog):
         self.margen_input.setDecimals(2)
         self.margen_input.setValue(30.0) # Margen default 30%
 
+        self.stock_input = QDoubleSpinBox()
+        self.stock_input.setMaximum(999999.0)
+        self.stock_input.setDecimals(2)
+        self.stock_input.setValue(0.0)
+
         self.precio_final_label = QLabel("$ 0.00")
         self.precio_final_label.setStyleSheet("font-weight: bold; font-size: 14px;")
 
         self.layout.addRow("Nombre:", self.nombre_input)
         self.layout.addRow("Código de Barras:", self.codigo_input)
+        self.layout.addRow("Stock Actual:", self.stock_input)
         self.layout.addRow("Costo Base:", self.costo_input)
         self.layout.addRow("Margen (%):", self.margen_input)
-        self.layout.addRow("Precio Final Sugerido:", self.precio_final_label)
+        self.layout.addRow("Precio Final Calculado:", self.precio_final_label)
 
         # Conectar señales para cálculo en tiempo real
         self.costo_input.valueChanged.connect(self.recalcular_precio)
@@ -70,6 +76,7 @@ class ProductoDialog(QDialog):
             if prod:
                 self.nombre_input.setText(prod.nombre)
                 self.codigo_input.setText(prod.codigo_barras or "")
+                self.stock_input.setValue(prod.stock_maximo) # Usando stock_maximo temporalmente como acordado
                 self.costo_input.setValue(prod.costo)
                 # Estimamos margen
                 m_inv = ProductoService.calcular_margen_inverso(prod.costo, prod.precio_minorista)
@@ -80,6 +87,8 @@ class ProductoDialog(QDialog):
         nombre = self.nombre_input.text().strip()
         codigo = self.codigo_input.text().strip()
         costo = self.costo_input.value()
+        margen = self.margen_input.value()
+        stock = self.stock_input.value()
 
         if not nombre:
             QMessageBox.warning(self, "Error", "El nombre es obligatorio.")
@@ -90,13 +99,19 @@ class ProductoDialog(QDialog):
                 nuevo = ProductoService.crear_producto(
                     nombre=nombre,
                     costo=costo,
-                    codigo_barras=codigo if codigo else None
+                    codigo_barras=codigo if codigo else None,
+                    stock_inicial=stock
                 )
-                ProductoService.actualizar_precio(nuevo.id, self.margen_input.value())
+                ProductoService.actualizar_precio(nuevo.id, margen)
             else:
-                # Logica de edición asumiendo que actualizaríamos
-                pass
-
+                ProductoService.actualizar_producto_manual(
+                    producto_id=self.producto_id,
+                    nombre=nombre,
+                    codigo_barras=codigo,
+                    costo=costo,
+                    margen=margen,
+                    stock=stock
+                )
             self.accept()
         except Exception as e:
             QMessageBox.critical(self, "Error al guardar", str(e))
@@ -119,10 +134,13 @@ class ProductosTab(QWidget):
         self.btn_buscar = QPushButton("Buscar")
         self.btn_buscar.clicked.connect(self.cargar_datos)
 
-        self.btn_nuevo = QPushButton("Nuevo Producto")
-        self.btn_editar = QPushButton("Editar")
+        self.btn_nuevo = QPushButton("Nuevo Producto Manual")
+        self.btn_editar = QPushButton("Editar / Stock")
         self.btn_eliminar = QPushButton("Eliminar (Deshabilitado)")
         self.btn_eliminar.setEnabled(False) # Por seguridad
+
+        self.btn_nuevo.setStyleSheet("background-color: #2980b9; color: white; font-weight: bold;")
+        self.btn_editar.setStyleSheet("background-color: #f39c12; color: white; font-weight: bold;")
 
         self.top_bar.addWidget(self.search_input)
         self.top_bar.addWidget(self.btn_buscar)
@@ -134,11 +152,20 @@ class ProductosTab(QWidget):
         self.layout.addLayout(self.top_bar)
 
         # --- Tabla de Productos ---
-        self.tabla = QTableWidget(0, 6)
-        self.tabla.setHorizontalHeaderLabels(["ID", "SKU", "Cód. Barras", "Nombre", "Costo", "Precio Final"])
-        self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.tabla.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        self.tabla.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.tabla = QTableWidget(0, 7)
+        self.tabla.setHorizontalHeaderLabels(["ID", "SKU", "Cód. Barras", "Nombre", "Stock", "Costo", "Precio Final"])
+
+        # Ergonomía Global: Columnas redimensionables interactivamente
+        self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.tabla.horizontalHeader().setStretchLastSection(True)
+
+        # Anchos sugeridos iniciales
+        self.tabla.setColumnWidth(0, 50)
+        self.tabla.setColumnWidth(1, 100)
+        self.tabla.setColumnWidth(2, 120)
+        self.tabla.setColumnWidth(3, 300)
+        self.tabla.setColumnWidth(4, 80)
+
         self.tabla.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.tabla.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.tabla.setAlternatingRowColors(True)
@@ -161,6 +188,15 @@ class ProductosTab(QWidget):
         self.productos_db = ProductoService.listar_todos(busqueda)
         self.paginacion.set_total_items(len(self.productos_db))
 
+    def showEvent(self, event):
+        """
+        Sincronización de Estado:
+        Refresca automáticamente la grilla al cambiar a esta pestaña.
+        Garantiza que impactos hechos en Gestor de Precios o Proveedores se reflejen.
+        """
+        super().showEvent(event)
+        self.cargar_datos()
+
     def render_tabla_pagina(self, page_index):
         sl = self.paginacion.get_slice()
         productos_pagina = self.productos_db[sl]
@@ -171,8 +207,9 @@ class ProductosTab(QWidget):
             self.tabla.setItem(row, 1, QTableWidgetItem(prod.sku or ""))
             self.tabla.setItem(row, 2, QTableWidgetItem(prod.codigo_barras or ""))
             self.tabla.setItem(row, 3, QTableWidgetItem(prod.nombre))
-            self.tabla.setItem(row, 4, QTableWidgetItem(f"$ {prod.costo:.2f}"))
-            self.tabla.setItem(row, 5, QTableWidgetItem(f"$ {prod.precio_minorista:.2f}"))
+            self.tabla.setItem(row, 4, QTableWidgetItem(str(prod.stock_maximo)))
+            self.tabla.setItem(row, 5, QTableWidgetItem(f"$ {prod.costo:.2f}"))
+            self.tabla.setItem(row, 6, QTableWidgetItem(f"$ {prod.precio_minorista:.2f}"))
 
             # Guardamos el ID en el item para facilitar la edición
             self.tabla.item(row, 0).setData(Qt.ItemDataRole.UserRole, prod.id)

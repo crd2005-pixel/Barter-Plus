@@ -68,8 +68,16 @@ class PreciosTab(QWidget):
         self.tabla.setHorizontalHeaderLabels([
             "ID BD", "SKU Interno", "Nombre", "Costo Base (PM)", "Margen %", "Precio Final"
         ])
-        self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.tabla.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+
+        # Ergonomía: Columnas interactivas
+        self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.tabla.horizontalHeader().setStretchLastSection(True)
+        self.tabla.setColumnWidth(0, 50)
+        self.tabla.setColumnWidth(1, 120)
+        self.tabla.setColumnWidth(2, 300)
+        self.tabla.setColumnWidth(3, 120)
+        self.tabla.setColumnWidth(4, 100)
+
         self.tabla.setAlternatingRowColors(True)
         self.layout.addWidget(self.tabla)
 
@@ -102,6 +110,18 @@ class PreciosTab(QWidget):
 
     def recargar_memoria(self):
         self.productos_db = ProductoService.listar_todos()
+
+    def showEvent(self, event):
+        """
+        Sincronización de Estado:
+        Auto-refresco al abrir la pestaña para tomar cambios de otras pestañas.
+        """
+        super().showEvent(event)
+        self.recargar_memoria()
+        self.actualizar_combo_filtros()
+        # Si la tabla ya estaba cargada, la recargamos con el filtro activo
+        if self.tabla.rowCount() > 0:
+            self.cargar_grilla()
 
     def actualizar_combo_filtros(self):
         self.combo_filtro_valor.clear()
