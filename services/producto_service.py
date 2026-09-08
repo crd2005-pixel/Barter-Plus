@@ -89,3 +89,35 @@ class ProductoService:
             for p in productos:
                 session.expunge(p)
             return list(productos)
+
+    @staticmethod
+    def actualizar_precios_masivo(actualizaciones: List[dict]) -> int:
+        """
+        Aplica un batch de actualizaciones a la base de datos de forma segura.
+        `actualizaciones` debe ser una lista de diccionarios:
+        [{'id': int, 'costo': float, 'margen': float, 'precio_minorista': float}, ...]
+        Retorna la cantidad de productos actualizados.
+        """
+        count = 0
+        with get_session() as session:
+            try:
+                for data in actualizaciones:
+                    producto = session.get(Producto, data['id'])
+                    if producto:
+                        # Si se pasa el costo nuevo
+                        if 'costo' in data:
+                            producto.costo = data['costo']
+                        # Si se pasa un precio minorista ya calculado
+                        # o si se debe calcular a partir de un margen
+                        if 'precio_minorista' in data:
+                            producto.precio_minorista = data['precio_minorista']
+                        elif 'margen' in data and 'costo' in data:
+                            producto.precio_minorista = ProductoService.calcular_precio_final(
+                                data['costo'], producto.iva, data['margen']
+                            )
+                        count += 1
+                session.commit()
+                return count
+            except Exception as e:
+                session.rollback()
+                raise e

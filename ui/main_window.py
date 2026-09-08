@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import QMainWindow, QTabWidget, QWidget, QVBoxLayout, QLabel
 from PyQt6.QtCore import Qt
 from ui.views.productos_view import ProductosTab
+from ui.views.precios_view import PreciosTab
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -40,14 +41,16 @@ class MainWindow(QMainWindow):
         self.caja_tab.setLayout(QVBoxLayout())
         self.caja_tab.layout().addWidget(QLabel("Módulo de Caja (En construcción)"))
 
-        # Pestaña real de Productos
+        # Pestañas reales
         self.productos_tab = ProductosTab()
+        self.precios_tab = PreciosTab()
 
         # Añadir pestañas al QTabWidget
         self.tabs.addTab(self.ventas_tab, "Ventas")
         self.tabs.addTab(self.productos_tab, "Productos")
+        self.tabs.addTab(self.precios_tab, "Gestor de Precios")
         self.tabs.addTab(self.proveedores_tab, "Proveedores")
         self.tabs.addTab(self.caja_tab, "Caja")
 
-        # Seleccionar por defecto la pestaña de Productos para testear
-        self.tabs.setCurrentWidget(self.productos_tab)
+        # Seleccionar por defecto la pestaña Gestor de Precios para testear
+        self.tabs.setCurrentWidget(self.precios_tab)
