@@ -2,6 +2,7 @@ from PyQt6.QtWidgets import QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBox
 from PyQt6.QtCore import Qt
 from ui.views.productos_view import ProductosTab
 from ui.views.precios_view import PreciosTab
+from ui.views.proveedores_view import ProveedoresTab
 from ui.styles import LIGHT_THEME, DARK_THEME
 
 class MainWindow(QMainWindow):
@@ -48,10 +49,6 @@ class MainWindow(QMainWindow):
         self.ventas_tab.setLayout(QVBoxLayout())
         self.ventas_tab.layout().addWidget(QLabel("Módulo de Ventas (En construcción)"))
 
-        self.proveedores_tab = QWidget()
-        self.proveedores_tab.setLayout(QVBoxLayout())
-        self.proveedores_tab.layout().addWidget(QLabel("Módulo de Proveedores (En construcción)"))
-
         self.caja_tab = QWidget()
         self.caja_tab.setLayout(QVBoxLayout())
         self.caja_tab.layout().addWidget(QLabel("Módulo de Caja (En construcción)"))
@@ -59,16 +56,17 @@ class MainWindow(QMainWindow):
         # Pestañas reales
         self.productos_tab = ProductosTab()
         self.precios_tab = PreciosTab()
+        self.proveedores_tab = ProveedoresTab()
 
         # Añadir pestañas al QTabWidget
         self.tabs.addTab(self.ventas_tab, "Ventas")
         self.tabs.addTab(self.productos_tab, "Productos")
-        self.tabs.addTab(self.precios_tab, "Gestor de Precios")
-        self.tabs.addTab(self.proveedores_tab, "Proveedores")
+        self.tabs.addTab(self.precios_tab, "Remarcación (Precios)")
+        self.tabs.addTab(self.proveedores_tab, "Proveedores (Listas)")
         self.tabs.addTab(self.caja_tab, "Caja")
 
-        # Seleccionar por defecto la pestaña Gestor de Precios para testear
-        self.tabs.setCurrentWidget(self.precios_tab)
+        # Seleccionar por defecto la pestaña Proveedores para testear la importación
+        self.tabs.setCurrentWidget(self.proveedores_tab)
 
     def change_theme(self, theme_name: str):
         app = QApplication.instance()

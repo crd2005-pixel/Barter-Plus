@@ -81,8 +81,13 @@ class ProductoService:
 
     @staticmethod
     def listar_todos(busqueda: str = "") -> List[Producto]:
+        from sqlalchemy.orm import joinedload
         with get_session() as session:
-            stmt = select(Producto)
+            stmt = select(Producto).options(
+                joinedload(Producto.categoria),
+                joinedload(Producto.marca),
+                joinedload(Producto.proveedor)
+            )
             if busqueda:
                 stmt = stmt.where(Producto.nombre.icontains(busqueda) | Producto.codigo_barras.icontains(busqueda))
             productos = session.scalars(stmt).all()

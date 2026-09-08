@@ -1,9 +1,8 @@
 import pandas as pd
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
-    QTableWidget, QTableWidgetItem, QHeaderView, QLabel,
-    QComboBox, QRadioButton, QDoubleSpinBox, QMessageBox,
-    QGroupBox, QFormLayout
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
+    QTableWidgetItem, QHeaderView, QLabel, QComboBox, QRadioButton,
+    QDoubleSpinBox, QMessageBox, QGroupBox, QFormLayout
 )
 from PyQt6.QtCore import Qt
 from services.producto_service import ProductoService
@@ -12,72 +11,24 @@ class PreciosTab(QWidget):
     def __init__(self):
         super().__init__()
         self.layout = QVBoxLayout(self)
-        self.df = None # Pandas DataFrame en memoria
-        self.productos_db = [] # Cache de productos de la BD
+        self.productos_db = []
 
-        # --- ZONA DE CARGA ---
-        self.carga_layout = QHBoxLayout()
-        self.btn_importar = QPushButton("Importar Excel/CSV")
-        self.lbl_archivo = QLabel("Ningún archivo cargado")
-
-        self.carga_layout.addWidget(self.btn_importar)
-        self.carga_layout.addWidget(self.lbl_archivo)
-        self.carga_layout.addStretch()
-        self.layout.addLayout(self.carga_layout)
-
-        # --- ZONA DE FILTROS Y MAPEO ---
-        self.mapeo_group = QGroupBox("Mapeo de Columnas")
-        self.mapeo_layout = QHBoxLayout()
-
-        # Se renombra para reflejar la regla de negocio: se cruza por SKU Interno, no EAN
-        self.combo_sku_excel = QComboBox()
-
-        # Opciones para elegir con qué campo de la DB cruzar (por defecto SKU Interno)
-        self.combo_db_match = QComboBox()
-        self.combo_db_match.addItems(["sku (SKU Interno)", "nombre", "codigo_proveedor"])
-
-        self.combo_costo = QComboBox()
-        self.combo_proveedor = QComboBox()
-        self.combo_rubro = QComboBox()
-        self.combo_marca = QComboBox()
-
-        self.mapeo_layout.addWidget(QLabel("Cruzar con DB en:"))
-        self.mapeo_layout.addWidget(self.combo_db_match)
-        self.mapeo_layout.addWidget(QLabel("Col. SKU Excel:"))
-        self.mapeo_layout.addWidget(self.combo_sku_excel)
-        self.mapeo_layout.addWidget(QLabel("Col. Costo Nuevo:"))
-        self.mapeo_layout.addWidget(self.combo_costo)
-
-        # Agregamos mapeo de filtros
-        self.mapeo_layout.addWidget(QLabel("Proveedor:"))
-        self.mapeo_layout.addWidget(self.combo_proveedor)
-        self.mapeo_layout.addWidget(QLabel("Rubro:"))
-        self.mapeo_layout.addWidget(self.combo_rubro)
-        self.mapeo_layout.addWidget(QLabel("Marca:"))
-        self.mapeo_layout.addWidget(self.combo_marca)
-
-        self.mapeo_group.setLayout(self.mapeo_layout)
-        self.layout.addWidget(self.mapeo_group)
-        self.mapeo_group.setEnabled(False) # Se habilita tras cargar
-
-        # --- ZONA DE AUMENTOS (Core) ---
-        self.aumentos_group = QGroupBox("Opciones de Aumento / Margen")
+        # --- ZONA DE FILTROS ---
+        self.aumentos_group = QGroupBox("Gestor de Precios Interno")
         self.aumentos_layout = QFormLayout()
 
         self.tipo_aumento_layout = QHBoxLayout()
         self.radio_masivo = QRadioButton("Masivo")
         self.radio_masivo.setChecked(True)
-        self.radio_proveedor = QRadioButton("Por Proveedor")
-        self.radio_rubro = QRadioButton("Por Rubro")
+        self.radio_rubro = QRadioButton("Por Categoria/Rubro")
         self.radio_marca = QRadioButton("Por Marca")
 
         self.tipo_aumento_layout.addWidget(self.radio_masivo)
-        self.tipo_aumento_layout.addWidget(self.radio_proveedor)
         self.tipo_aumento_layout.addWidget(self.radio_rubro)
         self.tipo_aumento_layout.addWidget(self.radio_marca)
         self.tipo_aumento_layout.addStretch()
 
-        # Valor a filtrar (Ej: "WEG" si es por proveedor)
+        # Valor a filtrar
         self.filtro_valor_layout = QHBoxLayout()
         self.combo_filtro_valor = QComboBox()
         self.combo_filtro_valor.setEnabled(False)
@@ -89,12 +40,12 @@ class PreciosTab(QWidget):
         self.spin_margen.setRange(0, 99.99)
         self.spin_margen.setValue(30.0)
 
-        self.btn_calcular = QPushButton("Aplicar Cálculo (Preview)")
+        self.btn_cargar_datos = QPushButton("Cargar Datos de BD y Calcular")
 
-        self.aumentos_layout.addRow("Tipo de Aumento:", self.tipo_aumento_layout)
-        self.aumentos_layout.addRow("Filtro:", self.filtro_valor_layout)
-        self.aumentos_layout.addRow("Margen a Aplicar (%):", self.spin_margen)
-        self.aumentos_layout.addRow("", self.btn_calcular)
+        self.aumentos_layout.addRow("Filtro de Aplicación:", self.tipo_aumento_layout)
+        self.aumentos_layout.addRow("Valor:", self.filtro_valor_layout)
+        self.aumentos_layout.addRow("Margen General a Aplicar (%):", self.spin_margen)
+        self.aumentos_layout.addRow("", self.btn_cargar_datos)
 
         self.aumentos_group.setLayout(self.aumentos_layout)
         self.layout.addWidget(self.aumentos_group)
@@ -102,7 +53,7 @@ class PreciosTab(QWidget):
         # --- ZONA DE PREVISUALIZACIÓN ---
         self.tabla = QTableWidget(0, 7)
         self.tabla.setHorizontalHeaderLabels([
-            "ID BD", "SKU Interno", "Nombre", "Costo Anterior", "Costo Nuevo", "Margen %", "Precio Final"
+            "ID BD", "SKU Interno", "Nombre", "Costo Base (PM)", "Costo Nuevo (M. Edit)", "Margen %", "Precio Final"
         ])
         self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.tabla.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
@@ -111,39 +62,26 @@ class PreciosTab(QWidget):
 
         # --- ACCIONES FINALES ---
         self.acciones_layout = QHBoxLayout()
-        self.btn_impactar = QPushButton("Impactar en Base de Datos")
-        self.btn_exportar = QPushButton("Exportar a Excel")
-
+        self.btn_impactar = QPushButton("Guardar Precios en Base de Datos")
         self.btn_impactar.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
-        self.btn_exportar.setStyleSheet("background-color: #1565c0; color: white; font-weight: bold;")
-
         self.btn_impactar.setEnabled(False)
-        self.btn_exportar.setEnabled(False)
 
         self.acciones_layout.addStretch()
-        self.acciones_layout.addWidget(self.btn_exportar)
         self.acciones_layout.addWidget(self.btn_impactar)
         self.layout.addLayout(self.acciones_layout)
 
         # --- CONEXIONES ---
-        self.btn_importar.clicked.connect(self.cargar_archivo)
-        self.btn_calcular.clicked.connect(self.generar_preview)
-        self.btn_impactar.clicked.connect(self.impactar_db)
-        self.btn_exportar.clicked.connect(self.exportar_excel)
-
         self.radio_masivo.toggled.connect(self.actualizar_combo_filtros)
-        self.radio_proveedor.toggled.connect(self.actualizar_combo_filtros)
         self.radio_rubro.toggled.connect(self.actualizar_combo_filtros)
         self.radio_marca.toggled.connect(self.actualizar_combo_filtros)
 
-        # Evento de edición de tabla para recálculo manual
+        self.btn_cargar_datos.clicked.connect(self.cargar_y_calcular)
+        self.btn_impactar.clicked.connect(self.impactar_db)
+
         self.tabla.itemChanged.connect(self.on_celda_editada)
         self._is_updating = False
 
     def actualizar_combo_filtros(self):
-        if self.df is None:
-            return
-
         self.combo_filtro_valor.clear()
 
         if self.radio_masivo.isChecked():
@@ -152,168 +90,82 @@ class PreciosTab(QWidget):
 
         self.combo_filtro_valor.setEnabled(True)
 
-        columna_objetivo = None
-        if self.radio_proveedor.isChecked():
-            columna_objetivo = self.combo_proveedor.currentText()
-        elif self.radio_rubro.isChecked():
-            columna_objetivo = self.combo_rubro.currentText()
-        elif self.radio_marca.isChecked():
-            columna_objetivo = self.combo_marca.currentText()
-
-        if columna_objetivo and columna_objetivo != "-- Seleccionar --":
-            valores_unicos = self.df[columna_objetivo].dropna().unique().tolist()
-            valores_unicos = [str(v) for v in valores_unicos]
-            self.combo_filtro_valor.addItems(sorted(valores_unicos))
-
-    def cargar_archivo(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Seleccionar archivo de precios", "",
-            "Excel Files (*.xlsx *.xls);;CSV Files (*.csv)"
-        )
-        if not file_path:
-            return
-
-        try:
-            if file_path.endswith('.csv'):
-                self.df = pd.read_csv(file_path)
-            else:
-                self.df = pd.read_excel(file_path)
-
-            self.lbl_archivo.setText(f"Cargado: {file_path.split('/')[-1]} ({len(self.df)} filas)")
-
-            # Cargar columnas en los combos
-            columnas = self.df.columns.tolist()
-
-            for combo in [self.combo_sku_excel, self.combo_costo, self.combo_proveedor, self.combo_rubro, self.combo_marca]:
-                combo.clear()
-                combo.addItems(["-- Seleccionar --"] + columnas)
-
-            self.mapeo_group.setEnabled(True)
-            self.btn_impactar.setEnabled(False)
-            self.btn_exportar.setEnabled(False)
-            self.tabla.setRowCount(0)
-
-            # Conectar cambios en combos de mapeo para actualizar las opciones de filtro
-            self.combo_proveedor.currentTextChanged.connect(self.actualizar_combo_filtros)
-            self.combo_rubro.currentTextChanged.connect(self.actualizar_combo_filtros)
-            self.combo_marca.currentTextChanged.connect(self.actualizar_combo_filtros)
-
-        except Exception as e:
-            QMessageBox.critical(self, "Error de carga", f"No se pudo cargar el archivo:\n{str(e)}")
-
-    def generar_preview(self):
-        if self.df is None:
-            return
-
-        col_sku = self.combo_sku_excel.currentText()
-        col_costo = self.combo_costo.currentText()
-        campo_db_match = self.combo_db_match.currentText().split(' ')[0] # Ej: 'sku', 'nombre', 'codigo_proveedor'
-
-        if col_sku == "-- Seleccionar --" or col_costo == "-- Seleccionar --":
-            QMessageBox.warning(self, "Advertencia", "Debe mapear la columna de SKU del Excel y el Costo Nuevo.")
-            return
-
-        # Obtener lógica de filtrado
-        df_filtrado = self.df
-        if not self.radio_masivo.isChecked():
-            valor_filtro = self.combo_filtro_valor.currentText()
-
-            col_filtro = None
-            if self.radio_proveedor.isChecked():
-                col_filtro = self.combo_proveedor.currentText()
-            elif self.radio_rubro.isChecked():
-                col_filtro = self.combo_rubro.currentText()
-            elif self.radio_marca.isChecked():
-                col_filtro = self.combo_marca.currentText()
-
-            if col_filtro == "-- Seleccionar --":
-                QMessageBox.warning(self, "Advertencia", f"Debe mapear la columna para el filtro seleccionado.")
-                return
-
-            df_filtrado = self.df[self.df[col_filtro].astype(str) == valor_filtro]
-
-        if df_filtrado.empty:
-            QMessageBox.information(self, "Sin datos", "No hay filas que coincidan con el filtro.")
-            return
-
-        # 1. Traer todos los productos para cruzar (en memoria para no trabar BD)
+        # Traer valores únicos desde la BD para filtrar
         self.productos_db = ProductoService.listar_todos()
+        valores_unicos = set()
 
-        # Crear diccionario de búsqueda dinámico según el campo elegido
-        db_dict = {}
-        for p in self.productos_db:
-            val = getattr(p, campo_db_match, None)
-            if val:
-                db_dict[str(val).strip().lower()] = p
+        if self.radio_rubro.isChecked():
+            for p in self.productos_db:
+                if p.categoria and p.categoria.nombre:
+                    valores_unicos.add(p.categoria.nombre)
+                elif p.rubro: # Fallback al string si se usa
+                    valores_unicos.add(p.rubro)
+        elif self.radio_marca.isChecked():
+            for p in self.productos_db:
+                if p.marca and p.marca.nombre:
+                    valores_unicos.add(p.marca.nombre)
 
-        # 2. Iterar DataFrame y cruzar
+        self.combo_filtro_valor.addItems(sorted(list(valores_unicos)))
+
+    def cargar_y_calcular(self):
+        self.productos_db = ProductoService.listar_todos()
         margen_global = self.spin_margen.value()
 
         filas_preview = []
-        for index, row in df_filtrado.iterrows():
-            # Limpiar valor para la búsqueda
-            val_excel = str(row.get(col_sku, "")).strip().lower()
-            # Parsear costo nuevo, asumiendo formato numérico.
+        for prod in self.productos_db:
+            # Aplicar filtro si no es masivo
+            if self.radio_rubro.isChecked():
+                cat_nombre = prod.categoria.nombre if prod.categoria else prod.rubro
+                if cat_nombre != self.combo_filtro_valor.currentText():
+                    continue
+            elif self.radio_marca.isChecked():
+                marca_nombre = prod.marca.nombre if prod.marca else ""
+                if marca_nombre != self.combo_filtro_valor.currentText():
+                    continue
+
             try:
-                # Intenta limpiar si es string tipo "$ 1.500,50" (basado en memoria de reglas)
-                raw_val = str(row.get(col_costo, "0"))
-                raw_val = raw_val.replace('$', '').replace(',', '.').strip()
-                costo_nuevo = float(raw_val)
+                # Calculamos usando el costo actual que tiene la BD (que debió ser actualizado por proveedores_view)
+                pf = ProductoService.calcular_precio_final(prod.costo, prod.iva, margen_global)
             except ValueError:
-                costo_nuevo = 0.0
+                pf = 0.0
 
-            if val_excel in db_dict and costo_nuevo > 0:
-                prod = db_dict[val_excel]
-
-                try:
-                    pf = ProductoService.calcular_precio_final(costo_nuevo, prod.iva, margen_global)
-                except ValueError:
-                    pf = 0.0
-
-                filas_preview.append({
-                    'id': prod.id,
-                    'sku': prod.sku or "",
-                    'nombre': prod.nombre,
-                    'costo_ant': prod.costo,
-                    'costo_nuevo': costo_nuevo,
-                    'margen': margen_global,
-                    'precio_final': pf,
-                    'iva': prod.iva
-                })
+            filas_preview.append({
+                'id': prod.id,
+                'sku': prod.sku or "",
+                'nombre': prod.nombre,
+                'costo_ant': prod.costo,
+                'costo_nuevo': prod.costo, # Inicialmente es el mismo, el usuario puede ajustarlo manual aquí
+                'margen': margen_global,
+                'precio_final': pf,
+                'iva': prod.iva
+            })
 
         if not filas_preview:
-            QMessageBox.information(self, "Sin coincidencias", f"No se encontraron coincidencias cruzando '{col_sku}' (Excel) con '{campo_db_match}' (BD) tras aplicar filtros.")
+            QMessageBox.information(self, "Sin datos", "No hay productos para mostrar con este filtro.")
+            self.tabla.setRowCount(0)
+            self.btn_impactar.setEnabled(False)
             return
 
-        # 3. Llenar QTableWidget
         self._is_updating = True
         self.tabla.setRowCount(len(filas_preview))
         for row_idx, data in enumerate(filas_preview):
-
-            # ID
             item_id = QTableWidgetItem(str(data['id']))
             item_id.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
 
-            # SKU
             item_sku = QTableWidgetItem(data['sku'])
             item_sku.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
 
-            # Nombre
             item_nom = QTableWidgetItem(data['nombre'])
             item_nom.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
 
-            # Costo Ant
             item_ca = QTableWidgetItem(f"{data['costo_ant']:.2f}")
             item_ca.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
 
-            # Costo Nuevo (Editable)
             item_cn = QTableWidgetItem(f"{data['costo_nuevo']:.2f}")
-            item_cn.setData(Qt.ItemDataRole.UserRole, data['iva']) # Guardar IVA para recalcular
+            item_cn.setData(Qt.ItemDataRole.UserRole, data['iva'])
 
-            # Margen (Editable)
             item_m = QTableWidgetItem(f"{data['margen']:.2f}")
 
-            # Precio Final (Solo lectura, se autocalcula si edito cn o m)
             item_pf = QTableWidgetItem(f"{data['precio_final']:.2f}")
             item_pf.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
 
@@ -326,10 +178,7 @@ class PreciosTab(QWidget):
             self.tabla.setItem(row_idx, 6, item_pf)
 
         self._is_updating = False
-
         self.btn_impactar.setEnabled(True)
-        self.btn_exportar.setEnabled(True)
-        QMessageBox.information(self, "Cálculo Exitoso", f"Se previsualizan {len(filas_preview)} productos listos para actualizar.")
 
     def on_celda_editada(self, item):
         if self._is_updating:
@@ -338,12 +187,10 @@ class PreciosTab(QWidget):
         col = item.column()
         row = item.row()
 
-        # Si edita Costo Nuevo (4) o Margen (5) debido a que agregamos columna SKU
+        # Edición manual de costo nuevo o margen
         if col in (4, 5):
             try:
                 self._is_updating = True
-
-                # Obtener valores actuales
                 item_cn = self.tabla.item(row, 4)
                 item_m = self.tabla.item(row, 5)
                 item_pf = self.tabla.item(row, 6)
@@ -352,22 +199,19 @@ class PreciosTab(QWidget):
                 m_val = float(item_m.text().replace(',', '.'))
                 iva = item_cn.data(Qt.ItemDataRole.UserRole)
 
-                # Recalcular (usando el servicio para mantener consistencia financiera)
                 pf_nuevo = ProductoService.calcular_precio_final(cn_val, iva, m_val)
                 item_pf.setText(f"{pf_nuevo:.2f}")
-
             except ValueError:
-                pass # Ignorar si tipearon texto no numérico momentáneamente
+                pass
             finally:
                 self._is_updating = False
 
     def impactar_db(self):
         reply = QMessageBox.question(
-            self, "Confirmar Actualización",
-            f"¿Está seguro de impactar los cambios de {self.tabla.rowCount()} productos en la base de datos?",
+            self, "Confirmar",
+            "¿Guardar los precios finales en la base de datos?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
-
         if reply == QMessageBox.StandardButton.Yes:
             actualizaciones = []
             for row in range(self.tabla.rowCount()):
@@ -386,39 +230,8 @@ class PreciosTab(QWidget):
 
             try:
                 afectados = ProductoService.actualizar_precios_masivo(actualizaciones)
-                QMessageBox.information(self, "Éxito", f"Se actualizaron {afectados} productos correctamente.")
-                # Limpiar tras éxito
+                QMessageBox.information(self, "Éxito", f"Se actualizaron {afectados} productos.")
                 self.tabla.setRowCount(0)
                 self.btn_impactar.setEnabled(False)
-                self.btn_exportar.setEnabled(False)
             except Exception as e:
-                QMessageBox.critical(self, "Error en BD", f"Ocurrió un error al guardar:\n{str(e)}")
-
-    def exportar_excel(self):
-        if self.tabla.rowCount() == 0:
-            return
-
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "Guardar Excel", "Lista_Precios_Actualizada.xlsx", "Excel Files (*.xlsx)"
-        )
-        if not file_path:
-            return
-
-        try:
-            data = []
-            for row in range(self.tabla.rowCount()):
-                data.append({
-                    "ID": int(self.tabla.item(row, 0).text()),
-                    "SKU Interno": self.tabla.item(row, 1).text(),
-                    "Nombre": self.tabla.item(row, 2).text(),
-                    "Costo Anterior": float(self.tabla.item(row, 3).text().replace(',', '.')),
-                    "Costo Nuevo": float(self.tabla.item(row, 4).text().replace(',', '.')),
-                    "Margen %": float(self.tabla.item(row, 5).text().replace(',', '.')),
-                    "Precio Final": float(self.tabla.item(row, 6).text().replace(',', '.'))
-                })
-
-            df_export = pd.DataFrame(data)
-            df_export.to_excel(file_path, index=False)
-            QMessageBox.information(self, "Éxito", "Archivo exportado correctamente.")
-        except Exception as e:
-            QMessageBox.critical(self, "Error al Exportar", f"No se pudo guardar el archivo:\n{str(e)}")
+                QMessageBox.critical(self, "Error en BD", f"Error:\n{str(e)}")
