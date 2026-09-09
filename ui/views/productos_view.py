@@ -1,23 +1,30 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit,
     QTableWidget, QTableWidgetItem, QHeaderView, QDialog,
-    QLabel, QFormLayout, QMessageBox, QDoubleSpinBox, QComboBox, QSplitter
+    QLabel, QFormLayout, QMessageBox, QDoubleSpinBox, QComboBox, QSplitter, QDialogButtonBox
 )
 from PyQt6.QtCore import Qt
 from services.producto_service import ProductoService
 from ui.components.pagination import PaginationWidget
 
 class ProductoDialog(QDialog):
-    def __init__(self, parent=None, producto_id=None):
+    def __init__(self, parent=None, producto=None):
         super().__init__(parent)
-        self.producto_id = producto_id
-        self.setWindowTitle("Nuevo Producto" if not producto_id else "Editar Producto")
-        self.resize(400, 300)
+        self.producto = producto
+        self.producto_id = producto.id if producto else None
+
+        self.setWindowTitle("Nuevo Producto" if not producto else "Editar Producto")
+        self.resize(500, 450)
 
         self.layout = QFormLayout(self)
 
+        self.sku_input = QLineEdit()
         self.nombre_input = QLineEdit()
         self.codigo_input = QLineEdit()
+
+        self.combo_proveedor = QComboBox()
+        self.combo_rubro = QComboBox()
+        self.combo_marca = QComboBox()
 
         self.costo_input = QDoubleSpinBox()
         self.costo_input.setMaximum(9999999.99)
@@ -53,8 +60,13 @@ class ProductoDialog(QDialog):
         self.precio_final_label = QLabel("$ 0.00")
         self.precio_final_label.setStyleSheet("font-weight: bold; font-size: 14px;")
 
+        self.layout.addRow("SKU Interno:", self.sku_input)
         self.layout.addRow("Nombre:", self.nombre_input)
-        self.layout.addRow("Código de Barras:", self.codigo_input)
+        self.layout.addRow("Código de Barras (EAN):", self.codigo_input)
+
+        self.layout.addRow("Proveedor:", self.combo_proveedor)
+        self.layout.addRow("Categoría/Rubro:", self.combo_rubro)
+        self.layout.addRow("Marca:", self.combo_marca)
 
         # Grupo de Stock
         stock_layout = QHBoxLayout()
@@ -82,22 +94,29 @@ class ProductoDialog(QDialog):
         self.margen_input.valueChanged.connect(self.recalcular_precio)
         self.es_granel_check.stateChanged.connect(self.toggle_granel)
 
+        # Botones
+        self.btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        self.btn_box.accepted.connect(self.guardar)
+        self.btn_box.rejected.connect(self.reject)
+        self.layout.addRow(self.btn_box)
+
+        self.cargar_relaciones()
+        self.cargar_datos()
+
     def toggle_granel(self):
         self.divisor_granel_input.setEnabled(self.es_granel_check.isChecked())
 
-        # Botones
-        self.btn_layout = QHBoxLayout()
-        self.btn_guardar = QPushButton("Guardar")
-        self.btn_cancelar = QPushButton("Cancelar")
-        self.btn_layout.addWidget(self.btn_guardar)
-        self.btn_layout.addWidget(self.btn_cancelar)
+    def cargar_relaciones(self):
+        provs, cats, marcas = ProductoService.obtener_diccionarios_relaciones()
 
-        self.layout.addRow(self.btn_layout)
+        self.combo_proveedor.addItem("-- Ninguno --", None)
+        for p in provs: self.combo_proveedor.addItem(p['nombre'], p['id'])
 
-        self.btn_guardar.clicked.connect(self.guardar)
-        self.btn_cancelar.clicked.connect(self.reject)
+        self.combo_rubro.addItem("-- Ninguna --", None)
+        for c in cats: self.combo_rubro.addItem(c['nombre'], c['id'])
 
-        self.cargar_datos()
+        self.combo_marca.addItem("-- Ninguna --", None)
+        for m in marcas: self.combo_marca.addItem(m['nombre'], m['id'])
 
     def recalcular_precio(self):
         costo = self.costo_input.value()
@@ -109,29 +128,43 @@ class ProductoDialog(QDialog):
             self.precio_final_label.setText("Error (Margen >= 100%)")
 
     def cargar_datos(self):
-        if self.producto_id:
-            # Castear a int por seguridad si viene del TableWidget
-            prod_id = int(self.producto_id)
-            prod = ProductoService.buscar_por_id(prod_id)
-            if prod:
-                self.nombre_input.setText(prod.nombre)
-                self.codigo_input.setText(prod.codigo_barras or "")
-                self.stock_input.setValue(prod.stock_actual)
-                self.stock_min_input.setValue(prod.stock_minimo)
-                self.stock_max_input.setValue(prod.stock_maximo)
+        if self.producto:
+            self.sku_input.setText(self.producto.sku or "")
+            self.sku_input.setEnabled(False) # No editable si ya existe
 
-                self.es_granel_check.setChecked(prod.es_granel)
-                self.divisor_granel_input.setValue(prod.divisor_granel if prod.divisor_granel else 1.0)
+            self.nombre_input.setText(self.producto.nombre)
+            self.codigo_input.setText(self.producto.codigo_barras or "")
 
-                self.costo_input.setValue(prod.costo)
-                # Estimamos margen
-                m_inv = ProductoService.calcular_margen_inverso(prod.costo, prod.precio_minorista)
-                self.margen_input.setValue(m_inv)
-                self.recalcular_precio()
+            # Combos
+            if self.producto.proveedor_id:
+                index = self.combo_proveedor.findData(self.producto.proveedor_id)
+                if index >= 0: self.combo_proveedor.setCurrentIndex(index)
+            if self.producto.categoria_id:
+                index = self.combo_rubro.findData(self.producto.categoria_id)
+                if index >= 0: self.combo_rubro.setCurrentIndex(index)
+            if self.producto.marca_id:
+                index = self.combo_marca.findData(self.producto.marca_id)
+                if index >= 0: self.combo_marca.setCurrentIndex(index)
+
+            self.stock_input.setValue(self.producto.stock_actual)
+            self.stock_min_input.setValue(self.producto.stock_minimo)
+            self.stock_max_input.setValue(self.producto.stock_maximo)
+
+            self.es_granel_check.setChecked(self.producto.es_granel)
+            self.divisor_granel_input.setValue(self.producto.divisor_granel if self.producto.divisor_granel else 1.0)
+
+            self.costo_input.setValue(self.producto.costo)
+            m_inv = ProductoService.calcular_margen_inverso(self.producto.costo, self.producto.precio_minorista)
+            self.margen_input.setValue(m_inv)
+            self.recalcular_precio()
 
     def guardar(self):
+        sku = self.sku_input.text().strip()
         nombre = self.nombre_input.text().strip()
         codigo = self.codigo_input.text().strip()
+        prov_id = self.combo_proveedor.currentData()
+        rubro_id = self.combo_rubro.currentData()
+        marca_id = self.combo_marca.currentData()
         costo = self.costo_input.value()
         margen = self.margen_input.value()
         stock = self.stock_input.value()
@@ -147,6 +180,7 @@ class ProductoDialog(QDialog):
         try:
             if not self.producto_id:
                 nuevo = ProductoService.crear_producto(
+                    sku=sku if sku else None,
                     nombre=nombre,
                     costo=costo,
                     codigo_barras=codigo if codigo else None,
@@ -154,12 +188,15 @@ class ProductoDialog(QDialog):
                     es_granel=es_granel,
                     divisor_granel=divisor,
                     stock_minimo=stock_min,
-                    stock_maximo=stock_max
+                    stock_maximo=stock_max,
+                    proveedor_id=prov_id,
+                    categoria_id=rubro_id,
+                    marca_id=marca_id
                 )
                 ProductoService.actualizar_precio(nuevo.id, margen)
             else:
                 ProductoService.actualizar_producto_manual(
-                    producto_id=int(self.producto_id),
+                    producto_id=self.producto_id,
                     nombre=nombre,
                     codigo_barras=codigo,
                     costo=costo,
@@ -168,7 +205,10 @@ class ProductoDialog(QDialog):
                     es_granel=es_granel,
                     divisor_granel=divisor,
                     stock_minimo=stock_min,
-                    stock_maximo=stock_max
+                    stock_maximo=stock_max,
+                    proveedor_id=prov_id,
+                    categoria_id=rubro_id,
+                    marca_id=marca_id
                 )
             self.accept()
         except Exception as e:
@@ -299,7 +339,6 @@ class ProductosTab(QWidget):
             self.cargar_datos()
 
     def abrir_dialogo_editar(self):
-        # Obtener ID seleccionado
         items = self.tabla.selectedItems()
         if not items:
             QMessageBox.information(self, "Selección", "Por favor seleccione un producto para editar.")
@@ -307,7 +346,12 @@ class ProductosTab(QWidget):
 
         row = items[0].row()
         producto_id = self.tabla.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        producto = ProductoService.buscar_por_id(int(producto_id))
 
-        dialog = ProductoDialog(self, producto_id=producto_id)
+        if not producto:
+            QMessageBox.warning(self, "Error", "No se encontró el producto en la BD.")
+            return
+
+        dialog = ProductoDialog(self, producto=producto)
         if dialog.exec():
             self.cargar_datos()

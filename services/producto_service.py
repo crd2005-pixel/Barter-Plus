@@ -41,10 +41,15 @@ class ProductoService:
                        es_granel: bool = False,
                        divisor_granel: float = 1.0,
                        stock_minimo: float = 0.0,
-                       stock_maximo: float = 0.0) -> Producto:
+                       stock_maximo: float = 0.0,
+                       sku: Optional[str] = None,
+                       proveedor_id: Optional[int] = None,
+                       categoria_id: Optional[int] = None,
+                       marca_id: Optional[int] = None) -> Producto:
         with get_session() as session:
             try:
                 nuevo_producto = Producto(
+                    sku=sku,
                     nombre=nombre,
                     costo=costo,
                     iva=iva,
@@ -53,7 +58,10 @@ class ProductoService:
                     stock_minimo=stock_minimo,
                     stock_maximo=stock_maximo,
                     es_granel=es_granel,
-                    divisor_granel=divisor_granel
+                    divisor_granel=divisor_granel,
+                    proveedor_id=proveedor_id,
+                    categoria_id=categoria_id,
+                    marca_id=marca_id
                 )
                 session.add(nuevo_producto)
                 session.commit()
@@ -212,7 +220,8 @@ class ProductoService:
     def actualizar_producto_manual(producto_id: int, nombre: str, codigo_barras: str, costo: float,
                                    margen: float, stock: float, es_granel: bool = False,
                                    divisor_granel: float = 1.0, stock_minimo: float = 0.0,
-                                   stock_maximo: float = 0.0) -> Optional[Producto]:
+                                   stock_maximo: float = 0.0, proveedor_id: Optional[int] = None,
+                                   categoria_id: Optional[int] = None, marca_id: Optional[int] = None) -> Optional[Producto]:
         with get_session() as session:
             try:
                 producto = session.get(Producto, producto_id)
@@ -221,6 +230,9 @@ class ProductoService:
 
                 producto.nombre = nombre
                 producto.codigo_barras = codigo_barras if codigo_barras else None
+                producto.proveedor_id = proveedor_id
+                producto.categoria_id = categoria_id
+                producto.marca_id = marca_id
                 producto.costo = costo
                 producto.stock_actual = stock
                 producto.stock_minimo = stock_minimo
@@ -276,3 +288,14 @@ class ProductoService:
     def listar_nombres() -> List[str]:
         with get_session() as session:
             return session.scalars(select(Producto.nombre)).all()
+
+    @staticmethod
+    def obtener_diccionarios_relaciones() -> tuple[list[dict], list[dict], list[dict]]:
+        """Devuelve listas de dicts para Proveedores, Categorias y Marcas para popular combos."""
+        from database.models.proveedor import Proveedor
+        from database.models.producto import Categoria, Marca
+        with get_session() as session:
+            provs = [{"id": p.id, "nombre": p.nombre} for p in session.scalars(select(Proveedor)).all()]
+            cats = [{"id": c.id, "nombre": c.nombre} for c in session.scalars(select(Categoria)).all()]
+            marcas = [{"id": m.id, "nombre": m.nombre} for m in session.scalars(select(Marca)).all()]
+            return provs, cats, marcas
