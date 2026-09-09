@@ -4,6 +4,7 @@ from database.models.producto import Producto
 from database.models.cliente import Cliente, ClienteCuentaCorriente
 from database.models.caja import Caja, MovimientoCaja
 from database.models.contabilidad import AsientoDiario, LibroIVA
+from database.models.caja import Caja, MovimientoCaja
 from typing import List, Dict, Optional
 import datetime as dt
 
@@ -98,52 +99,51 @@ class VentaService:
 
                 # Contabilidad y Fiscalidad
                 if tipo_comprobante == "Factura":
-                    iva_asumido = total_final - (total_final / 1.21)
-                    neto_gravado = total_final / 1.21
-
-                    l_iva = LibroIVA(
-                        tipo="Venta",
-                        comprobante=f"Factura #{nueva_venta.id}",
-                        neto_gravado=neto_gravado,
-                        iva_21=iva_asumido,
-                        total=total_final,
-                        venta_id=nueva_venta.id
+                    # Libro Diario
+                    asiento_venta = AsientoDiario(
+                        fecha=nueva_venta.fecha,
+                        cuenta="Ventas",
+                        debe=0.0,
+                        haber=subtotal,
+                        descripcion=f"Factura Venta #{nueva_venta.id}"
                     )
-                    session.add(l_iva)
+                    session.add(asiento_venta)
 
-                    asiento = AsientoDiario(
-                        descripcion=f"Venta Facturada #{nueva_venta.id}",
-                        debe=total_final,
-                        cuenta="Caja" if metodo_pago != "Cuenta Corriente" else "Deudores por Ventas",
-                        venta_id=nueva_venta.id
+                    asiento_iva = AsientoDiario(
+                        fecha=nueva_venta.fecha,
+                        cuenta="IVA Débito Fiscal",
+                        debe=0.0,
+                        haber=iva_total,
+                        descripcion=f"IVA Factura Venta #{nueva_venta.id}"
                     )
-                    session.add(asiento)
+                    session.add(asiento_iva)
 
-                    asiento_ventas = AsientoDiario(
-                        descripcion=f"Ingreso por Ventas #{nueva_venta.id}",
-                        haber=total_final,
-                        cuenta="Ingresos por Ventas",
-                        venta_id=nueva_venta.id
+                    # Libro IVA
+                    libro_iva = LibroIVA(
+                        fecha=nueva_venta.fecha,
+                        tipo_comprobante="Factura",
+                        numero_comprobante=str(nueva_venta.id),
+                        neto_gravado=subtotal,
+                        iva_facturado=iva_total,
+                        total=total_final
                     )
-                    session.add(asiento_ventas)
+                    session.add(libro_iva)
 
-                # Impactar en Caja (si no es cuenta corriente pura)
-                if metodo_pago != "Cuenta Corriente":
-                    caja_abierta = session.query(Caja).filter_by(estado="Abierta").order_by(Caja.id.desc()).first()
-                    if not caja_abierta:
-                        caja_abierta = Caja(estado="Abierta")
-                        session.add(caja_abierta)
-                        session.flush()
+                # --- INTEGRACIÓN CON CAJA ---
+                caja_activa = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
+                if not caja_activa:
+                    raise ValueError("No hay una caja abierta. Debe abrir la caja antes de procesar ventas.")
 
-                    mov_caja = MovimientoCaja(
-                        caja_id=caja_abierta.id,
-                        tipo="Ingreso",
-                        concepto=f"Venta #{nueva_venta.id} - {metodo_pago}",
-                        monto=total_final,
-                        metodo=metodo_pago,
-                        venta_id=nueva_venta.id
-                    )
-                    session.add(mov_caja)
+                mov_caja = MovimientoCaja(
+                    caja_id=caja_activa.id,
+                    tipo="Ingreso",
+                    concepto=f"Venta #{nueva_venta.id} - {tipo_comprobante}",
+                    monto=total_final,
+                    metodo=metodo_pago,
+                    venta_id=nueva_venta.id
+                )
+                session.add(mov_caja)
+                # ----------------------------
 
                 session.commit()
                 session.refresh(nueva_venta)

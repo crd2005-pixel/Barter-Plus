@@ -4,6 +4,7 @@ from ui.views.productos_view import ProductosTab
 from ui.views.precios_view import PreciosTab
 from ui.views.proveedores_view import ProveedoresTab
 from ui.views.ventas_view import VentasTab
+from ui.views.caja_view import CajaView
 from ui.styles import LIGHT_THEME, DARK_THEME
 
 class MainWindow(QMainWindow):
@@ -46,9 +47,7 @@ class MainWindow(QMainWindow):
 
     def setup_tabs(self):
         # Placeholder para otras pestañas
-        self.caja_tab = QWidget()
-        self.caja_tab.setLayout(QVBoxLayout())
-        self.caja_tab.layout().addWidget(QLabel("Módulo de Caja (En construcción)"))
+
 
         # Pestañas reales
         self.ventas_tab = VentasTab()
@@ -58,10 +57,13 @@ class MainWindow(QMainWindow):
 
         # Añadir pestañas al QTabWidget
         self.tabs.addTab(self.ventas_tab, "Punto de Venta")
+
+        self.caja_view = CajaView()
+        self.tabs.addTab(self.caja_view, "Caja / Tesorería")
         self.tabs.addTab(self.productos_tab, "Productos")
         self.tabs.addTab(self.precios_tab, "Remarcación (Precios)")
         self.tabs.addTab(self.proveedores_tab, "Proveedores (Listas)")
-        self.tabs.addTab(self.caja_tab, "Caja")
+
 
         # Seleccionar por defecto la pestaña Ventas
         self.tabs.setCurrentWidget(self.ventas_tab)
