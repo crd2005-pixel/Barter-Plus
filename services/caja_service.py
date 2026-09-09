@@ -147,3 +147,11 @@ class CajaService:
             except Exception as e:
                 session.rollback()
                 raise e
+
+    @staticmethod
+    def obtener_historial_cajas() -> List[Caja]:
+        with get_session() as session:
+            cajas = session.scalars(select(Caja).order_by(Caja.fecha_apertura.desc())).all()
+            for c in cajas:
+                session.expunge(c)
+            return list(cajas)

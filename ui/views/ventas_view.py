@@ -129,6 +129,7 @@ class VentasTab(QWidget):
         self.btn_descuento = QPushButton("Aplicar Desc. Global")
         self.btn_descuento.setStyleSheet("padding: 10px; font-weight: bold;")
         self.descuento_global = 0.0
+        self.cliente_vip = False
 
         self.lbl_total_texto = QLabel("TOTAL:")
         font_total = QFont()
@@ -164,7 +165,7 @@ class VentasTab(QWidget):
         self.btn_buscar.clicked.connect(self.agregar_al_carrito)
         self.tabla.itemChanged.connect(self.modificar_cantidad_grid)
         self.btn_cobrar.clicked.connect(self.procesar_cobro)
-        self.combo_clientes.currentIndexChanged.connect(self.actualizar_ui)
+        self.combo_clientes.currentIndexChanged.connect(self.evaluar_cliente)
         self.btn_descuento.clicked.connect(self.aplicar_descuento_global)
         self.btn_consulta_rapida.clicked.connect(self.consultar_precio_rapido)
         self.btn_sugerir_pedido.clicked.connect(self.sugerir_pedido)
@@ -323,6 +324,13 @@ class VentasTab(QWidget):
         model = QStringListModel(["Consumidor Final"] + nombres)
         self.completer_cli.setModel(model)
 
+
+    def evaluar_cliente(self):
+        cliente_id = self.combo_clientes.currentData()
+        self.cliente_vip = self._cache_clientes.get(cliente_id, False) if cliente_id else False
+        self.actualizar_ui()
+
+
     def showEvent(self, event):
         super().showEvent(event)
         self.cargar_completer_productos()
@@ -396,10 +404,8 @@ class VentasTab(QWidget):
 
         # Logica Cliente Especial desde Base de Datos
         cliente_id = self.combo_clientes.currentData()
-        es_especial = self._cache_clientes.get(cliente_id, False) if cliente_id else False
-
         for r, item in enumerate(self.carrito):
-            precio_unitario = item['precio_base'] * 0.9 if es_especial else item['precio_base']
+            precio_unitario = item['precio_base'] * 0.9 if self.cliente_vip else item['precio_base']
             precio_neto = precio_unitario - item['descuento_unit']
             if precio_neto < 0: precio_neto = 0.0
 
@@ -506,11 +512,9 @@ class VentasTab(QWidget):
 
         if reply == QMessageBox.StandardButton.Yes:
             try:
-                es_especial = self._cache_clientes.get(cliente_id, False) if cliente_id else False
                 detalles_final = []
-
                 for item in self.carrito:
-                    precio_unitario = item['precio_base'] * 0.9 if es_especial else item['precio_base']
+                    precio_unitario = item['precio_base'] * 0.9 if self.cliente_vip else item['precio_base']
                     detalles_final.append({
                         'producto_id': item['id'],
                         'cantidad': item['cantidad'],
@@ -536,6 +540,7 @@ class VentasTab(QWidget):
                 # Reset
                 self.carrito = []
                 self.descuento_global = 0.0
+                self.cliente_vip = False
                 self.txt_codigo.clear()
                 self.combo_clientes.setCurrentIndex(0)
                 self.actualizar_ui()
