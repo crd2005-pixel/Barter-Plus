@@ -103,6 +103,14 @@ class ProductoDialog(QDialog):
         self.cargar_relaciones()
         self.cargar_datos()
 
+    def keyPressEvent(self, event):
+        # Neutralización Global del Auto-Enter inyectado por escáneres láser
+        if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
+            self.focusNextChild()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
     def toggle_granel(self):
         self.divisor_granel_input.setEnabled(self.es_granel_check.isChecked())
 

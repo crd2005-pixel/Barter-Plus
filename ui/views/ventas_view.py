@@ -105,20 +105,21 @@ class VentasTab(QWidget):
         self.bottom_layout = QVBoxLayout(self.bottom_widget)
         self.bottom_layout.setContentsMargins(0,0,0,0)
 
-        self.tabla = QTableWidget(0, 7)
+        self.tabla = QTableWidget(0, 8)
         self.tabla.setHorizontalHeaderLabels([
-            "ID", "Código", "Producto", "Precio Unitario", "Cant.", "Desc. Unid ($)", "Subtotal"
+            "ID", "Código", "Marca", "Producto", "Precio Unitario", "Cant.", "Desc. Unid ($)", "Subtotal"
         ])
         self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.tabla.horizontalHeader().setStretchLastSection(True)
         self.tabla.setAlternatingRowColors(True)
 
         self.tabla.setColumnWidth(0, 50)
-        self.tabla.setColumnWidth(1, 150)
-        self.tabla.setColumnWidth(2, 250)
-        self.tabla.setColumnWidth(3, 100)
-        self.tabla.setColumnWidth(4, 80)
-        self.tabla.setColumnWidth(5, 100)
+        self.tabla.setColumnWidth(1, 120)
+        self.tabla.setColumnWidth(2, 100)
+        self.tabla.setColumnWidth(3, 250)
+        self.tabla.setColumnWidth(4, 100)
+        self.tabla.setColumnWidth(5, 80)
+        self.tabla.setColumnWidth(6, 100)
 
         self.bottom_layout.addWidget(self.tabla)
 
@@ -370,9 +371,11 @@ class VentasTab(QWidget):
 
         if not encontrado:
             nombre_mostrar = f"{prod.nombre} (Granel)" if prod.es_granel else prod.nombre
+            marca_mostrar = prod.marca.nombre if prod.marca else ""
             self.carrito.append({
                 'id': prod.id,
                 'codigo': prod.codigo_barras or prod.sku or "N/A",
+                'marca': marca_mostrar,
                 'nombre': nombre_mostrar,
                 'precio_base': precio_base_calculado,
                 'cantidad': cant_input,
@@ -409,6 +412,9 @@ class VentasTab(QWidget):
             i_cod = QTableWidgetItem(item['codigo'])
             i_cod.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
 
+            i_marca = QTableWidgetItem(item['marca'])
+            i_marca.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+
             i_nom = QTableWidgetItem(item['nombre'])
             i_nom.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
 
@@ -427,11 +433,12 @@ class VentasTab(QWidget):
 
             self.tabla.setItem(r, 0, i_id)
             self.tabla.setItem(r, 1, i_cod)
-            self.tabla.setItem(r, 2, i_nom)
-            self.tabla.setItem(r, 3, i_pre)
-            self.tabla.setItem(r, 4, i_can)
-            self.tabla.setItem(r, 5, i_desc)
-            self.tabla.setItem(r, 6, i_sub)
+            self.tabla.setItem(r, 2, i_marca)
+            self.tabla.setItem(r, 3, i_nom)
+            self.tabla.setItem(r, 4, i_pre)
+            self.tabla.setItem(r, 5, i_can)
+            self.tabla.setItem(r, 6, i_desc)
+            self.tabla.setItem(r, 7, i_sub)
 
         total_final = subtotal_general - self.descuento_global
         if total_final < 0: total_final = 0.0
@@ -445,7 +452,7 @@ class VentasTab(QWidget):
         col = item.column()
         row = item.row()
 
-        if col == 4: # Cantidad
+        if col == 5: # Cantidad
             try:
                 nueva_cant = float(item.text().replace(',', '.'))
                 if nueva_cant <= 0:
@@ -456,7 +463,7 @@ class VentasTab(QWidget):
             except ValueError:
                 self.actualizar_ui()
 
-        elif col == 5: # Descuento Unitario
+        elif col == 6: # Descuento Unitario
             try:
                 nuevo_desc = float(item.text().replace(',', '.'))
                 if nuevo_desc < 0: nuevo_desc = 0.0
