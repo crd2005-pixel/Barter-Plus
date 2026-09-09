@@ -1,3 +1,4 @@
+from sqlalchemy import select
 from database.conexion import get_session
 from database.models.venta import Venta, DetalleVenta
 from database.models.producto import Producto
