@@ -295,49 +295,18 @@ class VentasTab(QWidget):
             QMessageBox.warning(self, "Atención", "Debe seleccionar un cliente primero.")
             return
 
-        with get_session() as session:
-            from database.models.cliente import ClienteCuentaCorriente
-            ultimo_mov = session.query(ClienteCuentaCorriente)\
-                        .filter_by(cliente_id=cliente_id)\
-                        .order_by(ClienteCuentaCorriente.id.desc()).first()
-            saldo_deuda = ultimo_mov.saldo if ultimo_mov else 0.0
+        saldo_deuda = ClienteService.obtener_deuda(cliente_id)
+        if saldo_deuda <= 0:
+            QMessageBox.information(self, "Cuenta Corriente", "El cliente no registra deuda actual.")
+            return
 
-            if saldo_deuda <= 0:
-                QMessageBox.information(self, "Cuenta Corriente", "El cliente no registra deuda actual.")
-                return
-
-            monto, ok = QInputDialog.getDouble(self, "Cobrar Cuenta Corriente", f"Deuda Actual: $ {saldo_deuda:.2f}\n\nIngrese monto a abonar:", 0, 0, saldo_deuda, 2)
-            if ok and monto > 0:
-                try:
-                    ClienteService.agregar_movimiento_cc(
-                        cliente_id=cliente_id,
-                        concepto="Pago a Cuenta (POS)",
-                        debe=0.0,
-                        haber=monto
-                    )
-
-                    # Impactar en caja como Ingreso
-                    from database.models.caja import Caja, MovimientoCaja
-                    caja_abierta = session.query(Caja).filter_by(estado="Abierta").order_by(Caja.id.desc()).first()
-                    if not caja_abierta:
-                        caja_abierta = Caja(estado="Abierta")
-                        session.add(caja_abierta)
-                        session.flush()
-
-                    mov_caja = MovimientoCaja(
-                        caja_id=caja_abierta.id,
-                        tipo="Ingreso",
-                        concepto=f"Pago CC Cliente #{cliente_id}",
-                        monto=monto,
-                        metodo="Efectivo"
-                    )
-                    session.add(mov_caja)
-                    session.commit()
-
-                    QMessageBox.information(self, "Éxito", f"Se registró el pago por $ {monto:.2f} a la Cuenta Corriente.")
-                except Exception as e:
-                    session.rollback()
-                    QMessageBox.critical(self, "Error", f"No se pudo registrar el pago: {e}")
+        monto, ok = QInputDialog.getDouble(self, "Cobrar Cuenta Corriente", f"Deuda Actual: $ {saldo_deuda:.2f}\n\nIngrese monto a abonar:", 0, 0, saldo_deuda, 2)
+        if ok and monto > 0:
+            try:
+                ClienteService.registrar_pago_cc(cliente_id, monto)
+                QMessageBox.information(self, "Éxito", f"Se registró el pago por $ {monto:.2f} a la Cuenta Corriente de forma atómica.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo registrar el pago: {e}")
 
     def cargar_clientes(self):
         clientes = ClienteService.listar_todos()
