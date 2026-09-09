@@ -271,3 +271,8 @@ class ProductoService:
             except Exception as e:
                 session.rollback()
                 raise e
+
+    @staticmethod
+    def listar_nombres() -> List[str]:
+        with get_session() as session:
+            return session.scalars(select(Producto.nombre)).all()

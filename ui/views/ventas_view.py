@@ -9,10 +9,6 @@ from PyQt6.QtWidgets import QCompleter
 from services.producto_service import ProductoService
 from services.cliente_service import ClienteService
 from services.venta_service import VentaService
-from database.conexion import get_session
-from database.models.cliente import Cliente
-from database.models.producto import Producto
-from sqlalchemy import select
 
 class VentasTab(QWidget):
     def __init__(self):
@@ -33,8 +29,6 @@ class VentasTab(QWidget):
         self.combo_clientes = QComboBox()
         self.combo_clientes.setEditable(True)
         self.combo_clientes.setPlaceholderText("Buscar o seleccionar cliente...")
-        self.combo_tipo_cliente = QComboBox()
-        self.combo_tipo_cliente.addItems(["Cliente Común", "Cliente Especial (-10%)"])
 
         self.btn_nuevo_cliente = QPushButton("+")
         self.btn_nuevo_cliente.setToolTip("Agregar Nuevo Cliente")
@@ -45,7 +39,8 @@ class VentasTab(QWidget):
         box_cli.addWidget(self.btn_nuevo_cliente)
 
         self.form_cliente.addRow("Cliente:", box_cli)
-        self.form_cliente.addRow("Tipo:", self.combo_tipo_cliente)
+
+        # Eliminar QComboBox de "Tipo", la lectura será directamente del modelo Cliente
 
         self.form_pago = QFormLayout()
         self.combo_pago = QComboBox()
@@ -67,6 +62,10 @@ class VentasTab(QWidget):
         self.btn_sugerir_pedido = QPushButton("Anotar Pedido Manual")
         self.btn_sugerir_pedido.setStyleSheet("padding: 10px; font-weight: bold; background-color: #8e44ad; color: white;")
 
+        self.btn_cobrar_cc = QPushButton("Cobrar Cuenta Corriente")
+        self.btn_cobrar_cc.setStyleSheet("padding: 10px; font-weight: bold; background-color: #d35400; color: white;")
+
+        self.box_opciones.addWidget(self.btn_cobrar_cc)
         self.box_opciones.addWidget(self.btn_sugerir_pedido)
         self.box_opciones.addWidget(self.btn_consulta_rapida)
 
@@ -164,11 +163,12 @@ class VentasTab(QWidget):
         self.btn_buscar.clicked.connect(self.agregar_al_carrito)
         self.tabla.itemChanged.connect(self.modificar_cantidad_grid)
         self.btn_cobrar.clicked.connect(self.procesar_cobro)
-        self.combo_tipo_cliente.currentIndexChanged.connect(self.actualizar_ui)
+        self.combo_clientes.currentIndexChanged.connect(self.actualizar_ui)
         self.btn_descuento.clicked.connect(self.aplicar_descuento_global)
         self.btn_consulta_rapida.clicked.connect(self.consultar_precio_rapido)
         self.btn_sugerir_pedido.clicked.connect(self.sugerir_pedido)
         self.btn_nuevo_cliente.clicked.connect(self.crear_cliente_rapido)
+        self.btn_cobrar_cc.clicked.connect(self.abrir_cobro_cc)
 
         # --- ATAJOS DE TECLADO ---
         shortcut_f12 = QShortcut(QKeySequence("F12"), self)
@@ -194,16 +194,42 @@ class VentasTab(QWidget):
         self.cargar_completer_productos()
 
     def cargar_completer_productos(self):
-        with get_session() as session:
-            prods = session.scalars(select(Producto.nombre)).all()
-            model = QStringListModel(prods)
-            self.completer_prod.setModel(model)
+        prods = ProductoService.listar_nombres()
+        model = QStringListModel(prods)
+        self.completer_prod.setModel(model)
 
     def crear_cliente_rapido(self):
-        nombre, ok = QInputDialog.getText(self, "Nuevo Cliente", "Nombre del cliente:")
-        if ok and nombre.strip():
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLineEdit, QCheckBox
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Nuevo Cliente")
+        layout = QVBoxLayout(dialog)
+
+        txt_nombre = QLineEdit()
+        txt_nombre.setPlaceholderText("Nombre del cliente...")
+
+        chk_especial = QCheckBox("Cliente Especial (10% Desc.)")
+
+        btn_guardar = QPushButton("Guardar")
+
+        layout.addWidget(QLabel("Nombre:"))
+        layout.addWidget(txt_nombre)
+        layout.addWidget(chk_especial)
+        layout.addWidget(btn_guardar)
+
+        def _guardar():
+            if txt_nombre.text().strip():
+                dialog.accept()
+            else:
+                QMessageBox.warning(dialog, "Error", "El nombre es obligatorio")
+
+        btn_guardar.clicked.connect(_guardar)
+
+        if dialog.exec():
             try:
-                nuevo = ClienteService.crear_cliente(nombre.strip())
+                nuevo = ClienteService.crear_cliente(
+                    nombre=txt_nombre.text().strip(),
+                    es_especial=chk_especial.isChecked()
+                )
                 self.cargar_clientes()
                 # Seleccionarlo
                 index = self.combo_clientes.findData(nuevo.id)
@@ -215,51 +241,44 @@ class VentasTab(QWidget):
     def consultar_precio_rapido(self):
         query, ok = QInputDialog.getText(self, "Consultar Precio (F2)", "Ingrese nombre o código de barras:")
         if ok and query.strip():
-            with get_session() as session:
-                from database.models.producto import Producto
-                stmt = select(Producto).where(
-                    (Producto.codigo_barras == query.strip()) |
-                    (Producto.sku == query.strip()) |
-                    (Producto.nombre.icontains(query.strip()))
+            prod = ProductoService.buscar_por_query_flexible(query.strip())
+            if prod:
+                from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel
+                dialog = QDialog(self)
+                dialog.setWindowTitle("Consulta de Precio")
+                dialog.resize(400, 250)
+                lay = QVBoxLayout(dialog)
+
+                lbl_nom = QLabel(f"<b>Producto:</b> {prod.nombre}")
+                lbl_nom.setWordWrap(True)
+                lbl_nom.setStyleSheet("font-size: 16px;")
+
+                pf = prod.precio_minorista
+                if prod.es_granel and prod.divisor_granel > 0:
+                    pf = pf / prod.divisor_granel
+
+                lbl_pf = QLabel(f"$ {pf:.2f}")
+                lbl_pf.setStyleSheet("font-size: 32px; font-weight: bold; color: #2e7d32;")
+                lbl_pf.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+                margen_neto = pf - prod.costo
+
+                lbl_detalles = QLabel(
+                    f"<b>Costo:</b> $ {prod.costo:.2f}<br>"
+                    f"<b>Margen Neto:</b> $ {margen_neto:.2f}<br>"
+                    f"<b>Stock Actual:</b> {prod.stock_actual:.2f}"
                 )
-                prod = session.scalars(stmt).first()
-                if prod:
-                    from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel
-                    dialog = QDialog(self)
-                    dialog.setWindowTitle("Consulta de Precio")
-                    dialog.resize(400, 250)
-                    lay = QVBoxLayout(dialog)
+                lbl_detalles.setStyleSheet("font-size: 14px;")
 
-                    lbl_nom = QLabel(f"<b>Producto:</b> {prod.nombre}")
-                    lbl_nom.setWordWrap(True)
-                    lbl_nom.setStyleSheet("font-size: 16px;")
+                lay.addWidget(lbl_nom)
+                lay.addStretch()
+                lay.addWidget(lbl_pf)
+                lay.addStretch()
+                lay.addWidget(lbl_detalles)
 
-                    pf = prod.precio_minorista
-                    if prod.es_granel and prod.divisor_granel > 0:
-                        pf = pf / prod.divisor_granel
-
-                    lbl_pf = QLabel(f"$ {pf:.2f}")
-                    lbl_pf.setStyleSheet("font-size: 32px; font-weight: bold; color: #2e7d32;")
-                    lbl_pf.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-                    margen_neto = pf - prod.costo
-
-                    lbl_detalles = QLabel(
-                        f"<b>Costo:</b> $ {prod.costo:.2f}<br>"
-                        f"<b>Margen Neto:</b> $ {margen_neto:.2f}<br>"
-                        f"<b>Stock Actual:</b> {prod.stock_actual:.2f}"
-                    )
-                    lbl_detalles.setStyleSheet("font-size: 14px;")
-
-                    lay.addWidget(lbl_nom)
-                    lay.addStretch()
-                    lay.addWidget(lbl_pf)
-                    lay.addStretch()
-                    lay.addWidget(lbl_detalles)
-
-                    dialog.exec()
-                else:
-                    QMessageBox.warning(self, "No Encontrado", f"No se encontró ningún producto con: {query}")
+                dialog.exec()
+            else:
+                QMessageBox.warning(self, "No Encontrado", f"No se encontró ningún producto con: {query}")
 
     def sugerir_pedido(self):
         nota, ok = QInputDialog.getText(self, "Anotar Pedido Manual", "El cliente solicita:")
@@ -270,18 +289,70 @@ class VentasTab(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"No se pudo guardar: {e}")
 
-    def cargar_clientes(self):
-        with get_session() as session:
-            clientes = session.scalars(select(Cliente)).all()
-            self.combo_clientes.clear()
-            self.combo_clientes.addItem("Consumidor Final", None)
-            nombres = []
-            for c in clientes:
-                self.combo_clientes.addItem(c.nombre, c.id)
-                nombres.append(c.nombre)
+    def abrir_cobro_cc(self):
+        cliente_id = self.combo_clientes.currentData()
+        if not cliente_id:
+            QMessageBox.warning(self, "Atención", "Debe seleccionar un cliente primero.")
+            return
 
-            model = QStringListModel(["Consumidor Final"] + nombres)
-            self.completer_cli.setModel(model)
+        with get_session() as session:
+            from database.models.cliente import ClienteCuentaCorriente
+            ultimo_mov = session.query(ClienteCuentaCorriente)\
+                        .filter_by(cliente_id=cliente_id)\
+                        .order_by(ClienteCuentaCorriente.id.desc()).first()
+            saldo_deuda = ultimo_mov.saldo if ultimo_mov else 0.0
+
+            if saldo_deuda <= 0:
+                QMessageBox.information(self, "Cuenta Corriente", "El cliente no registra deuda actual.")
+                return
+
+            monto, ok = QInputDialog.getDouble(self, "Cobrar Cuenta Corriente", f"Deuda Actual: $ {saldo_deuda:.2f}\n\nIngrese monto a abonar:", 0, 0, saldo_deuda, 2)
+            if ok and monto > 0:
+                try:
+                    ClienteService.agregar_movimiento_cc(
+                        cliente_id=cliente_id,
+                        concepto="Pago a Cuenta (POS)",
+                        debe=0.0,
+                        haber=monto
+                    )
+
+                    # Impactar en caja como Ingreso
+                    from database.models.caja import Caja, MovimientoCaja
+                    caja_abierta = session.query(Caja).filter_by(estado="Abierta").order_by(Caja.id.desc()).first()
+                    if not caja_abierta:
+                        caja_abierta = Caja(estado="Abierta")
+                        session.add(caja_abierta)
+                        session.flush()
+
+                    mov_caja = MovimientoCaja(
+                        caja_id=caja_abierta.id,
+                        tipo="Ingreso",
+                        concepto=f"Pago CC Cliente #{cliente_id}",
+                        monto=monto,
+                        metodo="Efectivo"
+                    )
+                    session.add(mov_caja)
+                    session.commit()
+
+                    QMessageBox.information(self, "Éxito", f"Se registró el pago por $ {monto:.2f} a la Cuenta Corriente.")
+                except Exception as e:
+                    session.rollback()
+                    QMessageBox.critical(self, "Error", f"No se pudo registrar el pago: {e}")
+
+    def cargar_clientes(self):
+        clientes = ClienteService.listar_todos()
+        self.combo_clientes.clear()
+        self.combo_clientes.addItem("Consumidor Final", None)
+        # Guardar dict interno para acceso rápido a es_especial
+        self._cache_clientes = {}
+        nombres = []
+        for c in clientes:
+            self._cache_clientes[c.id] = c.es_especial
+            self.combo_clientes.addItem(f"{c.nombre} {'(VIP)' if c.es_especial else ''}", c.id)
+            nombres.append(c.nombre)
+
+        model = QStringListModel(["Consumidor Final"] + nombres)
+        self.completer_cli.setModel(model)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -304,17 +375,7 @@ class VentasTab(QWidget):
         except ValueError:
             cant_input = 1.0
 
-        # Buscar en BD por SKU o Codigo Barras o Nombre (simplificado para POS)
-        with get_session() as session:
-            from database.models.producto import Producto
-            stmt = select(Producto).where(
-                (Producto.codigo_barras == query) |
-                (Producto.sku == query) |
-                (Producto.nombre.icontains(query))
-            )
-            prod = session.scalars(stmt).first()
-            if prod:
-                session.expunge(prod)
+        prod = ProductoService.buscar_por_query_flexible(query)
 
         if not prod:
             QMessageBox.warning(self, "No Encontrado", f"No se encontró un producto coincidente con: {query}")
@@ -362,8 +423,9 @@ class VentasTab(QWidget):
         self.tabla.setRowCount(len(self.carrito))
         subtotal_general = 0.0
 
-        # Logica Cliente Especial
-        es_especial = (self.combo_tipo_cliente.currentIndex() == 1)
+        # Logica Cliente Especial desde Base de Datos
+        cliente_id = self.combo_clientes.currentData()
+        es_especial = self._cache_clientes.get(cliente_id, False) if cliente_id else False
 
         for r, item in enumerate(self.carrito):
             precio_unitario = item['precio_base'] * 0.9 if es_especial else item['precio_base']
@@ -469,7 +531,7 @@ class VentasTab(QWidget):
 
         if reply == QMessageBox.StandardButton.Yes:
             try:
-                es_especial = (self.combo_tipo_cliente.currentIndex() == 1)
+                es_especial = self._cache_clientes.get(cliente_id, False) if cliente_id else False
                 detalles_final = []
 
                 for item in self.carrito:
@@ -501,7 +563,6 @@ class VentasTab(QWidget):
                 self.descuento_global = 0.0
                 self.txt_codigo.clear()
                 self.combo_clientes.setCurrentIndex(0)
-                self.combo_tipo_cliente.setCurrentIndex(0)
                 self.actualizar_ui()
                 self.txt_codigo.setFocus()
 

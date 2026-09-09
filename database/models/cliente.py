@@ -14,6 +14,7 @@ class Cliente(Base):
     email: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     direccion: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     limite_credito: Mapped[float] = mapped_column(default=0.0) # Límite para cuenta corriente
+    es_especial: Mapped[bool] = mapped_column(default=False) # Cliente VIP / 10% Descuento automático
 
     # Relaciones
     ventas: Mapped[List['Venta']] = relationship(back_populates='cliente')
