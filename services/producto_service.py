@@ -137,8 +137,14 @@ class ProductoService:
 
     @staticmethod
     def buscar_por_id(producto_id: int) -> Optional[Producto]:
+        from sqlalchemy.orm import joinedload
         with get_session() as session:
-            producto = session.get(Producto, producto_id)
+            stmt = select(Producto).options(
+                joinedload(Producto.categoria),
+                joinedload(Producto.marca),
+                joinedload(Producto.proveedor)
+            ).where(Producto.id == producto_id)
+            producto = session.scalars(stmt).first()
             if producto:
                 session.expunge(producto)
             return producto
