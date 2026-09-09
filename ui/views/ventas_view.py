@@ -159,7 +159,7 @@ class VentasTab(QWidget):
         self.layout.addWidget(self.splitter)
 
         # --- CONEXIONES ---
-        self.txt_codigo.returnPressed.connect(self.agregar_al_carrito)
+        # self.txt_codigo.returnPressed.connect(self.agregar_al_carrito) # Desactivado: Evita auto-inserción de scanners
         self.btn_buscar.clicked.connect(self.agregar_al_carrito)
         self.tabla.itemChanged.connect(self.modificar_cantidad_grid)
         self.btn_cobrar.clicked.connect(self.procesar_cobro)
@@ -245,30 +245,26 @@ class VentasTab(QWidget):
             if prod:
                 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel
                 dialog = QDialog(self)
-                dialog.setWindowTitle("Consulta de Precio")
-                dialog.resize(400, 250)
+                dialog.setWindowTitle("Consulta de Precio Público")
+                dialog.resize(500, 300)
                 lay = QVBoxLayout(dialog)
 
-                lbl_nom = QLabel(f"<b>Producto:</b> {prod.nombre}")
+                lbl_nom = QLabel(prod.nombre)
                 lbl_nom.setWordWrap(True)
-                lbl_nom.setStyleSheet("font-size: 16px;")
+                lbl_nom.setStyleSheet("font-size: 24px; font-weight: bold;")
+                lbl_nom.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
                 pf = prod.precio_minorista
                 if prod.es_granel and prod.divisor_granel > 0:
                     pf = pf / prod.divisor_granel
 
                 lbl_pf = QLabel(f"$ {pf:.2f}")
-                lbl_pf.setStyleSheet("font-size: 32px; font-weight: bold; color: #2e7d32;")
+                lbl_pf.setStyleSheet("font-size: 60px; font-weight: bold; color: #2ecc71;")
                 lbl_pf.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-                margen_neto = pf - prod.costo
-
-                lbl_detalles = QLabel(
-                    f"<b>Costo:</b> $ {prod.costo:.2f}<br>"
-                    f"<b>Margen Neto:</b> $ {margen_neto:.2f}<br>"
-                    f"<b>Stock Actual:</b> {prod.stock_actual:.2f}"
-                )
-                lbl_detalles.setStyleSheet("font-size: 14px;")
+                lbl_detalles = QLabel(f"<b>Stock Actual:</b> {prod.stock_actual:.2f}")
+                lbl_detalles.setStyleSheet("font-size: 18px;")
+                lbl_detalles.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
                 lay.addWidget(lbl_nom)
                 lay.addStretch()
