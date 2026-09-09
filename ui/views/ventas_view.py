@@ -262,7 +262,10 @@ class VentasTab(QWidget):
                 lbl_pf.setStyleSheet("font-size: 60px; font-weight: bold; color: #2ecc71;")
                 lbl_pf.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-                lbl_detalles = QLabel(f"<b>Stock Actual:</b> {prod.stock_actual:.2f}")
+                # Cálculo de margen neto (Camuflado)
+                margen_neto = pf - prod.costo
+
+                lbl_detalles = QLabel(f"<b>Stock Actual:</b> {prod.stock_actual:.2f} &nbsp;&nbsp;|&nbsp;&nbsp; {margen_neto:.2f}")
                 lbl_detalles.setStyleSheet("font-size: 18px;")
                 lbl_detalles.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
