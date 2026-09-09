@@ -43,15 +43,16 @@ class ProductoService:
                        stock_minimo: float = 0.0,
                        stock_maximo: float = 0.0,
                        sku: Optional[str] = None,
-                       proveedor_id: Optional[int] = None,
+                       proveedor_nombre: Optional[str] = None,
                        categoria_nombre: Optional[str] = None,
-                       marca_id: Optional[int] = None) -> Producto:
-        from database.models.producto import Categoria
+                       marca_nombre: Optional[str] = None) -> Producto:
+        from database.models.producto import Categoria, Marca
+        from database.models.proveedor import Proveedor
         with get_session() as session:
             try:
                 # Creación dinámica de categoría si no existe
                 cat_id = None
-                if categoria_nombre and categoria_nombre.strip():
+                if categoria_nombre and categoria_nombre.strip() and categoria_nombre not in ("-- Ninguna --", "-- Seleccionar --"):
                     cat_nom = categoria_nombre.strip()
                     categoria = session.query(Categoria).filter(Categoria.nombre.ilike(cat_nom)).first()
                     if not categoria:
@@ -59,6 +60,28 @@ class ProductoService:
                         session.add(categoria)
                         session.flush()
                     cat_id = categoria.id
+
+                # Creación dinámica de marca si no existe
+                mar_id = None
+                if marca_nombre and marca_nombre.strip() and marca_nombre not in ("-- Ninguna --", "-- Seleccionar --"):
+                    mar_nom = marca_nombre.strip()
+                    marca = session.query(Marca).filter(Marca.nombre.ilike(mar_nom)).first()
+                    if not marca:
+                        marca = Marca(nombre=mar_nom)
+                        session.add(marca)
+                        session.flush()
+                    mar_id = marca.id
+
+                # Creación dinámica de proveedor si no existe
+                prov_id = None
+                if proveedor_nombre and proveedor_nombre.strip() and proveedor_nombre not in ("-- Ninguno --", "-- Seleccionar --"):
+                    prov_nom = proveedor_nombre.strip()
+                    proveedor = session.query(Proveedor).filter(Proveedor.nombre.ilike(prov_nom)).first()
+                    if not proveedor:
+                        proveedor = Proveedor(nombre=prov_nom)
+                        session.add(proveedor)
+                        session.flush()
+                    prov_id = proveedor.id
 
                 nuevo_producto = Producto(
                     sku=sku,
@@ -71,9 +94,9 @@ class ProductoService:
                     stock_maximo=stock_maximo,
                     es_granel=es_granel,
                     divisor_granel=divisor_granel,
-                    proveedor_id=proveedor_id,
+                    proveedor_id=prov_id,
                     categoria_id=cat_id,
-                    marca_id=marca_id
+                    marca_id=mar_id
                 )
                 session.add(nuevo_producto)
                 session.commit()
@@ -232,9 +255,10 @@ class ProductoService:
     def actualizar_producto_manual(producto_id: int, nombre: str, codigo_barras: str, costo: float,
                                    margen: float, stock: float, es_granel: bool = False,
                                    divisor_granel: float = 1.0, stock_minimo: float = 0.0,
-                                   stock_maximo: float = 0.0, proveedor_id: Optional[int] = None,
-                                   categoria_nombre: Optional[str] = None, marca_id: Optional[int] = None) -> Optional[Producto]:
-        from database.models.producto import Categoria
+                                   stock_maximo: float = 0.0, proveedor_nombre: Optional[str] = None,
+                                   categoria_nombre: Optional[str] = None, marca_nombre: Optional[str] = None) -> Optional[Producto]:
+        from database.models.producto import Categoria, Marca
+        from database.models.proveedor import Proveedor
         with get_session() as session:
             try:
                 producto = session.get(Producto, producto_id)
@@ -243,7 +267,7 @@ class ProductoService:
 
                 # Creación dinámica de categoría si no existe
                 cat_id = None
-                if categoria_nombre and categoria_nombre.strip():
+                if categoria_nombre and categoria_nombre.strip() and categoria_nombre not in ("-- Ninguna --", "-- Seleccionar --"):
                     cat_nom = categoria_nombre.strip()
                     categoria = session.query(Categoria).filter(Categoria.nombre.ilike(cat_nom)).first()
                     if not categoria:
@@ -252,11 +276,33 @@ class ProductoService:
                         session.flush()
                     cat_id = categoria.id
 
+                # Creación dinámica de marca si no existe
+                mar_id = None
+                if marca_nombre and marca_nombre.strip() and marca_nombre not in ("-- Ninguna --", "-- Seleccionar --"):
+                    mar_nom = marca_nombre.strip()
+                    marca = session.query(Marca).filter(Marca.nombre.ilike(mar_nom)).first()
+                    if not marca:
+                        marca = Marca(nombre=mar_nom)
+                        session.add(marca)
+                        session.flush()
+                    mar_id = marca.id
+
+                # Creación dinámica de proveedor si no existe
+                prov_id = None
+                if proveedor_nombre and proveedor_nombre.strip() and proveedor_nombre not in ("-- Ninguno --", "-- Seleccionar --"):
+                    prov_nom = proveedor_nombre.strip()
+                    proveedor = session.query(Proveedor).filter(Proveedor.nombre.ilike(prov_nom)).first()
+                    if not proveedor:
+                        proveedor = Proveedor(nombre=prov_nom)
+                        session.add(proveedor)
+                        session.flush()
+                    prov_id = proveedor.id
+
                 producto.nombre = nombre
                 producto.codigo_barras = codigo_barras if codigo_barras else None
-                producto.proveedor_id = proveedor_id
+                producto.proveedor_id = prov_id
                 producto.categoria_id = cat_id
-                producto.marca_id = marca_id
+                producto.marca_id = mar_id
                 producto.costo = costo
                 producto.stock_actual = stock
                 producto.stock_minimo = stock_minimo

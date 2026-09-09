@@ -23,10 +23,16 @@ class ProductoDialog(QDialog):
         self.codigo_input = QLineEdit()
 
         self.combo_proveedor = QComboBox()
+        self.combo_proveedor.setEditable(True)
+        self.combo_proveedor.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+
         self.combo_rubro = QComboBox()
         self.combo_rubro.setEditable(True)
         self.combo_rubro.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+
         self.combo_marca = QComboBox()
+        self.combo_marca.setEditable(True)
+        self.combo_marca.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
 
         self.costo_input = QDoubleSpinBox()
         self.costo_input.setMaximum(9999999.99)
@@ -159,14 +165,12 @@ class ProductoDialog(QDialog):
             self.codigo_input.setText(self.producto.codigo_barras or "")
 
             # Combos
-            if self.producto.proveedor_id:
-                index = self.combo_proveedor.findData(self.producto.proveedor_id)
-                if index >= 0: self.combo_proveedor.setCurrentIndex(index)
+            if self.producto.proveedor_id and self.producto.proveedor:
+                self.combo_proveedor.setCurrentText(self.producto.proveedor.nombre)
             if self.producto.categoria_id and self.producto.categoria:
                 self.combo_rubro.setCurrentText(self.producto.categoria.nombre)
-            if self.producto.marca_id:
-                index = self.combo_marca.findData(self.producto.marca_id)
-                if index >= 0: self.combo_marca.setCurrentIndex(index)
+            if self.producto.marca_id and self.producto.marca:
+                self.combo_marca.setCurrentText(self.producto.marca.nombre)
 
             self.stock_input.setValue(self.producto.stock_actual)
             self.stock_min_input.setValue(self.producto.stock_minimo)
@@ -184,9 +188,9 @@ class ProductoDialog(QDialog):
         sku = self.sku_input.text().strip()
         nombre = self.nombre_input.text().strip()
         codigo = self.codigo_input.text().strip()
-        prov_id = self.combo_proveedor.currentData()
+        prov_nombre = self.combo_proveedor.currentText()
         rubro_nombre = self.combo_rubro.currentText()
-        marca_id = self.combo_marca.currentData()
+        marca_nombre = self.combo_marca.currentText()
         costo = self.costo_input.value()
         margen = self.margen_input.value()
         stock = self.stock_input.value()
@@ -211,9 +215,9 @@ class ProductoDialog(QDialog):
                     divisor_granel=divisor,
                     stock_minimo=stock_min,
                     stock_maximo=stock_max,
-                    proveedor_id=prov_id,
+                    proveedor_nombre=prov_nombre,
                     categoria_nombre=rubro_nombre,
-                    marca_id=marca_id
+                    marca_nombre=marca_nombre
                 )
                 ProductoService.actualizar_precio(nuevo.id, margen)
             else:
@@ -228,9 +232,9 @@ class ProductoDialog(QDialog):
                     divisor_granel=divisor,
                     stock_minimo=stock_min,
                     stock_maximo=stock_max,
-                    proveedor_id=prov_id,
+                    proveedor_nombre=prov_nombre,
                     categoria_nombre=rubro_nombre,
-                    marca_id=marca_id
+                    marca_nombre=marca_nombre
                 )
             self.accept()
         except Exception as e:
