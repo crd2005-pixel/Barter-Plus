@@ -24,6 +24,8 @@ class ProductoDialog(QDialog):
 
         self.combo_proveedor = QComboBox()
         self.combo_rubro = QComboBox()
+        self.combo_rubro.setEditable(True)
+        self.combo_rubro.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.combo_marca = QComboBox()
 
         self.costo_input = QDoubleSpinBox()
@@ -103,6 +105,31 @@ class ProductoDialog(QDialog):
         self.cargar_relaciones()
         self.cargar_datos()
 
+    def cargar_relaciones(self):
+        provs, cats, marcas = ProductoService.obtener_diccionarios_relaciones()
+
+        self.combo_proveedor.addItem("-- Ninguno --", None)
+        for p in provs: self.combo_proveedor.addItem(p['nombre'], p['id'])
+
+        from PyQt6.QtWidgets import QCompleter
+        from PyQt6.QtCore import QStringListModel
+
+        # Llenar ComboBox Rubro y configurar Completer
+        nombres_cats = []
+        for c in cats:
+            nombres_cats.append(c['nombre'])
+            self.combo_rubro.addItem(c['nombre'], c['id'])
+
+        completer_rubro = QCompleter()
+        completer_rubro.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer_rubro.setFilterMode(Qt.MatchFlag.MatchContains)
+        model = QStringListModel(nombres_cats)
+        completer_rubro.setModel(model)
+        self.combo_rubro.setCompleter(completer_rubro)
+
+        self.combo_marca.addItem("-- Ninguna --", None)
+        for m in marcas: self.combo_marca.addItem(m['nombre'], m['id'])
+
     def keyPressEvent(self, event):
         # Neutralización Global del Auto-Enter inyectado por escáneres láser
         if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
@@ -113,18 +140,6 @@ class ProductoDialog(QDialog):
 
     def toggle_granel(self):
         self.divisor_granel_input.setEnabled(self.es_granel_check.isChecked())
-
-    def cargar_relaciones(self):
-        provs, cats, marcas = ProductoService.obtener_diccionarios_relaciones()
-
-        self.combo_proveedor.addItem("-- Ninguno --", None)
-        for p in provs: self.combo_proveedor.addItem(p['nombre'], p['id'])
-
-        self.combo_rubro.addItem("-- Ninguna --", None)
-        for c in cats: self.combo_rubro.addItem(c['nombre'], c['id'])
-
-        self.combo_marca.addItem("-- Ninguna --", None)
-        for m in marcas: self.combo_marca.addItem(m['nombre'], m['id'])
 
     def recalcular_precio(self):
         costo = self.costo_input.value()
@@ -147,9 +162,8 @@ class ProductoDialog(QDialog):
             if self.producto.proveedor_id:
                 index = self.combo_proveedor.findData(self.producto.proveedor_id)
                 if index >= 0: self.combo_proveedor.setCurrentIndex(index)
-            if self.producto.categoria_id:
-                index = self.combo_rubro.findData(self.producto.categoria_id)
-                if index >= 0: self.combo_rubro.setCurrentIndex(index)
+            if self.producto.categoria_id and self.producto.categoria:
+                self.combo_rubro.setCurrentText(self.producto.categoria.nombre)
             if self.producto.marca_id:
                 index = self.combo_marca.findData(self.producto.marca_id)
                 if index >= 0: self.combo_marca.setCurrentIndex(index)
@@ -171,7 +185,7 @@ class ProductoDialog(QDialog):
         nombre = self.nombre_input.text().strip()
         codigo = self.codigo_input.text().strip()
         prov_id = self.combo_proveedor.currentData()
-        rubro_id = self.combo_rubro.currentData()
+        rubro_nombre = self.combo_rubro.currentText()
         marca_id = self.combo_marca.currentData()
         costo = self.costo_input.value()
         margen = self.margen_input.value()
@@ -198,7 +212,7 @@ class ProductoDialog(QDialog):
                     stock_minimo=stock_min,
                     stock_maximo=stock_max,
                     proveedor_id=prov_id,
-                    categoria_id=rubro_id,
+                    categoria_nombre=rubro_nombre,
                     marca_id=marca_id
                 )
                 ProductoService.actualizar_precio(nuevo.id, margen)
@@ -215,7 +229,7 @@ class ProductoDialog(QDialog):
                     stock_minimo=stock_min,
                     stock_maximo=stock_max,
                     proveedor_id=prov_id,
-                    categoria_id=rubro_id,
+                    categoria_nombre=rubro_nombre,
                     marca_id=marca_id
                 )
             self.accept()

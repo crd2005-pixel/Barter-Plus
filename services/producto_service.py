@@ -44,10 +44,22 @@ class ProductoService:
                        stock_maximo: float = 0.0,
                        sku: Optional[str] = None,
                        proveedor_id: Optional[int] = None,
-                       categoria_id: Optional[int] = None,
+                       categoria_nombre: Optional[str] = None,
                        marca_id: Optional[int] = None) -> Producto:
+        from database.models.producto import Categoria
         with get_session() as session:
             try:
+                # Creación dinámica de categoría si no existe
+                cat_id = None
+                if categoria_nombre and categoria_nombre.strip():
+                    cat_nom = categoria_nombre.strip()
+                    categoria = session.query(Categoria).filter(Categoria.nombre.ilike(cat_nom)).first()
+                    if not categoria:
+                        categoria = Categoria(nombre=cat_nom)
+                        session.add(categoria)
+                        session.flush()
+                    cat_id = categoria.id
+
                 nuevo_producto = Producto(
                     sku=sku,
                     nombre=nombre,
@@ -60,7 +72,7 @@ class ProductoService:
                     es_granel=es_granel,
                     divisor_granel=divisor_granel,
                     proveedor_id=proveedor_id,
-                    categoria_id=categoria_id,
+                    categoria_id=cat_id,
                     marca_id=marca_id
                 )
                 session.add(nuevo_producto)
@@ -221,17 +233,29 @@ class ProductoService:
                                    margen: float, stock: float, es_granel: bool = False,
                                    divisor_granel: float = 1.0, stock_minimo: float = 0.0,
                                    stock_maximo: float = 0.0, proveedor_id: Optional[int] = None,
-                                   categoria_id: Optional[int] = None, marca_id: Optional[int] = None) -> Optional[Producto]:
+                                   categoria_nombre: Optional[str] = None, marca_id: Optional[int] = None) -> Optional[Producto]:
+        from database.models.producto import Categoria
         with get_session() as session:
             try:
                 producto = session.get(Producto, producto_id)
                 if not producto:
                     return None
 
+                # Creación dinámica de categoría si no existe
+                cat_id = None
+                if categoria_nombre and categoria_nombre.strip():
+                    cat_nom = categoria_nombre.strip()
+                    categoria = session.query(Categoria).filter(Categoria.nombre.ilike(cat_nom)).first()
+                    if not categoria:
+                        categoria = Categoria(nombre=cat_nom)
+                        session.add(categoria)
+                        session.flush()
+                    cat_id = categoria.id
+
                 producto.nombre = nombre
                 producto.codigo_barras = codigo_barras if codigo_barras else None
                 producto.proveedor_id = proveedor_id
-                producto.categoria_id = categoria_id
+                producto.categoria_id = cat_id
                 producto.marca_id = marca_id
                 producto.costo = costo
                 producto.stock_actual = stock
