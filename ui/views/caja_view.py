@@ -103,7 +103,7 @@ class CajaActualTab(QWidget):
             self.lbl_estado.setText("Estado: ABIERTA")
             self.lbl_estado.setStyleSheet("font-size: 24px; font-weight: bold; color: green;")
             saldo = CajaService.calcular_saldo_efectivo(self.caja_activa.id)
-            self.lbl_saldo.setText(f"Saldo Actual (Efectivo): ${saldo:.2f}")
+            self.lbl_saldo.setText("Saldo Actual (Efectivo): ****** [Oculto por Auditoría]")
 
             self.btn_abrir.setEnabled(False)
             self.btn_cerrar.setEnabled(True)

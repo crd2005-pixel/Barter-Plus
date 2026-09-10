@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QDateEdit, QLabel, QMessageBox,
     QComboBox, QFormLayout, QGroupBox, QInputDialog, QSplitter
 )
-from PyQt6.QtCore import Qt, QStringListModel
+from PyQt6.QtCore import Qt, QDate, QStringListModel
 from PyQt6.QtGui import QFont, QColor, QBrush, QShortcut, QKeySequence
 from PyQt6.QtWidgets import QCompleter
 from services.producto_service import ProductoService
@@ -300,7 +300,7 @@ class VentasTab(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"No se pudo guardar: {e}")
 
-def abrir_cobro_cc(self):
+    def abrir_cobro_cc(self):
         cliente_id = self.combo_clientes.currentData()
         if not cliente_id:
             QMessageBox.warning(self, "Atención", "Debe seleccionar un cliente primero.")
@@ -358,8 +358,8 @@ def abrir_cobro_cc(self):
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"No se pudo registrar el pago: {e}")
 
-def toggle_fecha_acreditacion(self, text):
-        if text in ["Tarjeta", "Débito"]:
+    def toggle_fecha_acreditacion(self, text):
+        if text in ['Tarjeta', 'Débito']:
             self.lbl_acreditacion.setVisible(True)
             self.date_acreditacion.setVisible(True)
         else:

@@ -4,7 +4,7 @@ from typing import Optional
 from sqlalchemy import select
 
 class ClienteService:
-        @staticmethod
+    @staticmethod
     def crear_cliente(nombre: str, dni: Optional[str] = None, es_especial: bool = False) -> Cliente:
         with get_session() as session:
             try:
@@ -18,7 +18,7 @@ class ClienteService:
                 session.rollback()
                 raise e
 
-        @staticmethod
+    @staticmethod
     def agregar_movimiento_cc(cliente_id: int, concepto: str, debe: float = 0.0, haber: float = 0.0, venta_id: Optional[int] = None) -> ClienteCuentaCorriente:
         with get_session() as session:
             try:
@@ -49,7 +49,7 @@ class ClienteService:
                 session.rollback()
                 raise e
 
-        @staticmethod
+    @staticmethod
     def listar_todos() -> list[Cliente]:
         with get_session() as session:
             clientes = session.scalars(select(Cliente)).all()
@@ -111,7 +111,7 @@ class ClienteService:
                 session.rollback()
                 raise e
 
-        @staticmethod
+    @staticmethod
     def obtener_deuda(cliente_id: int) -> float:
         with get_session() as session:
             ultimo_mov = session.query(ClienteCuentaCorriente)\
