@@ -360,9 +360,13 @@ class VentasTab(QWidget):
             self.txt_codigo.setFocus()
             return
 
-        # Advertencia Stock
+        # Advertencia Stock y Disparador Automático de Pedido
         if prod.stock_actual <= 0:
-            QMessageBox.warning(self, "Stock Agotado", f"El producto '{prod.nombre}' tiene stock <= 0. La venta continuará.")
+            QMessageBox.warning(self, "Stock Agotado", f"El producto '{prod.nombre}' tiene stock <= 0. La venta continuará en negativo.")
+            try:
+                ProductoService.agregar_pedido_manual(f"Vendido sin stock - Reposición Urgente: {prod.nombre} (Cod: {prod.codigo_barras or prod.sku})")
+            except Exception as e:
+                print(f"Error generando pedido automático: {e}")
 
         # Fraccionamiento de Precio si es granel
         precio_base_calculado = prod.precio_minorista
@@ -426,7 +430,7 @@ class VentasTab(QWidget):
 
             i_pre = QTableWidgetItem(f"$ {precio_unitario:.2f}")
             i_pre.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
-            if es_especial:
+            if self.cliente_vip:
                 i_pre.setBackground(QBrush(QColor(241, 196, 15, 60))) # Amarillo para desc
 
             i_can = QTableWidgetItem(f"{item['cantidad']:.2f}")
