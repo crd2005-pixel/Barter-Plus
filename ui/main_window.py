@@ -6,6 +6,7 @@ from ui.views.proveedores_view import ProveedoresTab
 from ui.views.ventas_view import VentasTab
 from ui.views.caja_view import CajaView
 from ui.views.taller_view import TallerView
+from ui.views.registros_view import RegistrosView
 from ui.styles import LIGHT_THEME, DARK_THEME
 
 class MainWindow(QMainWindow):
@@ -64,6 +65,10 @@ class MainWindow(QMainWindow):
 
         self.taller_view = TallerView()
         self.tabs.addTab(self.taller_view, "Taller / Servicios")
+
+        self.registros_view = RegistrosView()
+        self.tabs.addTab(self.registros_view, "Registros y Finanzas")
+
 
         self.tabs.addTab(self.productos_tab, "Productos")
         self.tabs.addTab(self.precios_tab, "Remarcación (Precios)")
