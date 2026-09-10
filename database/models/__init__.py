@@ -6,3 +6,4 @@ from .cliente import Cliente, ClienteCuentaCorriente
 from .venta import Venta, DetalleVenta
 from .caja import Caja, MovimientoCaja
 from .contabilidad import AsientoDiario, LibroIVA, PedidoManual
+from .taller import Vehiculo, GarantiaBateria, CambioAceite
