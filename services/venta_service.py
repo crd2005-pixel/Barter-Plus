@@ -130,21 +130,43 @@ class VentaService:
                     )
                     session.add(libro_iva)
 
-                # --- INTEGRACIÓN CON CAJA ---
-                caja_activa = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
-                if not caja_activa:
-                    raise ValueError("No hay una caja abierta. Debe abrir la caja antes de procesar ventas.")
+# --- INTEGRACIÓN CON CUENTA CORRIENTE Y CAJA ---
+                if metodo_pago == "Cuenta Corriente":
+                    if not cliente_id:
+                        raise ValueError("Debe especificar un cliente para ventas en Cuenta Corriente.")
 
-                mov_caja = MovimientoCaja(
-                    caja_id=caja_activa.id,
-                    tipo="Ingreso",
-                    concepto=f"Venta #{nueva_venta.id} - {tipo_comprobante}",
-                    monto=total_final,
-                    metodo=metodo_pago,
-                    venta_id=nueva_venta.id
-                )
-                session.add(mov_caja)
-                # ----------------------------
+                    ultimo_mov = session.query(ClienteCuentaCorriente)\
+                        .filter_by(cliente_id=cliente_id)\
+                        .order_by(ClienteCuentaCorriente.id.desc())\
+                        .first()
+
+                    saldo_anterior = ultimo_mov.saldo if ultimo_mov else 0.0
+                    nuevo_saldo = saldo_anterior + total_final
+
+                    mov_cc = ClienteCuentaCorriente(
+                        cliente_id=cliente_id,
+                        concepto=f"Venta #{nueva_venta.id}",
+                        debe=total_final,
+                        haber=0.0,
+                        saldo=nuevo_saldo,
+                        venta_id=nueva_venta.id
+                    )
+                    session.add(mov_cc)
+                else:
+                    caja_activa = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
+                    if not caja_activa:
+                        raise ValueError("No hay una caja abierta. Debe abrir la caja antes de procesar ventas.")
+
+                    mov_caja = MovimientoCaja(
+                        caja_id=caja_activa.id,
+                        tipo="Ingreso",
+                        concepto=f"Venta #{nueva_venta.id} - {tipo_comprobante}",
+                        monto=total_final,
+                        metodo=metodo_pago,
+                        venta_id=nueva_venta.id
+                    )
+                    session.add(mov_caja)
+                # -----------------------------------------------
 
                 session.commit()
                 session.refresh(nueva_venta)

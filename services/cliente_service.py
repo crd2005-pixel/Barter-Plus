@@ -4,7 +4,7 @@ from typing import Optional
 from sqlalchemy import select
 
 class ClienteService:
-    @staticmethod
+        @staticmethod
     def crear_cliente(nombre: str, dni: Optional[str] = None, es_especial: bool = False) -> Cliente:
         with get_session() as session:
             try:
@@ -18,7 +18,7 @@ class ClienteService:
                 session.rollback()
                 raise e
 
-    @staticmethod
+        @staticmethod
     def agregar_movimiento_cc(cliente_id: int, concepto: str, debe: float = 0.0, haber: float = 0.0, venta_id: Optional[int] = None) -> ClienteCuentaCorriente:
         with get_session() as session:
             try:
@@ -49,7 +49,7 @@ class ClienteService:
                 session.rollback()
                 raise e
 
-    @staticmethod
+        @staticmethod
     def listar_todos() -> list[Cliente]:
         with get_session() as session:
             clientes = session.scalars(select(Cliente)).all()
@@ -58,7 +58,7 @@ class ClienteService:
             return list(clientes)
 
     @staticmethod
-    def registrar_pago_cc(cliente_id: int, monto: float) -> tuple[float, float]:
+    def registrar_pago_cc(cliente_id: int, monto: float, metodo: str = "Efectivo") -> tuple[float, float]:
         """
         Registra un pago a la cuenta corriente del cliente de forma atómica.
         Retorna (deuda_anterior, nueva_deuda).
@@ -84,7 +84,7 @@ class ClienteService:
                 # 2. Registrar pago en CC
                 nuevo_mov_cc = ClienteCuentaCorriente(
                     cliente_id=cliente_id,
-                    concepto="Pago a Cuenta (POS)",
+                    concepto=f"Pago a Cuenta ({metodo})",
                     debe=0.0,
                     haber=monto,
                     saldo=nuevo_saldo
@@ -94,16 +94,14 @@ class ClienteService:
                 # 3. Impactar en Caja
                 caja_abierta = session.query(Caja).filter_by(estado="Abierta").order_by(Caja.id.desc()).first()
                 if not caja_abierta:
-                    caja_abierta = Caja(estado="Abierta")
-                    session.add(caja_abierta)
-                    session.flush()
+                    raise ValueError("No hay una caja abierta para registrar el ingreso.")
 
                 mov_caja = MovimientoCaja(
                     caja_id=caja_abierta.id,
                     tipo="Ingreso",
                     concepto=f"Pago CC Cliente #{cliente_id}",
                     monto=monto,
-                    metodo="Efectivo"
+                    metodo=metodo
                 )
                 session.add(mov_caja)
 
@@ -113,7 +111,7 @@ class ClienteService:
                 session.rollback()
                 raise e
 
-    @staticmethod
+        @staticmethod
     def obtener_deuda(cliente_id: int) -> float:
         with get_session() as session:
             ultimo_mov = session.query(ClienteCuentaCorriente)\

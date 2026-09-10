@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit,
-    QTableWidget, QTableWidgetItem, QHeaderView, QLabel, QMessageBox,
+    QTableWidget, QTableWidgetItem, QHeaderView, QDateEdit, QLabel, QMessageBox,
     QComboBox, QFormLayout, QGroupBox, QInputDialog, QSplitter
 )
 from PyQt6.QtCore import Qt, QStringListModel
@@ -51,6 +51,16 @@ class VentasTab(QWidget):
 
         self.form_pago.addRow("Comprobante:", self.combo_comprobante)
         self.form_pago.addRow("Método Pago:", self.combo_pago)
+
+        self.date_acreditacion = QDateEdit()
+        self.date_acreditacion.setCalendarPopup(True)
+        self.date_acreditacion.setDate(QDate.currentDate())
+        self.date_acreditacion.setVisible(False)
+        self.lbl_acreditacion = QLabel("Acreditación:")
+        self.lbl_acreditacion.setVisible(False)
+
+        self.form_pago.addRow(self.lbl_acreditacion, self.date_acreditacion)
+        self.combo_pago.currentTextChanged.connect(self.toggle_fecha_acreditacion)
 
         self.box_opciones.addLayout(self.form_cliente)
         self.box_opciones.addLayout(self.form_pago)
@@ -290,7 +300,7 @@ class VentasTab(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"No se pudo guardar: {e}")
 
-    def abrir_cobro_cc(self):
+def abrir_cobro_cc(self):
         cliente_id = self.combo_clientes.currentData()
         if not cliente_id:
             QMessageBox.warning(self, "Atención", "Debe seleccionar un cliente primero.")
@@ -301,13 +311,60 @@ class VentasTab(QWidget):
             QMessageBox.information(self, "Cuenta Corriente", "El cliente no registra deuda actual.")
             return
 
-        monto, ok = QInputDialog.getDouble(self, "Cobrar Cuenta Corriente", f"Deuda Actual: $ {saldo_deuda:.2f}\n\nIngrese monto a abonar:", 0, 0, saldo_deuda, 2)
-        if ok and monto > 0:
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QFormLayout, QPushButton, QHBoxLayout
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Cobro Cuenta Corriente")
+        dialog.resize(350, 200)
+
+        layout = QVBoxLayout(dialog)
+        form = QFormLayout()
+
+        lbl_deuda = QLabel(f"$ {saldo_deuda:.2f}")
+        lbl_deuda.setStyleSheet("font-weight: bold; color: red; font-size: 16px;")
+
+        txt_monto = QLineEdit()
+        txt_monto.setText(f"{saldo_deuda:.2f}")
+
+        combo_metodo = QComboBox()
+        combo_metodo.addItems(["Efectivo", "Transferencia", "Tarjeta"])
+
+        form.addRow("Deuda Total Actual:", lbl_deuda)
+        form.addRow("Monto a Pagar ($):", txt_monto)
+        form.addRow("Método de Pago:", combo_metodo)
+
+        layout.addLayout(form)
+
+        btn_layout = QHBoxLayout()
+        btn_ok = QPushButton("Registrar Cobro")
+        btn_cancel = QPushButton("Cancelar")
+        btn_layout.addWidget(btn_ok)
+        btn_layout.addWidget(btn_cancel)
+        layout.addLayout(btn_layout)
+
+        btn_ok.clicked.connect(dialog.accept)
+        btn_cancel.clicked.connect(dialog.reject)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             try:
-                ClienteService.registrar_pago_cc(cliente_id, monto)
-                QMessageBox.information(self, "Éxito", f"Se registró el pago por $ {monto:.2f} a la Cuenta Corriente de forma atómica.")
+                monto = float(txt_monto.text().replace(',', '.'))
+                if monto <= 0 or monto > saldo_deuda:
+                    QMessageBox.warning(self, "Error", "Monto inválido.")
+                    return
+
+                ClienteService.registrar_pago_cc(cliente_id, monto, combo_metodo.currentText()) # El servicio ya lo inyecta en Caja si está abierta
+                QMessageBox.information(self, "Éxito", f"Se registró el pago por $ {monto:.2f}.")
+            except ValueError:
+                QMessageBox.warning(self, "Error", "Debe ingresar un número válido.")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"No se pudo registrar el pago: {e}")
+
+def toggle_fecha_acreditacion(self, text):
+        if text in ["Tarjeta", "Débito"]:
+            self.lbl_acreditacion.setVisible(True)
+            self.date_acreditacion.setVisible(True)
+        else:
+            self.lbl_acreditacion.setVisible(False)
+            self.date_acreditacion.setVisible(False)
 
     def cargar_clientes(self):
         clientes = ClienteService.listar_todos()
