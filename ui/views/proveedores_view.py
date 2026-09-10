@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import (
     QFormLayout, QLineEdit, QComboBox, QTabWidget, QSpinBox, QDateEdit, QCompleter, QDoubleSpinBox
 )
 from PyQt6.QtCore import Qt, QDate, QStringListModel
+from PyQt6.QtGui import QFont
 from services.compras_service import ComprasService
 from services.proveedor_service import ProveedorService
 from services.producto_service import ProductoService
@@ -63,7 +64,9 @@ class SugerenciasTab(QWidget):
             self.table.setItem(row, 4, QTableWidgetItem(str(p.stock_minimo)))
 
             i_sug = QTableWidgetItem(str(cant))
-            i_sug.setStyleSheet("font-weight: bold;")
+            font = QFont()
+            font.setBold(True)
+            i_sug.setFont(font)
             self.table.setItem(row, 5, i_sug)
 
     def exportar_pedido(self):
