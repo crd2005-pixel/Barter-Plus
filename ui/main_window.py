@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBox
 from PyQt6.QtCore import Qt
 from ui.views.productos_view import ProductosTab
 from ui.views.precios_view import PreciosTab
-from ui.views.proveedores_view import ProveedoresTab
+from ui.views.proveedores_view import ProveedoresView
 from ui.views.ventas_view import VentasTab
 from ui.views.caja_view import CajaView
 from ui.views.taller_view import TallerView
@@ -55,7 +55,7 @@ class MainWindow(QMainWindow):
         self.ventas_tab = VentasTab()
         self.productos_tab = ProductosTab()
         self.precios_tab = PreciosTab()
-        self.proveedores_tab = ProveedoresTab()
+        self.proveedores_tab = ProveedoresView()
 
         # Añadir pestañas al QTabWidget
         self.tabs.addTab(self.ventas_tab, "Punto de Venta")
@@ -72,7 +72,7 @@ class MainWindow(QMainWindow):
 
         self.tabs.addTab(self.productos_tab, "Productos")
         self.tabs.addTab(self.precios_tab, "Remarcación (Precios)")
-        self.tabs.addTab(self.proveedores_tab, "Proveedores (Listas)")
+        self.tabs.addTab(self.proveedores_tab, "Proveedores y Compras")
 
 
         # Seleccionar por defecto la pestaña Ventas
