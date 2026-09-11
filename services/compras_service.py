@@ -1,37 +1,73 @@
 from database.conexion import get_session
 from database.models.producto import Producto
 from database.models.proveedor import Proveedor, ProveedorCuentaCorriente
-from sqlalchemy import select, and_
-from typing import List, Dict
+from database.models.contabilidad import PedidoManual
+from sqlalchemy import select, and_, or_, update
+from typing import List, Dict, Optional
+import datetime as dt
 
 class ComprasService:
 
     @staticmethod
-    def obtener_sugerencias_pedido() -> List[dict]:
+    def auditar_necesidades_reposicion():
         """
-        Retorna productos donde stock_actual <= 0 o stock_actual <= stock_minimo.
-        Incluye sugerencia de pedido = (stock_minimo - stock_actual) o 1 si stock_minimo es 0.
+        Evalúa y marca `requiere_reposicion = True` para los productos que cumplan la regla:
+        (stock_actual <= stock_minimo AND stock_minimo > 0) OR (stock_actual < 0).
         """
-        from sqlalchemy.orm import joinedload
         with get_session() as session:
-            # Productos con stock critico
-            productos = session.scalars(
-                select(Producto)
-                .options(joinedload(Producto.proveedor))
-                .where((Producto.stock_actual <= 0) | (Producto.stock_actual <= Producto.stock_minimo))
-                .order_by(Producto.stock_actual.asc())
-            ).all()
+            try:
+                # 1. Marcar los que necesitan entrar
+                stmt_in = update(Producto).where(
+                    or_(
+                        and_(Producto.stock_actual <= Producto.stock_minimo, Producto.stock_minimo > 0),
+                        Producto.stock_actual < 0
+                    )
+                ).values(requiere_reposicion=True)
+                session.execute(stmt_in)
+
+                # 2. Desmarcar los que ya superaron su maximo (Regla de persistencia)
+                stmt_out = update(Producto).where(
+                    and_(
+                        Producto.requiere_reposicion == True,
+                        Producto.stock_actual >= Producto.stock_maximo,
+                        Producto.stock_maximo > 0 # Para que no se quite si el maximo es 0 y nunca llega
+                    )
+                ).values(requiere_reposicion=False)
+                session.execute(stmt_out)
+
+                session.commit()
+            except Exception as e:
+                session.rollback()
+                print(f"Error auditando reposicion: {e}")
+
+    @staticmethod
+    def obtener_pedidos_activos(proveedor_id: Optional[int] = None) -> List[dict]:
+        """
+        Retorna productos donde requiere_reposicion == True o están en PedidosManuales.
+        Si proveedor_id está dado, filtra por él.
+        """
+        ComprasService.auditar_necesidades_reposicion()
+        from sqlalchemy.orm import joinedload
+
+        with get_session() as session:
+            stmt = select(Producto).options(joinedload(Producto.proveedor)).where(Producto.requiere_reposicion == True)
+            if proveedor_id:
+                stmt = stmt.where(Producto.proveedor_id == proveedor_id)
+
+            productos = session.scalars(stmt).all()
 
             sugerencias = []
             for p in productos:
-                # Calcular cantidad a pedir
-                if p.stock_minimo > 0:
-                    cant = p.stock_minimo - p.stock_actual
+                # Sugerencia base: llegar al maximo si esta configurado
+                if p.stock_maximo > 0:
+                    cant = p.stock_maximo - p.stock_actual
+                elif p.stock_minimo > 0:
+                    cant = p.stock_minimo - p.stock_actual + 5
                 else:
-                    cant = abs(p.stock_actual) + 5 # Sugerir cubrir el negativo + 5 de margen
-                    if cant <= 0: cant = 1
+                    cant = abs(p.stock_actual) + 5
 
-                # Para evitar problemas de serialización UI, mandamos diccionarios o objetos desconectados
+                if cant <= 0: cant = 1
+
                 session.expunge(p)
                 sugerencias.append({
                     'producto': p,
@@ -39,6 +75,41 @@ class ComprasService:
                 })
 
             return sugerencias
+
+    @staticmethod
+    def generar_pdf_pedido(filepath: str, datos: List[Dict], proveedor_nombre: str):
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib import colors
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet
+
+        doc = SimpleDocTemplate(filepath, pagesize=A4)
+        elements = []
+        styles = getSampleStyleSheet()
+
+        titulo = Paragraph("Orden de Pedido - Barter Plus", styles['Title'])
+        fecha = Paragraph(f"Fecha: {dt.date.today().strftime('%d/%m/%Y')}", styles['Normal'])
+        prov = Paragraph(f"Proveedor: {proveedor_nombre}", styles['Normal'])
+
+        elements.extend([titulo, Spacer(1, 12), fecha, prov, Spacer(1, 12)])
+
+        data_table = [["SKU", "Producto", "Cant. a Pedir"]]
+        for d in datos:
+            data_table.append([str(d['sku']), str(d['nombre']), str(d['cantidad'])])
+
+        t = Table(data_table, colWidths=[100, 300, 100])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.grey),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('BOTTOMPADDING', (0,0), (-1,0), 12),
+            ('BACKGROUND', (0,1), (-1,-1), colors.beige),
+            ('GRID', (0,0), (-1,-1), 1, colors.black)
+        ]))
+
+        elements.append(t)
+        doc.build(elements)
 
     @staticmethod
     def ingresar_factura_compra(proveedor_id: int, num_factura: str, detalles: List[Dict], total_factura: float):
@@ -52,7 +123,6 @@ class ComprasService:
         """
         with get_session() as session:
             try:
-                # 1. Actualizar Stock y Costos
                 for item in detalles:
                     prod = session.get(Producto, item['producto_id'])
                     if not prod:
@@ -60,21 +130,19 @@ class ComprasService:
 
                     prod.stock_actual += item['cantidad']
 
-                    # El nuevo costo sobreescribe el costo base
+                    # Cierre logico de reposición (si ya superó su límite al ingresar esto)
+                    if prod.stock_maximo > 0 and prod.stock_actual >= prod.stock_maximo:
+                        prod.requiere_reposicion = False
+
                     if item['nuevo_costo'] > 0:
                         prod.costo = item['nuevo_costo']
-                        # Si tiene margen asignado, deberíamos recalcular el precio público?
-                        # Por ahora mantenemos solo la actualización del costo.
 
-                # 2. Cuenta Corriente del Proveedor
                 ultimo_mov = session.query(ProveedorCuentaCorriente)\
                     .filter_by(proveedor_id=proveedor_id)\
                     .order_by(ProveedorCuentaCorriente.id.desc())\
                     .first()
 
                 saldo_anterior = ultimo_mov.saldo if ultimo_mov else 0.0
-                # Cuando compramos, nos endeudamos: aumenta nuestro Haber hacia él.
-                # (debe = pagos que le hacemos, haber = deuda que tomamos)
                 nuevo_saldo = saldo_anterior + total_factura
 
                 mov_cc = ProveedorCuentaCorriente(
@@ -85,7 +153,6 @@ class ComprasService:
                     saldo=nuevo_saldo
                 )
                 session.add(mov_cc)
-
                 session.commit()
             except Exception as e:
                 session.rollback()

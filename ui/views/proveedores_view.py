@@ -1,96 +1,146 @@
-from ui.components.pagination import PaginationWidget
 import pandas as pd
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QInputDialog, QDialog,
-    QFormLayout, QLineEdit, QComboBox, QTabWidget, QSpinBox, QDateEdit, QCompleter, QDoubleSpinBox, QFileDialog, QGroupBox, QSplitter
+    QFormLayout, QLineEdit, QComboBox, QTabWidget, QSpinBox, QDateEdit, QCompleter, QDoubleSpinBox, QFileDialog, QGroupBox, QSplitter, QCheckBox
 )
 from PyQt6.QtCore import Qt, QDate, QStringListModel
 from PyQt6.QtGui import QFont, QBrush, QColor
 from services.compras_service import ComprasService
 from services.proveedor_service import ProveedorService
 from services.producto_service import ProductoService
+from services.proveedor_import_service import ProveedorImportService
+from ui.components.pagination import PaginationWidget
 import datetime as dt
 
 class SugerenciasTab(QWidget):
     def __init__(self):
         super().__init__()
         self.setup_ui()
-        self.cargar_datos()
+        self.cargar_datos_base()
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
 
-        # Botonera
-        btn_lay = QHBoxLayout()
-        self.btn_recargar = QPushButton("Recargar Sugerencias")
-        self.btn_recargar.clicked.connect(self.cargar_datos)
+        # Filtros
+        filter_lay = QHBoxLayout()
+        self.combo_proveedor_filtro = QComboBox()
+        self.combo_proveedor_filtro.addItem("Todos los Proveedores", None)
+        self.combo_proveedor_filtro.currentIndexChanged.connect(self.cargar_datos)
 
-        self.btn_exportar = QPushButton("Exportar Pedido (Texto/Clipboard)")
+        self.btn_exportar = QPushButton("Exportar Pedido a PDF")
         self.btn_exportar.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
-        self.btn_exportar.clicked.connect(self.exportar_pedido)
+        self.btn_exportar.clicked.connect(self.exportar_pdf)
 
-        btn_lay.addWidget(self.btn_recargar)
-        btn_lay.addStretch()
-        btn_lay.addWidget(self.btn_exportar)
-        layout.addLayout(btn_lay)
+        filter_lay.addWidget(QLabel("Filtrar por Proveedor:"))
+        filter_lay.addWidget(self.combo_proveedor_filtro)
+        filter_lay.addStretch()
+        filter_lay.addWidget(self.btn_exportar)
+        layout.addLayout(filter_lay)
 
         # Grilla
-        self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(["SKU", "Proveedor", "Producto", "Stock Actual", "Stock Mínimo", "Cant. Sugerida"])
+        self.table = QTableWidget(0, 7)
+        self.table.setHorizontalHeaderLabels(["Pedir", "SKU", "Proveedor", "Producto", "Stock Act.", "Stock Mín.", "Cant. a Pedir"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-
         layout.addWidget(self.table)
 
+    def cargar_datos_base(self):
+        from database.conexion import get_session
+        from database.models.proveedor import Proveedor
+        from sqlalchemy import select
+        with get_session() as session:
+            provs = session.scalars(select(Proveedor)).all()
+            self.combo_proveedor_filtro.blockSignals(True)
+            self.combo_proveedor_filtro.clear()
+            self.combo_proveedor_filtro.addItem("Todos los Proveedores", None)
+            for p in provs:
+                self.combo_proveedor_filtro.addItem(p.nombre, p.id)
+            self.combo_proveedor_filtro.blockSignals(False)
+        self.cargar_datos()
+
     def cargar_datos(self):
-        sugerencias = ComprasService.obtener_sugerencias_pedido()
+        prov_id = self.combo_proveedor_filtro.currentData()
+        sugerencias = ComprasService.obtener_pedidos_activos(prov_id)
         self.table.setRowCount(len(sugerencias))
 
         for row, s in enumerate(sugerencias):
             p = s['producto']
             cant = s['cantidad_sugerida']
 
+            # Checkbox
+            chk = QCheckBox()
+            chk.setChecked(True)
+            chk_widget = QWidget()
+            chk_lay = QHBoxLayout(chk_widget)
+            chk_lay.addWidget(chk)
+            chk_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            chk_lay.setContentsMargins(0,0,0,0)
+            self.table.setCellWidget(row, 0, chk_widget)
+
             prov_nom = p.proveedor.nombre if p.proveedor else "Sin Proveedor"
 
-            self.table.setItem(row, 0, QTableWidgetItem(p.sku or "-"))
-            self.table.setItem(row, 1, QTableWidgetItem(prov_nom))
-            self.table.setItem(row, 2, QTableWidgetItem(p.nombre))
+            i_sku = QTableWidgetItem(p.sku or "-")
+            i_sku.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+
+            i_prov = QTableWidgetItem(prov_nom)
+            i_prov.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+
+            i_nom = QTableWidgetItem(p.nombre)
+            i_nom.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
 
             i_act = QTableWidgetItem(str(p.stock_actual))
+            i_act.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
             if p.stock_actual <= 0:
                 i_act.setForeground(Qt.GlobalColor.red)
-            self.table.setItem(row, 3, i_act)
 
-            self.table.setItem(row, 4, QTableWidgetItem(str(p.stock_minimo)))
+            i_min = QTableWidgetItem(str(p.stock_minimo))
+            i_min.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
 
             i_sug = QTableWidgetItem(str(cant))
             font = QFont()
             font.setBold(True)
             i_sug.setFont(font)
-            self.table.setItem(row, 5, i_sug)
+            # Make it editable
+            i_sug.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsEditable)
 
-    def exportar_pedido(self):
-        from PyQt6.QtWidgets import QApplication
+            self.table.setItem(row, 1, i_sku)
+            self.table.setItem(row, 2, i_prov)
+            self.table.setItem(row, 3, i_nom)
+            self.table.setItem(row, 4, i_act)
+            self.table.setItem(row, 5, i_min)
+            self.table.setItem(row, 6, i_sug)
+
+    def exportar_pdf(self):
         filas = self.table.rowCount()
         if filas == 0:
-            QMessageBox.warning(self, "Vacio", "No hay sugerencias para exportar.")
+            QMessageBox.warning(self, "Vacío", "No hay datos para exportar.")
             return
 
-        lineas = ["--- PEDIDO SUGERIDO ---"]
+        datos_pdf = []
         for r in range(filas):
-            prov = self.table.item(r, 1).text()
-            prod = self.table.item(r, 2).text()
-            cant = self.table.item(r, 5).text()
-            lineas.append(f"[{prov}] {prod} -> Pedir: {cant}")
+            chk_widget = self.table.cellWidget(r, 0)
+            if chk_widget:
+                chk = chk_widget.findChild(QCheckBox)
+                if chk and chk.isChecked():
+                    datos_pdf.append({
+                        'sku': self.table.item(r, 1).text(),
+                        'nombre': self.table.item(r, 3).text(),
+                        'cantidad': self.table.item(r, 6).text()
+                    })
 
-        texto_final = "\n".join(lineas)
-        clipboard = QApplication.clipboard()
-        clipboard.setText(texto_final)
+        if not datos_pdf:
+            QMessageBox.warning(self, "Sin Selección", "No ha tildado ningún producto para exportar.")
+            return
 
-        QMessageBox.information(self, "Exportado", "El pedido ha sido copiado al portapapeles. Puede pegarlo en WhatsApp o Email.")
-
+        filepath, _ = QFileDialog.getSaveFileName(self, "Guardar Pedido PDF", f"Pedido_Proveedor_{dt.date.today().strftime('%Y%m%d')}.pdf", "PDF Files (*.pdf)")
+        if filepath:
+            try:
+                prov_nom = self.combo_proveedor_filtro.currentText()
+                ComprasService.generar_pdf_pedido(filepath, datos_pdf, prov_nom)
+                QMessageBox.information(self, "Éxito", f"PDF generado correctamente en:\\n{filepath}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo generar el PDF:\\n{e}")
 
 class IngresoFacturaTab(QWidget):
     def __init__(self):
@@ -176,7 +226,6 @@ class IngresoFacturaTab(QWidget):
         self.cargar_datos_base()
 
     def cargar_datos_base(self):
-        # Cargar Proveedores
         from database.conexion import get_session
         from database.models.proveedor import Proveedor
         from sqlalchemy import select
@@ -189,7 +238,6 @@ class IngresoFacturaTab(QWidget):
                 nombres_p.append(p.nombre)
             self.completer_prov.setModel(QStringListModel(nombres_p))
 
-        # Cargar completador de productos
         prods = ProductoService.listar_nombres()
         self.completer_prod.setModel(QStringListModel(prods))
 
@@ -204,7 +252,6 @@ class IngresoFacturaTab(QWidget):
 
         cant = self.spin_cant.value()
 
-        # Check if exists in cart
         for item in self.carrito:
             if item['id'] == prod.id:
                 item['cantidad'] += cant
@@ -289,7 +336,7 @@ class IngresoFacturaTab(QWidget):
 
         reply = QMessageBox.question(
             self, "Confirmar Ingreso",
-            f"Se registrará la compra por ${total_float:.2f}\nEl stock será actualizado matemáticamente.\n¿Continuar?",
+            f"Se registrará la compra por ${total_float:.2f}\nEl stock será actualizado.\n¿Continuar?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
 
@@ -306,7 +353,6 @@ class IngresoFacturaTab(QWidget):
                 ComprasService.ingresar_factura_compra(prov_id, num_fac, detalles, total_float)
                 QMessageBox.information(self, "Éxito", "Factura procesada. Stock y Costos actualizados.")
 
-                # Reset
                 self.carrito = []
                 self.txt_factura.clear()
                 self.render_carrito()
@@ -322,30 +368,24 @@ class ImportacionListasTab(QWidget):
 
         self.splitter = QSplitter(Qt.Orientation.Vertical)
 
-        # Contenedor superior (Carga y Mapeo)
         self.top_widget = QWidget()
         from PyQt6.QtWidgets import QSizePolicy
         self.top_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Ignored)
         self.top_layout = QVBoxLayout(self.top_widget)
         self.top_layout.setContentsMargins(0, 0, 0, 0)
 
-        # --- ZONA DE IMPORTACIÓN MAESTRA ---
         self.import_group = QGroupBox("Importar Lista Maestra de Proveedores")
         self.import_layout = QVBoxLayout()
 
-        # Selección de archivo
         self.box_archivo = QHBoxLayout()
-        self.btn_cargar = QPushButton("Cargar Excel / CSV")
+        self.btn_cargar = QPushButton("Seleccionar Archivo (Excel/CSV)")
         self.lbl_archivo = QLabel("Ningún archivo seleccionado")
-
         self.box_archivo.addWidget(self.btn_cargar)
         self.box_archivo.addWidget(self.lbl_archivo)
         self.box_archivo.addStretch()
         self.import_layout.addLayout(self.box_archivo)
 
-        # Mapeo de columnas
         self.form_mapeo = QFormLayout()
-
         self.map_sku = QComboBox()
         self.map_proveedor = QComboBox()
         self.map_marca = QComboBox()
@@ -360,7 +400,6 @@ class ImportacionListasTab(QWidget):
 
         self.import_layout.addLayout(self.form_mapeo)
 
-        # Acciones de Previsualización
         self.box_acciones_prev = QHBoxLayout()
         self.btn_previsualizar = QPushButton("Generar Previsualización")
         self.btn_previsualizar.setEnabled(False)
@@ -371,27 +410,17 @@ class ImportacionListasTab(QWidget):
         self.import_group.setLayout(self.import_layout)
         self.top_layout.addWidget(self.import_group)
 
-        # Contenedor inferior (Previsualización)
         self.bottom_widget = QWidget()
         self.bottom_layout = QVBoxLayout(self.bottom_widget)
         self.bottom_layout.setContentsMargins(0, 0, 0, 0)
 
-        # --- ZONA DE PREVISUALIZACIÓN Y APROBACIÓN ---
-        self.preview_group = QGroupBox("Previsualización de Cambios (Por Impactar)")
+        self.preview_group = QGroupBox("Previsualización de Cambios")
         self.preview_layout = QVBoxLayout()
 
         self.tabla = QTableWidget(0, 5)
-        self.tabla.setHorizontalHeaderLabels([
-            "SKU Interno", "Nombre", "Proveedor", "Costo Anterior", "Costo Nuevo"
-        ])
-
-        # Ergonomía: Columnas interactivas
+        self.tabla.setHorizontalHeaderLabels(["SKU Interno", "Nombre", "Proveedor", "Costo Anterior", "Costo Nuevo"])
         self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.tabla.horizontalHeader().setStretchLastSection(True)
-        self.tabla.setColumnWidth(0, 150)
-        self.tabla.setColumnWidth(1, 300)
-        self.tabla.setColumnWidth(2, 150)
-
         self.tabla.setAlternatingRowColors(True)
         self.tabla.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.preview_layout.addWidget(self.tabla)
@@ -401,7 +430,7 @@ class ImportacionListasTab(QWidget):
         self.preview_layout.addWidget(self.paginacion)
 
         self.box_acciones_finales = QHBoxLayout()
-        self.btn_aprobar = QPushButton("Aprobar y Cargar BD")
+        self.btn_aprobar = QPushButton("Actualizar Precios en Base de Datos")
         self.btn_aprobar.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold; padding: 10px;")
         self.btn_aprobar.setEnabled(False)
         self.box_acciones_finales.addStretch()
@@ -417,27 +446,19 @@ class ImportacionListasTab(QWidget):
 
         self.layout.addWidget(self.splitter)
 
-        # Conexiones
         self.btn_cargar.clicked.connect(self.cargar_archivo)
         self.btn_previsualizar.clicked.connect(self.generar_previsualizacion)
         self.btn_aprobar.clicked.connect(self.impactar_datos)
 
     def cargar_archivo(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Seleccionar Lista de Proveedor", "",
-            "Excel Files (*.xlsx *.xls);;CSV Files (*.csv)"
-        )
-        if not file_path:
-            return
+        file_path, _ = QFileDialog.getOpenFileName(self, "Seleccionar Lista", "", "Excel Files (*.xlsx *.xls);;CSV Files (*.csv)")
+        if not file_path: return
 
         try:
-            if file_path.endswith('.csv'):
-                self.df = pd.read_csv(file_path)
-            else:
-                self.df = pd.read_excel(file_path)
+            if file_path.endswith('.csv'): self.df = pd.read_csv(file_path)
+            else: self.df = pd.read_excel(file_path)
 
             self.lbl_archivo.setText(f"Cargado: {file_path.split('/')[-1]} ({len(self.df)} filas)")
-
             columnas = self.df.columns.tolist()
 
             for combo in [self.map_sku, self.map_proveedor, self.map_marca, self.map_desc, self.map_costo]:
@@ -448,83 +469,59 @@ class ImportacionListasTab(QWidget):
             self.btn_aprobar.setEnabled(False)
             self.filas_preview = []
             self.paginacion.set_total_items(0)
-
         except Exception as e:
-            QMessageBox.critical(self, "Error de carga", f"No se pudo cargar el archivo:\n{str(e)}")
+            QMessageBox.critical(self, "Error", f"No se pudo cargar: {e}")
 
     def generar_previsualizacion(self):
-        if self.df is None:
-            return
-
         col_sku = self.map_sku.currentText()
         col_costo = self.map_costo.currentText()
 
         if col_sku == "-- Ignorar/Seleccionar --" or col_costo == "-- Ignorar/Seleccionar --":
-            QMessageBox.warning(self, "Advertencia", "Debe mapear obligatoriamente el 'SKU Interno' y el 'Costo Neto Base'.")
+            QMessageBox.warning(self, "Advertencia", "Mapee SKU Interno y Costo Neto Base.")
             return
 
-        # Traer caché de BD para comparar costos anteriores
         productos_db = ProductoService.listar_todos()
         cache_db = {p.sku.lower(): p for p in productos_db if p.sku}
-
         df_limpio = self.df.fillna("")
         self.filas_preview = []
 
         for index, row in df_limpio.iterrows():
             sku_val = str(row.get(col_sku, "")).strip()
-            if not sku_val:
-                continue
+            if not sku_val: continue
 
             try:
-                raw_costo = str(row.get(col_costo, "0"))
-                raw_costo = raw_costo.replace('$', '').replace(',', '.').strip()
+                raw_costo = str(row.get(col_costo, "0")).replace('$', '').replace(',', '.').strip()
                 costo_val = float(raw_costo)
             except ValueError:
                 costo_val = 0.0
 
-            fila_data = {
-                'sku': sku_val,
-                'costo': costo_val,
-                'proveedor': "",
-                'marca': "",
-                'nombre': ""
-            }
+            fila_data = {'sku': sku_val, 'costo': costo_val, 'proveedor': "", 'marca': "", 'nombre': ""}
+            if self.map_proveedor.currentText() != "-- Ignorar/Seleccionar --": fila_data['proveedor'] = str(row.get(self.map_proveedor.currentText(), "")).strip()
+            if self.map_marca.currentText() != "-- Ignorar/Seleccionar --": fila_data['marca'] = str(row.get(self.map_marca.currentText(), "")).strip()
+            if self.map_desc.currentText() != "-- Ignorar/Seleccionar --": fila_data['nombre'] = str(row.get(self.map_desc.currentText(), "")).strip()
 
-            if self.map_proveedor.currentText() != "-- Ignorar/Seleccionar --":
-                fila_data['proveedor'] = str(row.get(self.map_proveedor.currentText(), "")).strip()
-
-            if self.map_marca.currentText() != "-- Ignorar/Seleccionar --":
-                fila_data['marca'] = str(row.get(self.map_marca.currentText(), "")).strip()
-
-            if self.map_desc.currentText() != "-- Ignorar/Seleccionar --":
-                fila_data['nombre'] = str(row.get(self.map_desc.currentText(), "")).strip()
-
-            # Buscar costo anterior
             sku_key = sku_val.lower()
             if sku_key in cache_db:
                 fila_data['costo_ant'] = cache_db[sku_key].costo
-                if not fila_data['nombre']:
-                    fila_data['nombre'] = cache_db[sku_key].nombre
-                if not fila_data['proveedor'] and cache_db[sku_key].proveedor:
-                    fila_data['proveedor'] = cache_db[sku_key].proveedor.nombre
+                if not fila_data['nombre']: fila_data['nombre'] = cache_db[sku_key].nombre
+                if not fila_data['proveedor'] and cache_db[sku_key].proveedor: fila_data['proveedor'] = cache_db[sku_key].proveedor.nombre
             else:
-                fila_data['costo_ant'] = 0.0 # Es nuevo
+                fila_data['costo_ant'] = 0.0
 
             self.filas_preview.append(fila_data)
 
         self.paginacion.set_total_items(len(self.filas_preview))
-        if len(self.filas_preview) > 0:
+        if self.filas_preview:
             self.btn_aprobar.setEnabled(True)
-            QMessageBox.information(self, "Previsualización", f"Se previsualizarán {len(self.filas_preview)} filas de la lista maestra.")
+            QMessageBox.information(self, "Previsualización", f"Se previsualizarán {len(self.filas_preview)} filas.")
 
     def render_tabla_pagina(self, page_index):
         sl = self.paginacion.get_slice()
         datos_pagina = self.filas_preview[sl]
-
         self.tabla.setRowCount(len(datos_pagina))
 
-        color_nuevo = QBrush(QColor(41, 128, 185, 50)) # Azul sutil para nuevos
-        color_cambio = QBrush(QColor(243, 156, 18, 50)) # Naranja sutil para cambios
+        color_nuevo = QBrush(QColor(41, 128, 185, 50))
+        color_cambio = QBrush(QColor(243, 156, 18, 50))
 
         for r, data in enumerate(datos_pagina):
             item_sku = QTableWidgetItem(data['sku'])
@@ -538,10 +535,7 @@ class ImportacionListasTab(QWidget):
             item_cn = QTableWidgetItem(f"$ {c_nue:.2f}")
 
             if c_ant == 0.0:
-                item_sku.setBackground(color_nuevo)
-                item_nom.setBackground(color_nuevo)
-                item_ca.setBackground(color_nuevo)
-                item_cn.setBackground(color_nuevo)
+                for i in [item_sku, item_nom, item_ca, item_cn]: i.setBackground(color_nuevo)
             elif abs(c_ant - c_nue) > 0.01:
                 item_cn.setBackground(color_cambio)
 
@@ -552,22 +546,12 @@ class ImportacionListasTab(QWidget):
             self.tabla.setItem(r, 4, item_cn)
 
     def impactar_datos(self):
-        if not self.filas_preview:
-            return
-
-        reply = QMessageBox.question(
-            self, "Confirmar UPSERT",
-            f"Se van a impactar {len(self.filas_preview)} filas en la Base de Datos.\n¿Desea continuar?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-
+        if not self.filas_preview: return
+        reply = QMessageBox.question(self, "Confirmar", "Se actualizarán las bases de datos. ¿Desea continuar?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.Yes:
             try:
-                nuevos, actualizados, errores = ProveedorImportService.procesar_importacion_maestra(self.filas_preview)
-                msg = f"Importación Completada.\n\nNuevos creados: {nuevos}\nActualizados: {actualizados}\nErrores omitidos: {errores}"
-                QMessageBox.information(self, "Resultado", msg)
-
-                # Resetear UI
+                n, a, e = ProveedorImportService.procesar_importacion_maestra(self.filas_preview)
+                QMessageBox.information(self, "Resultado", f"Nuevos: {n}\\nActualizados: {a}\\nErrores: {e}")
                 self.df = None
                 self.filas_preview = []
                 self.lbl_archivo.setText("Ningún archivo seleccionado")
@@ -575,8 +559,7 @@ class ImportacionListasTab(QWidget):
                 self.btn_aprobar.setEnabled(False)
                 self.paginacion.set_total_items(0)
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"Fallo al actualizar la base de datos:\n{str(e)}")
-
+                QMessageBox.critical(self, "Error", str(e))
 
 class ProveedoresView(QWidget):
     def __init__(self, parent=None):
@@ -589,15 +572,15 @@ class ProveedoresView(QWidget):
 
         self.tab_sugerencias = SugerenciasTab()
         self.tab_compras = IngresoFacturaTab()
+        self.tab_importacion = ImportacionListasTab()
 
-        self.tabs.addTab(self.tab_sugerencias, "Sugerencias y Pedidos")
+        self.tabs.addTab(self.tab_sugerencias, "Panel de Pedidos Avanzado")
         self.tabs.addTab(self.tab_compras, "Facturas de Compra (Ingreso de Stock)")
-        self.tab_import = ImportacionListasTab()
-        self.tabs.addTab(self.tab_import, "Importación de Listas")
+        self.tabs.addTab(self.tab_importacion, "Importación de Listas")
 
         layout.addWidget(self.tabs)
 
     def showEvent(self, event):
         super().showEvent(event)
-        self.tab_sugerencias.cargar_datos()
+        self.tab_sugerencias.cargar_datos_base()
         self.tab_compras.cargar_datos_base()

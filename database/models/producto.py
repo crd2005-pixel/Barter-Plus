@@ -50,6 +50,7 @@ class Producto(Base):
     stock_actual: Mapped[float] = mapped_column(default=0.0)
     stock_minimo: Mapped[float] = mapped_column(default=0.0)
     stock_maximo: Mapped[float] = mapped_column(default=0.0)
+    requiere_reposicion: Mapped[bool] = mapped_column(default=False)
 
     # Fraccionamiento y Granel
     es_granel: Mapped[bool] = mapped_column(default=False)
