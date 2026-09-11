@@ -207,7 +207,7 @@ class ContabilidadTab(QWidget):
         lbl_iva.setStyleSheet("font-weight: bold; font-size: 14px;")
 
         self.tbl_iva = QTableWidget(0, 6)
-        self.tbl_iva.setHorizontalHeaderLabels(["Fecha", "Comprobante", "Número", "Neto Gravado", "IVA Facturado", "Total"])
+        self.tbl_iva.setHorizontalHeaderLabels(["Fecha", "Tipo (Compra/Venta)", "Comprobante", "Neto Gravado", "IVA", "Total"])
         self.tbl_iva.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.tbl_iva.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 
@@ -238,10 +238,10 @@ class ContabilidadTab(QWidget):
         self.tbl_iva.setRowCount(len(registros_iva))
         for row, r in enumerate(registros_iva):
             self.tbl_iva.setItem(row, 0, QTableWidgetItem(r.fecha.strftime("%Y-%m-%d")))
-            self.tbl_iva.setItem(row, 1, QTableWidgetItem(r.tipo_comprobante))
-            self.tbl_iva.setItem(row, 2, QTableWidgetItem(r.numero_comprobante))
+            self.tbl_iva.setItem(row, 1, QTableWidgetItem(r.tipo))
+            self.tbl_iva.setItem(row, 2, QTableWidgetItem(r.comprobante))
             self.tbl_iva.setItem(row, 3, QTableWidgetItem(f"${r.neto_gravado:.2f}"))
-            self.tbl_iva.setItem(row, 4, QTableWidgetItem(f"${r.iva_facturado:.2f}"))
+            self.tbl_iva.setItem(row, 4, QTableWidgetItem(f"${r.iva_21:.2f}"))
             self.tbl_iva.setItem(row, 5, QTableWidgetItem(f"${r.total:.2f}"))
 
 

@@ -71,7 +71,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.registros_view, "Registros y Finanzas")
 
         self.clientes_view = ClientesView()
-        self.tabs.addTab(self.clientes_view, "Maestro de Clientes")
+        self.tabs.addTab(self.clientes_view, "Clientes")
 
 
 
@@ -79,6 +79,9 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.precios_tab, "Remarcación (Precios)")
         self.tabs.addTab(self.proveedores_tab, "Proveedores y Compras")
 
+
+# Hacer las pestañas movibles
+        self.tabs.setMovable(True)
 
         # Seleccionar por defecto la pestaña Ventas
         self.tabs.setCurrentWidget(self.ventas_tab)

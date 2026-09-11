@@ -149,8 +149,7 @@ class VentasTab(QWidget):
 
         self.lbl_total_valor = QLabel("$ 0.00")
         self.lbl_total_valor.setFont(font_total)
-        self.lbl_total_valor.setStyleSheet("font-size: 32px; font-weight: bold; color: #27ae60;")
-        self.lbl_total_valor.setStyleSheet("color: #2e7d32;") # Verde
+        self.lbl_total_valor.setStyleSheet("font-size: 45px; font-weight: bold; color: #00ff00; background-color: #1e1e1e; padding: 10px; border-radius: 5px;")
 
         self.btn_cobrar = QPushButton("COBRAR FACTURA (F12)")
         self.btn_cobrar.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold; font-size: 20px; padding: 15px;")
