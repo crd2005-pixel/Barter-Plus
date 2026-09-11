@@ -129,7 +129,7 @@ class ComprasService:
         doc.build(elements)
 
     @staticmethod
-    def ingresar_factura_compra(proveedor_id: int, num_factura: str, tipo_comprobante: str, monto_iva: float, detalles: List[Dict], total_factura: float):
+    def ingresar_factura_compra(proveedor_id: int, num_factura: str, tipo_comprobante: str, monto_iva: float, detalles: List[Dict], total_factura: float, plazo_dias: int = 0):
         """
         Ingresa una factura.
         `detalles` es lista de dicts: {'producto_id': int, 'cantidad': float, 'nuevo_costo': float}
@@ -162,12 +162,17 @@ class ComprasService:
                 saldo_anterior = ultimo_mov.saldo if ultimo_mov else 0.0
                 nuevo_saldo = saldo_anterior + total_factura
 
+                fecha_venc = None
+                if plazo_dias > 0:
+                    fecha_venc = dt.datetime.utcnow() + dt.timedelta(days=plazo_dias)
+
                 mov_cc = ProveedorCuentaCorriente(
                     proveedor_id=proveedor_id,
                     concepto=f"Factura Compra #{num_factura}",
                     debe=0.0,
                     haber=total_factura,
-                    saldo=nuevo_saldo
+                    saldo=nuevo_saldo,
+                    fecha_vencimiento=fecha_venc
                 )
                 session.add(mov_cc)
 

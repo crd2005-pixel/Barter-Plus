@@ -169,19 +169,20 @@ class IngresoFacturaTab(QWidget):
         self.completer_prov.setFilterMode(Qt.MatchFlag.MatchContains)
         self.combo_proveedor.setCompleter(self.completer_prov)
 
+        self.txt_factura = QLineEdit()
+        self.txt_factura.setPlaceholderText("0001-00000001")
+
         self.combo_comprobante = QComboBox()
         self.combo_comprobante.addItems(["Remito (Sin impacto IVA)", "Factura A", "Factura B", "Factura C", "Recibo/Presupuesto"])
         self.combo_comprobante.currentTextChanged.connect(self.toggle_iva)
+
+        self.combo_plazo = QComboBox()
+        self.combo_plazo.addItems(["Contado", "15 días", "30 días", "45 días", "60 días"])
 
         self.spin_iva = QDoubleSpinBox()
         self.spin_iva.setRange(0.0, 9999999.0)
         self.spin_iva.setPrefix("$ ")
         self.spin_iva.setEnabled(False)
-
-        header_form.addRow("Tipo de Comprobante:", self.combo_comprobante)
-
-        self.txt_factura = QLineEdit()
-        self.txt_factura.setPlaceholderText("0001-00000001")
 
         self.date_factura = QDateEdit()
         self.date_factura.setCalendarPopup(True)
@@ -190,6 +191,8 @@ class IngresoFacturaTab(QWidget):
         header_form.addRow("Proveedor:", self.combo_proveedor)
         header_form.addRow("Nº Factura:", self.txt_factura)
         header_form.addRow("Fecha:", self.date_factura)
+        header_form.addRow("Tipo de Comprobante:", self.combo_comprobante)
+        header_form.addRow("Condición de Pago:", self.combo_plazo)
         header_form.addRow("Monto IVA (Crédito Fiscal):", self.spin_iva)
 
         layout.addLayout(header_form)
@@ -247,9 +250,15 @@ class IngresoFacturaTab(QWidget):
     def toggle_iva(self, text):
         if text == "Factura A":
             self.spin_iva.setEnabled(True)
+            self.auto_calcular_iva()
         else:
             self.spin_iva.setEnabled(False)
             self.spin_iva.setValue(0.0)
+
+    def auto_calcular_iva(self):
+        if self.combo_comprobante.currentText() == "Factura A":
+            subtotal = sum(i['cantidad']*i['costo'] for i in self.carrito)
+            self.spin_iva.setValue(subtotal * 0.21)
 
     def cargar_datos_base(self):
         from database.conexion import get_session
@@ -323,6 +332,7 @@ class IngresoFacturaTab(QWidget):
             self.table.setItem(r, 4, i_sub)
 
         self.lbl_total.setText(f"Total Factura: ${total:.2f}")
+        self.auto_calcular_iva()
         self.table.itemChanged.connect(self.recalcular_totales)
 
     def recalcular_totales(self, item):
@@ -359,10 +369,16 @@ class IngresoFacturaTab(QWidget):
             return
 
         total_float = sum(i['cantidad']*i['costo'] for i in self.carrito)
+        plazo_str = self.combo_plazo.currentText()
+        plazo_dias = 0
+        if "15" in plazo_str: plazo_dias = 15
+        elif "30" in plazo_str: plazo_dias = 30
+        elif "45" in plazo_str: plazo_dias = 45
+        elif "60" in plazo_str: plazo_dias = 60
 
         reply = QMessageBox.question(
             self, "Confirmar Ingreso",
-            f"Se registrará la compra por ${total_float:.2f}\nEl stock será actualizado.\n¿Continuar?",
+            f"Se registrará la compra por ${total_float:.2f}\nEl stock será actualizado matemáticamente.\n¿Continuar?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
 
@@ -376,14 +392,22 @@ class IngresoFacturaTab(QWidget):
                         'nuevo_costo': i['costo']
                     })
 
-                ComprasService.ingresar_factura_compra(prov_id, num_fac, self.combo_comprobante.currentText(), self.spin_iva.value(), detalles, total_float)
+                ComprasService.ingresar_factura_compra(
+                    prov_id, num_fac,
+                    self.combo_comprobante.currentText(),
+                    self.spin_iva.value(),
+                    detalles, total_float,
+                    plazo_dias
+                )
                 QMessageBox.information(self, "Éxito", "Factura procesada. Stock y Costos actualizados.")
 
+                # Reset
                 self.carrito = []
                 self.txt_factura.clear()
                 self.render_carrito()
             except Exception as e:
                 QMessageBox.critical(self, "Error", str(e))
+
 
 class ImportacionListasTab(QWidget):
     def __init__(self):
@@ -587,6 +611,131 @@ class ImportacionListasTab(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, "Error", str(e))
 
+class EstadoCuentaProveedorTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+
+        # Panel Superior
+        header_lay = QHBoxLayout()
+        self.combo_proveedor = QComboBox()
+        self.combo_proveedor.setEditable(True)
+        self.combo_proveedor.setPlaceholderText("Seleccionar Proveedor...")
+        self.completer_prov = QCompleter()
+        self.completer_prov.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.completer_prov.setFilterMode(Qt.MatchFlag.MatchContains)
+        self.combo_proveedor.setCompleter(self.completer_prov)
+
+        self.btn_ver = QPushButton("Ver Estado de Cuenta")
+        self.btn_ver.clicked.connect(self.cargar_datos)
+
+        self.btn_pago = QPushButton("Registrar Pago")
+        self.btn_pago.setStyleSheet("background-color: #f39c12; color: white; font-weight: bold;")
+        self.btn_pago.clicked.connect(self.registrar_pago)
+
+        header_lay.addWidget(QLabel("Filtrar por Proveedor:"))
+        header_lay.addWidget(self.combo_proveedor)
+        header_lay.addWidget(self.btn_ver)
+        header_lay.addStretch()
+        header_lay.addWidget(self.btn_pago)
+        layout.addLayout(header_lay)
+
+        # Resumen
+        self.lbl_saldo = QLabel("Deuda Total: $0.00")
+        self.lbl_saldo.setStyleSheet("font-size: 24px; font-weight: bold; color: red;")
+        layout.addWidget(self.lbl_saldo)
+
+        # Grilla
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(["Fecha", "Comprobante/Concepto", "Debe (Pagos)", "Haber (Facturas)", "Saldo Histórico", "Vencimiento"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        layout.addWidget(self.table)
+
+    def cargar_proveedores(self):
+        from database.conexion import get_session
+        from database.models.proveedor import Proveedor
+        from sqlalchemy import select
+        with get_session() as session:
+            provs = session.scalars(select(Proveedor)).all()
+            self.combo_proveedor.clear()
+            nombres_p = []
+            for p in provs:
+                self.combo_proveedor.addItem(p.nombre, p.id)
+                nombres_p.append(p.nombre)
+            self.completer_prov.setModel(QStringListModel(nombres_p))
+
+    def cargar_datos(self):
+        prov_id = self.combo_proveedor.currentData()
+        if not prov_id:
+            self.table.setRowCount(0)
+            self.lbl_saldo.setText("Deuda Total: $0.00")
+            return
+
+        movs = ProveedorService.obtener_estado_cc(prov_id)
+        self.table.setRowCount(len(movs))
+
+        saldo_actual = 0.0
+        hoy = dt.datetime.utcnow().date()
+
+        for row, m in enumerate(movs):
+            self.table.setItem(row, 0, QTableWidgetItem(m.fecha.strftime("%Y-%m-%d")))
+            self.table.setItem(row, 1, QTableWidgetItem(m.concepto))
+            self.table.setItem(row, 2, QTableWidgetItem(f"${m.debe:.2f}"))
+            self.table.setItem(row, 3, QTableWidgetItem(f"${m.haber:.2f}"))
+            self.table.setItem(row, 4, QTableWidgetItem(f"${m.saldo:.2f}"))
+
+            i_venc = QTableWidgetItem("-")
+            if m.fecha_vencimiento:
+                venc_date = m.fecha_vencimiento.date()
+                i_venc.setText(venc_date.strftime("%Y-%m-%d"))
+
+                # Reglas visuales (Semáforo)
+                if m.debe == 0 and m.haber > 0: # Es una deuda sin cancelar en su propia linea (aprox)
+                    dias_restantes = (venc_date - hoy).days
+                    if dias_restantes < 0:
+                        for c in range(6): self.table.item(row, c).setBackground(QBrush(QColor(74, 28, 28))) # Rojo Oscuro
+                        for c in range(6): self.table.item(row, c).setForeground(Qt.GlobalColor.white)
+                    elif dias_restantes <= 7:
+                        for c in range(6): self.table.item(row, c).setBackground(QBrush(QColor(102, 80, 0))) # Naranja/Amarillo Oscuro
+                        for c in range(6): self.table.item(row, c).setForeground(Qt.GlobalColor.white)
+
+            self.table.setItem(row, 5, i_venc)
+            saldo_actual = m.saldo
+
+        self.lbl_saldo.setText(f"Deuda Total: ${saldo_actual:.2f}")
+        if saldo_actual > 0:
+            self.lbl_saldo.setStyleSheet("font-size: 24px; font-weight: bold; color: red;")
+        else:
+            self.lbl_saldo.setStyleSheet("font-size: 24px; font-weight: bold; color: green;")
+
+        self.table.scrollToBottom()
+
+    def registrar_pago(self):
+        prov_id = self.combo_proveedor.currentData()
+        if not prov_id:
+            QMessageBox.warning(self, "Error", "Seleccione un proveedor primero.")
+            return
+
+        deuda = ProveedorService.obtener_deuda_total(prov_id)
+        if deuda <= 0:
+            QMessageBox.information(self, "Aviso", "No se registra deuda con este proveedor.")
+            return
+
+        monto, ok = QInputDialog.getDouble(self, "Registrar Pago", f"Deuda actual: ${deuda:.2f}\n\nMonto a Pagar:", deuda, 0, deuda, 2)
+        if ok and monto > 0:
+            try:
+                ProveedorService.registrar_pago(prov_id, monto)
+                QMessageBox.information(self, "Éxito", f"Pago de ${monto:.2f} registrado. Se descontó de la Caja Activa.")
+                self.cargar_datos()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Fallo al registrar pago:\n{e}")
+
+
 class ProveedoresView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -598,10 +747,12 @@ class ProveedoresView(QWidget):
 
         self.tab_sugerencias = SugerenciasTab()
         self.tab_compras = IngresoFacturaTab()
+        self.tab_ctas = EstadoCuentaProveedorTab()
         self.tab_importacion = ImportacionListasTab()
 
         self.tabs.addTab(self.tab_sugerencias, "Panel de Pedidos Avanzado")
-        self.tabs.addTab(self.tab_compras, "Facturas de Compra (Ingreso de Stock)")
+        self.tabs.addTab(self.tab_compras, "Facturas de Compra (Ingreso)")
+        self.tabs.addTab(self.tab_ctas, "Estado de Cuenta y Pagos")
         self.tabs.addTab(self.tab_importacion, "Importación de Listas")
 
         layout.addWidget(self.tabs)
@@ -610,3 +761,4 @@ class ProveedoresView(QWidget):
         super().showEvent(event)
         self.tab_sugerencias.cargar_datos_base()
         self.tab_compras.cargar_datos_base()
+        self.tab_ctas.cargar_proveedores()

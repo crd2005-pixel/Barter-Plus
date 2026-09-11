@@ -29,6 +29,7 @@ class ProveedorCuentaCorriente(Base):
     debe: Mapped[float] = mapped_column(default=0.0)
     haber: Mapped[float] = mapped_column(default=0.0)
     saldo: Mapped[float] = mapped_column(default=0.0) # Saldo arrastrado
+    fecha_vencimiento: Mapped[Optional[dt.datetime]] = mapped_column(nullable=True)
 
     # Relación
     proveedor: Mapped['Proveedor'] = relationship(back_populates='cuenta_corriente')
