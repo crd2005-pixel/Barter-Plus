@@ -99,7 +99,7 @@ class VentaService:
                     nueva_venta.vuelto = 0.0
 
                 # Contabilidad y Fiscalidad
-                if tipo_comprobante == "Factura":
+                if tipo_comprobante.startswith("Factura"):
                     # Libro Diario
                     asiento_venta = AsientoDiario(
                         fecha=nueva_venta.fecha,
@@ -122,11 +122,12 @@ class VentaService:
                     # Libro IVA
                     libro_iva = LibroIVA(
                         fecha=nueva_venta.fecha,
-                        tipo_comprobante="Factura",
-                        numero_comprobante=str(nueva_venta.id),
+                        tipo="Venta",
+                        comprobante=f"{tipo_comprobante} {nueva_venta.id}",
                         neto_gravado=subtotal,
-                        iva_facturado=iva_total,
-                        total=total_final
+                        iva_21=iva_total,
+                        total=total_final,
+                        venta_id=nueva_venta.id
                     )
                     session.add(libro_iva)
 

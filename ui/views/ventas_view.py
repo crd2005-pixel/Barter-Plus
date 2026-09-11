@@ -47,7 +47,7 @@ class VentasTab(QWidget):
         self.combo_pago.addItems(["Efectivo", "Transferencia", "Débito", "Tarjeta", "Cuenta Corriente", "Combinada"])
 
         self.combo_comprobante = QComboBox()
-        self.combo_comprobante.addItems(["Remito", "Factura"])
+        self.combo_comprobante.addItems(["Remito", "Factura A", "Factura B", "Factura C"])
 
         self.form_pago.addRow("Comprobante:", self.combo_comprobante)
         self.form_pago.addRow("Método Pago:", self.combo_pago)
