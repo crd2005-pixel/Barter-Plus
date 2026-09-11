@@ -98,6 +98,10 @@ class VentaService:
                     # Tarjeta, Transferencia, etc. (se abona exacto en este flujo simple)
                     nueva_venta.vuelto = 0.0
 
+                # Calcular subtotal impositivo y de IVA (asumiendo 21% por defecto o simplificado)
+                subtotal = total_final / 1.21
+                iva_total = total_final - subtotal
+
                 # Contabilidad y Fiscalidad
                 if tipo_comprobante.startswith("Factura"):
                     # Libro Diario

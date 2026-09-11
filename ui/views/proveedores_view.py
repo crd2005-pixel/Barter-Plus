@@ -65,8 +65,8 @@ class SugerenciasTab(QWidget):
         self.table.setRowCount(len(sugerencias))
 
         for row, s in enumerate(sugerencias):
-            p = s['producto']
             cant = s['cantidad_sugerida']
+            es_manual = s.get('es_manual', False)
 
             # Checkbox
             chk = QCheckBox()
@@ -78,30 +78,37 @@ class SugerenciasTab(QWidget):
             chk_lay.setContentsMargins(0,0,0,0)
             self.table.setCellWidget(row, 0, chk_widget)
 
-            prov_nom = p.proveedor.nombre if p.proveedor else "Sin Proveedor"
+            if es_manual:
+                i_sku = QTableWidgetItem("MANUAL")
+                i_prov = QTableWidgetItem("Variado/Sin Especificar")
+                i_nom = QTableWidgetItem(s['detalle_manual'])
+                i_act = QTableWidgetItem("-")
+                i_min = QTableWidgetItem("-")
 
-            i_sku = QTableWidgetItem(p.sku or "-")
-            i_sku.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+                color_manual = QBrush(QColor(230, 126, 34, 50)) # Naranja para manuales
+                for i in [i_sku, i_prov, i_nom, i_act, i_min]:
+                    i.setBackground(color_manual)
+            else:
+                p = s['producto']
+                prov_nom = p.proveedor.nombre if p.proveedor else "Sin Proveedor"
 
-            i_prov = QTableWidgetItem(prov_nom)
-            i_prov.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+                i_sku = QTableWidgetItem(p.sku or "-")
+                i_prov = QTableWidgetItem(prov_nom)
+                i_nom = QTableWidgetItem(p.nombre)
 
-            i_nom = QTableWidgetItem(p.nombre)
-            i_nom.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+                i_act = QTableWidgetItem(str(p.stock_actual))
+                if p.stock_actual <= 0:
+                    i_act.setForeground(Qt.GlobalColor.red)
 
-            i_act = QTableWidgetItem(str(p.stock_actual))
-            i_act.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
-            if p.stock_actual <= 0:
-                i_act.setForeground(Qt.GlobalColor.red)
+                i_min = QTableWidgetItem(str(p.stock_minimo))
 
-            i_min = QTableWidgetItem(str(p.stock_minimo))
-            i_min.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            for i in [i_sku, i_prov, i_nom, i_act, i_min]:
+                i.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
 
             i_sug = QTableWidgetItem(str(cant))
             font = QFont()
             font.setBold(True)
             i_sug.setFont(font)
-            # Make it editable
             i_sug.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsEditable)
 
             self.table.setItem(row, 1, i_sku)

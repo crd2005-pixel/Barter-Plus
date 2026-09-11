@@ -5,10 +5,10 @@ from sqlalchemy import select
 
 class ClienteService:
     @staticmethod
-    def crear_cliente(nombre: str, dni: Optional[str] = None, es_especial: bool = False) -> Cliente:
+    def crear_cliente(nombre: str, dni: Optional[str] = None, telefono: Optional[str] = None, email: Optional[str] = None, direccion: Optional[str] = None, es_especial: bool = False) -> Cliente:
         with get_session() as session:
             try:
-                nuevo_cliente = Cliente(nombre=nombre, dni=dni, es_especial=es_especial)
+                nuevo_cliente = Cliente(nombre=nombre, dni=dni, telefono=telefono, email=email, direccion=direccion, es_especial=es_especial)
                 session.add(nuevo_cliente)
                 session.commit()
                 session.refresh(nuevo_cliente)
@@ -119,3 +119,25 @@ class ClienteService:
                 .order_by(ClienteCuentaCorriente.id.desc())\
                 .first()
             return ultimo_mov.saldo if ultimo_mov else 0.0
+
+    @staticmethod
+    def actualizar_cliente(cliente_id: int, nombre: str, dni: Optional[str] = None, telefono: Optional[str] = None, email: Optional[str] = None, direccion: Optional[str] = None, es_especial: bool = False) -> Cliente:
+        with get_session() as session:
+            try:
+                cliente = session.get(Cliente, cliente_id)
+                if not cliente:
+                    raise ValueError(f"Cliente {cliente_id} no encontrado.")
+                cliente.nombre = nombre
+                cliente.dni = dni
+                cliente.telefono = telefono
+                cliente.email = email
+                cliente.direccion = direccion
+                cliente.es_especial = es_especial
+
+                session.commit()
+                session.refresh(cliente)
+                session.expunge(cliente)
+                return cliente
+            except Exception as e:
+                session.rollback()
+                raise e

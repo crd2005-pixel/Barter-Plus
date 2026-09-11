@@ -47,7 +47,7 @@ class VentasTab(QWidget):
         self.combo_pago.addItems(["Efectivo", "Transferencia", "Débito", "Tarjeta", "Cuenta Corriente", "Combinada"])
 
         self.combo_comprobante = QComboBox()
-        self.combo_comprobante.addItems(["Remito", "Factura A", "Factura B", "Factura C"])
+        self.combo_comprobante.addItems(["Remito", "Factura A", "Factura B"])
 
         self.form_pago.addRow("Comprobante:", self.combo_comprobante)
         self.form_pago.addRow("Método Pago:", self.combo_pago)
@@ -149,6 +149,7 @@ class VentasTab(QWidget):
 
         self.lbl_total_valor = QLabel("$ 0.00")
         self.lbl_total_valor.setFont(font_total)
+        self.lbl_total_valor.setStyleSheet("font-size: 32px; font-weight: bold; color: #27ae60;")
         self.lbl_total_valor.setStyleSheet("color: #2e7d32;") # Verde
 
         self.btn_cobrar = QPushButton("COBRAR FACTURA (F12)")
@@ -211,21 +212,40 @@ class VentasTab(QWidget):
         self.completer_prod.setModel(model)
 
     def crear_cliente_rapido(self):
-        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLineEdit, QCheckBox
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QFormLayout, QLineEdit, QCheckBox
         dialog = QDialog(self)
         dialog.setWindowTitle("Nuevo Cliente")
         layout = QVBoxLayout(dialog)
+        form = QFormLayout()
 
         txt_nombre = QLineEdit()
-        txt_nombre.setPlaceholderText("Nombre del cliente...")
+        txt_nombre.setPlaceholderText("Nombre y Apellido (Obligatorio)")
 
-        chk_especial = QCheckBox("Cliente Especial (10% Desc.)")
+        txt_dni = QLineEdit()
+        txt_dni.setPlaceholderText("DNI / CUIT")
 
-        btn_guardar = QPushButton("Guardar")
+        txt_celular = QLineEdit()
+        txt_celular.setPlaceholderText("Teléfono / Celular")
 
-        layout.addWidget(QLabel("Nombre:"))
-        layout.addWidget(txt_nombre)
-        layout.addWidget(chk_especial)
+        txt_direccion = QLineEdit()
+        txt_direccion.setPlaceholderText("Dirección")
+
+        txt_email = QLineEdit()
+        txt_email.setPlaceholderText("Correo Electrónico")
+
+        chk_especial = QCheckBox("Es Cliente VIP (Aplica descuentos 10%)")
+
+        form.addRow("Nombre/Razón Social (*):", txt_nombre)
+        form.addRow("DNI/CUIT:", txt_dni)
+        form.addRow("Celular:", txt_celular)
+        form.addRow("Dirección:", txt_direccion)
+        form.addRow("Email:", txt_email)
+        form.addRow("", chk_especial)
+
+        layout.addLayout(form)
+
+        btn_guardar = QPushButton("Guardar Cliente")
+        btn_guardar.setStyleSheet("background-color: #0275d8; color: white; font-weight: bold;")
         layout.addWidget(btn_guardar)
 
         def _guardar():
@@ -240,10 +260,15 @@ class VentasTab(QWidget):
             try:
                 nuevo = ClienteService.crear_cliente(
                     nombre=txt_nombre.text().strip(),
+                    dni=txt_dni.text().strip() or None,
+                    telefono=txt_celular.text().strip() or None,
+                    direccion=txt_direccion.text().strip() or None,
+                    email=txt_email.text().strip() or None,
                     es_especial=chk_especial.isChecked()
                 )
                 self.cargar_clientes()
-                # Seleccionarlo
+
+                # Auto-seleccionar
                 index = self.combo_clientes.findData(nuevo.id)
                 if index >= 0:
                     self.combo_clientes.setCurrentIndex(index)

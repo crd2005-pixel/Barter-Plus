@@ -50,6 +50,7 @@ class ComprasService:
         from sqlalchemy.orm import joinedload
 
         with get_session() as session:
+            # 1. Traer requerimientos de Productos
             stmt = select(Producto).options(joinedload(Producto.proveedor)).where(Producto.requiere_reposicion == True)
             if proveedor_id:
                 stmt = stmt.where(Producto.proveedor_id == proveedor_id)
@@ -58,7 +59,6 @@ class ComprasService:
 
             sugerencias = []
             for p in productos:
-                # Sugerencia base: llegar al maximo si esta configurado
                 if p.stock_maximo > 0:
                     cant = p.stock_maximo - p.stock_actual
                 elif p.stock_minimo > 0:
@@ -70,9 +70,26 @@ class ComprasService:
 
                 session.expunge(p)
                 sugerencias.append({
+                    'id_manual': None,
                     'producto': p,
-                    'cantidad_sugerida': cant
+                    'cantidad_sugerida': cant,
+                    'es_manual': False,
+                    'detalle_manual': None
                 })
+
+            # 2. Traer Pedidos Manuales
+            # Solo si no hay filtro de proveedor o si queremos mostrar todos los manuales siempre.
+            # Los pedidos manuales no tienen proveedor asociado estrictamente (es texto libre)
+            if not proveedor_id:
+                manuales = session.scalars(select(PedidoManual).where(PedidoManual.estado == "Pendiente")).all()
+                for m in manuales:
+                    sugerencias.append({
+                        'id_manual': m.id,
+                        'producto': None,
+                        'cantidad_sugerida': 1, # Default 1 for manuales
+                        'es_manual': True,
+                        'detalle_manual': m.detalle
+                    })
 
             return sugerencias
 
