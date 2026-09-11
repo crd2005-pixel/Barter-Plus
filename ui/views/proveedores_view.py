@@ -162,6 +162,17 @@ class IngresoFacturaTab(QWidget):
         self.completer_prov.setFilterMode(Qt.MatchFlag.MatchContains)
         self.combo_proveedor.setCompleter(self.completer_prov)
 
+        self.combo_comprobante = QComboBox()
+        self.combo_comprobante.addItems(["Remito (Sin impacto IVA)", "Factura A", "Factura B", "Factura C", "Recibo/Presupuesto"])
+        self.combo_comprobante.currentTextChanged.connect(self.toggle_iva)
+
+        self.spin_iva = QDoubleSpinBox()
+        self.spin_iva.setRange(0.0, 9999999.0)
+        self.spin_iva.setPrefix("$ ")
+        self.spin_iva.setEnabled(False)
+
+        header_form.addRow("Tipo de Comprobante:", self.combo_comprobante)
+
         self.txt_factura = QLineEdit()
         self.txt_factura.setPlaceholderText("0001-00000001")
 
@@ -172,6 +183,7 @@ class IngresoFacturaTab(QWidget):
         header_form.addRow("Proveedor:", self.combo_proveedor)
         header_form.addRow("Nº Factura:", self.txt_factura)
         header_form.addRow("Fecha:", self.date_factura)
+        header_form.addRow("Monto IVA (Crédito Fiscal):", self.spin_iva)
 
         layout.addLayout(header_form)
 
@@ -224,6 +236,13 @@ class IngresoFacturaTab(QWidget):
         layout.addLayout(bot_lay)
 
         self.cargar_datos_base()
+
+    def toggle_iva(self, text):
+        if text == "Factura A":
+            self.spin_iva.setEnabled(True)
+        else:
+            self.spin_iva.setEnabled(False)
+            self.spin_iva.setValue(0.0)
 
     def cargar_datos_base(self):
         from database.conexion import get_session
@@ -350,7 +369,7 @@ class IngresoFacturaTab(QWidget):
                         'nuevo_costo': i['costo']
                     })
 
-                ComprasService.ingresar_factura_compra(prov_id, num_fac, detalles, total_float)
+                ComprasService.ingresar_factura_compra(prov_id, num_fac, self.combo_comprobante.currentText(), self.spin_iva.value(), detalles, total_float)
                 QMessageBox.information(self, "Éxito", "Factura procesada. Stock y Costos actualizados.")
 
                 self.carrito = []

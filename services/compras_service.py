@@ -1,7 +1,7 @@
 from database.conexion import get_session
 from database.models.producto import Producto
 from database.models.proveedor import Proveedor, ProveedorCuentaCorriente
-from database.models.contabilidad import PedidoManual
+from database.models.contabilidad import PedidoManual, LibroIVA
 from sqlalchemy import select, and_, or_, update
 from typing import List, Dict, Optional
 import datetime as dt
@@ -112,7 +112,7 @@ class ComprasService:
         doc.build(elements)
 
     @staticmethod
-    def ingresar_factura_compra(proveedor_id: int, num_factura: str, detalles: List[Dict], total_factura: float):
+    def ingresar_factura_compra(proveedor_id: int, num_factura: str, tipo_comprobante: str, monto_iva: float, detalles: List[Dict], total_factura: float):
         """
         Ingresa una factura.
         `detalles` es lista de dicts: {'producto_id': int, 'cantidad': float, 'nuevo_costo': float}
@@ -153,6 +153,19 @@ class ComprasService:
                     saldo=nuevo_saldo
                 )
                 session.add(mov_cc)
+
+                # Impacto Fiscal (Libro IVA)
+                if tipo_comprobante.startswith("Factura"):
+                    libro_iva = LibroIVA(
+                        fecha=dt.datetime.utcnow(),
+                        tipo="Compra",
+                        comprobante=f"{tipo_comprobante} {num_factura}",
+                        neto_gravado=total_factura,
+                        iva_21=monto_iva,
+                        total=total_factura + monto_iva
+                    )
+                    session.add(libro_iva)
+
                 session.commit()
             except Exception as e:
                 session.rollback()
