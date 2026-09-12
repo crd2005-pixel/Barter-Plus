@@ -289,7 +289,9 @@ class ConfiguracionTarjetasTab(QWidget):
 
         # Controles superiores
         form_layout = QFormLayout()
-        self.txt_banco = QLineEdit()
+        self.combo_banco = QComboBox()
+        self.combo_banco.addItems(["Visa", "Mastercard", "Cabal", "Naranja", "American Express", "MercadoPago", "Otro"])
+
         self.spin_cuotas = QSpinBox()
         self.spin_cuotas.setRange(1, 48)
         self.spin_interes = QDoubleSpinBox()
@@ -299,10 +301,10 @@ class ConfiguracionTarjetasTab(QWidget):
         self.spin_dias.setRange(0, 365)
         self.spin_dias.setSuffix(" días")
 
-        form_layout.addRow("Banco / Tarjeta:", self.txt_banco)
+        form_layout.addRow("Banco / Tarjeta:", self.combo_banco)
         form_layout.addRow("Cantidad de Cuotas:", self.spin_cuotas)
         form_layout.addRow("Porcentaje Recargo/Interés:", self.spin_interes)
-        form_layout.addRow("Días para Acreditación:", self.spin_dias)
+        form_layout.addRow("Días Hábiles de Acreditación:", self.spin_dias)
 
         btn_layout = QHBoxLayout()
         self.btn_guardar = QPushButton("Guardar Plan")
@@ -343,7 +345,7 @@ class ConfiguracionTarjetasTab(QWidget):
                 self.table.setItem(row, 4, QTableWidgetItem(str(plan.dias_acreditacion)))
 
     def guardar_plan(self):
-        banco = self.txt_banco.text().strip()
+        banco = self.combo_banco.currentText()
         if not banco:
             QMessageBox.warning(self, "Error", "El nombre del Banco/Tarjeta es obligatorio.")
             return

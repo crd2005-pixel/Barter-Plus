@@ -53,18 +53,22 @@ class VentasTab(QWidget):
         self.form_pago.addRow("Comprobante:", self.combo_comprobante)
         self.form_pago.addRow("Método Pago:", self.combo_pago)
 
-        self.date_acreditacion = QDateEdit()
-        self.date_acreditacion.setCalendarPopup(True)
-        self.date_acreditacion.setDate(QDate.currentDate())
-        self.date_acreditacion.setVisible(False)
-        self.lbl_acreditacion = QLabel("Acreditación:")
-        self.lbl_acreditacion.setVisible(False)
 
-        self.form_pago.addRow(self.lbl_acreditacion, self.date_acreditacion)
         self.form_tarjeta = QFormLayout()
+        self.combo_tarjeta = QComboBox()
         self.combo_plan_tarjeta = QComboBox()
+        self.txt_lote = QLineEdit()
+        self.txt_lote.setPlaceholderText("Ej: 12345")
+        self.txt_cupon = QLineEdit()
+        self.txt_cupon.setPlaceholderText("Ej: 67890")
+
+        self.combo_tarjeta.currentIndexChanged.connect(self.cargar_planes_tarjeta)
         self.combo_plan_tarjeta.currentIndexChanged.connect(self.actualizar_ui)
+
+        self.form_tarjeta.addRow("Tarjeta:", self.combo_tarjeta)
         self.form_tarjeta.addRow("Plan de Tarjeta:", self.combo_plan_tarjeta)
+        self.form_tarjeta.addRow("Nº Lote:", self.txt_lote)
+        self.form_tarjeta.addRow("Nº Cupón:", self.txt_cupon)
 
         # Ocultar por defecto
         self.widget_tarjeta = QWidget()
@@ -341,8 +345,6 @@ class VentasTab(QWidget):
 
     def toggle_fecha_acreditacion(self, text):
         is_tarjeta = text in ['Tarjeta', 'Débito']
-        self.lbl_acreditacion.setVisible(is_tarjeta)
-        self.date_acreditacion.setVisible(is_tarjeta)
         if hasattr(self, 'widget_tarjeta'):
             self.widget_tarjeta.setVisible(is_tarjeta)
 
@@ -446,30 +448,61 @@ class VentasTab(QWidget):
             self.actualizar_ui()
 
 
+    def cargar_tarjetas(self):
+        from database.conexion import get_session
+        from database.models import ConfiguracionTarjeta
+
+        self.combo_tarjeta.clear()
+        self.combo_tarjeta.blockSignals(True)
+        try:
+            with get_session() as session:
+                bancos = session.query(ConfiguracionTarjeta.banco_tarjeta).distinct().all()
+                if not bancos:
+                    self.combo_tarjeta.addItem("Sin Configurar", None)
+                else:
+                    for b in bancos:
+                        self.combo_tarjeta.addItem(b[0], b[0])
+        except Exception:
+            pass
+        finally:
+            self.combo_tarjeta.blockSignals(False)
+            self.cargar_tarjetas()
+
     def cargar_planes_tarjeta(self):
         from database.conexion import get_session
         from database.models import ConfiguracionTarjeta
 
         self.combo_plan_tarjeta.clear()
-        self.planes_data = {} # store plan details
+        self.combo_plan_tarjeta.blockSignals(True)
+        self.planes_data = {}
+
+        tarjeta_sel = self.combo_tarjeta.currentData()
+        if not tarjeta_sel:
+            self.combo_plan_tarjeta.addItem("Sin Configurar", None)
+            self.combo_plan_tarjeta.blockSignals(False)
+            self.actualizar_ui()
+            return
 
         try:
             with get_session() as session:
-                planes = session.query(ConfiguracionTarjeta).all()
+                planes = session.query(ConfiguracionTarjeta).where(ConfiguracionTarjeta.banco_tarjeta == tarjeta_sel).all()
                 if not planes:
                     self.combo_plan_tarjeta.addItem("Sin Configurar", None)
-                    return
-                for p in planes:
-                    text = f"{p.banco_tarjeta} - {p.cuotas} Cuota(s)"
-                    self.combo_plan_tarjeta.addItem(text, p.id)
-                    self.planes_data[p.id] = {
-                        'banco': p.banco_tarjeta,
-                        'cuotas': p.cuotas,
-                        'interes': p.porcentaje_interes,
-                        'dias': p.dias_acreditacion
-                    }
+                else:
+                    for p in planes:
+                        # We just store the ID for now, the actual text will be formatted in actualizar_ui
+                        self.combo_plan_tarjeta.addItem(f"{p.cuotas} Cuotas", p.id)
+                        self.planes_data[p.id] = {
+                            'banco': p.banco_tarjeta,
+                            'cuotas': p.cuotas,
+                            'interes': p.porcentaje_interes,
+                            'dias': p.dias_acreditacion
+                        }
         except Exception:
             pass
+        finally:
+            self.combo_plan_tarjeta.blockSignals(False)
+            self.actualizar_ui()
 
     def actualizar_ui(self):
         # Desconectar temporalmente
@@ -608,6 +641,13 @@ class VentasTab(QWidget):
                 # Pass extra data for deferred income
                 datos_tarjeta = None
                 if metodo in ['Tarjeta', 'Débito']:
+                    lote = self.txt_lote.text().strip()
+                    cupon = self.txt_cupon.text().strip()
+
+                    if not lote or not cupon:
+                        QMessageBox.warning(self, "Error", "El número de Lote y Cupón son obligatorios para pagos con Tarjeta.")
+                        return
+
                     plan_id = self.combo_plan_tarjeta.currentData()
                     if plan_id and hasattr(self, 'planes_data') and plan_id in self.planes_data:
                         p = self.planes_data[plan_id]
@@ -615,15 +655,13 @@ class VentasTab(QWidget):
                             'banco': p['banco'],
                             'cuotas': p['cuotas'],
                             'interes': p['interes'],
-                            'plazo_dias': p['dias']
+                            'plazo_dias': p['dias'],
+                            'lote': lote,
+                            'cupon': cupon
                         }
                     else:
-                        datos_tarjeta = {
-                            'banco': 'Desconocido',
-                            'cuotas': 1,
-                            'interes': 0.0,
-                            'plazo_dias': 0
-                        }
+                        QMessageBox.warning(self, "Error", "Seleccione un plan de tarjeta válido.")
+                        return
 
                 venta = VentaService.procesar_venta(
                     detalles_final,
@@ -646,6 +684,8 @@ class VentasTab(QWidget):
                 self.descuento_global = 0.0
                 self.cliente_vip = False
                 self.txt_codigo.clear()
+                if hasattr(self, 'txt_lote'): self.txt_lote.clear()
+                if hasattr(self, 'txt_cupon'): self.txt_cupon.clear()
                 self.combo_clientes.setCurrentIndex(0)
                 self.actualizar_ui()
                 self.txt_codigo.setFocus()

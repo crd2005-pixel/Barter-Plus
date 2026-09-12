@@ -65,5 +65,8 @@ class IngresoDiferido(Base):
     interes_aplicado: Mapped[float] = mapped_column(default=0.0)
     monto_acreditar: Mapped[float] = mapped_column(default=0.0)
 
+    lote: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    cupon: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
     cuenta_destino: Mapped[str] = mapped_column(String, nullable=False)
     estado: Mapped[str] = mapped_column(String, default="Pendiente") # Pendiente, Acreditado

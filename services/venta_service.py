@@ -11,6 +11,17 @@ import datetime as dt
 
 class VentaService:
     @staticmethod
+    def _calcular_fecha_habil(dias_habiles: int) -> dt.date:
+        fecha_actual = dt.datetime.utcnow().date()
+        dias_agregados = 0
+        while dias_agregados < dias_habiles:
+            fecha_actual += dt.timedelta(days=1)
+            # 0=Lunes, 1=Martes, ..., 4=Viernes, 5=Sábado, 6=Domingo
+            if fecha_actual.weekday() < 5:
+                dias_agregados += 1
+        return fecha_actual
+
+    @staticmethod
     def procesar_venta(detalles: List[Dict], cliente_id: Optional[int] = None,
                        metodo_pago: str = "Efectivo", monto_abonado: float = 0.0,
                        descuento_global: float = 0.0, recargo_global: float = 0.0,
@@ -175,9 +186,13 @@ class VentaService:
                         venta_id=nueva_venta.id
                     )
                     session.add(mov_cc)
-                elif metodo_pago in ["Tarjeta", "Débito"] and datos_tarjeta:
+                elif metodo_pago in ["Tarjeta", "Débito"]:
+                    if not datos_tarjeta or not datos_tarjeta.get('lote') or not datos_tarjeta.get('cupon'):
+                        raise ValueError("El número de Lote y Cupón son obligatorios para pagos con Tarjeta.")
+
                     # Registramos el Ingreso Diferido, no toca caja física
-                    fecha_acred = dt.datetime.utcnow().date() + dt.timedelta(days=datos_tarjeta.get('plazo_dias', 0))
+                    dias_habiles = datos_tarjeta.get('plazo_dias', 0)
+                    fecha_acred = VentaService._calcular_fecha_habil(dias_habiles)
 
                     ingreso_dif = IngresoDiferido(
                         venta_id=nueva_venta.id,
@@ -188,6 +203,8 @@ class VentaService:
                         monto_original=subtotal_venta - descuento_global,
                         interes_aplicado=datos_tarjeta.get('interes', 0.0),
                         monto_acreditar=total_final,
+                        lote=datos_tarjeta.get('lote'),
+                        cupon=datos_tarjeta.get('cupon'),
                         cuenta_destino="Banco Central / Adquirente",
                         estado="Pendiente"
                     )
