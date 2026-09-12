@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit,
     QTableWidget, QTableWidgetItem, QHeaderView, QDateEdit, QLabel, QMessageBox,
-    QComboBox, QFormLayout, QGroupBox, QInputDialog, QSplitter
+    QComboBox, QFormLayout, QGroupBox, QInputDialog, QSplitter, QSpinBox, QDoubleSpinBox
 )
 from PyQt6.QtCore import Qt, QDate, QStringListModel
 from PyQt6.QtGui import QFont, QColor, QBrush, QShortcut, QKeySequence
