@@ -437,12 +437,14 @@ class ImportacionListasTab(QWidget):
 
         self.form_mapeo = QFormLayout()
         self.map_sku = QComboBox()
+        self.map_codigo = QComboBox()
         self.map_proveedor = QComboBox()
         self.map_marca = QComboBox()
         self.map_desc = QComboBox()
         self.map_costo = QComboBox()
 
         self.form_mapeo.addRow("SKU Interno (Obligatorio)*:", self.map_sku)
+        self.form_mapeo.addRow("Código Proveedor:", self.map_codigo)
         self.form_mapeo.addRow("Proveedor:", self.map_proveedor)
         self.form_mapeo.addRow("Marca:", self.map_marca)
         self.form_mapeo.addRow("Nombre/Descripción:", self.map_desc)
@@ -511,7 +513,7 @@ class ImportacionListasTab(QWidget):
             self.lbl_archivo.setText(f"Cargado: {file_path.split('/')[-1]} ({len(self.df)} filas)")
             columnas = self.df.columns.tolist()
 
-            for combo in [self.map_sku, self.map_proveedor, self.map_marca, self.map_desc, self.map_costo]:
+            for combo in [self.map_sku, self.map_codigo, self.map_proveedor, self.map_marca, self.map_desc, self.map_costo]:
                 combo.clear()
                 combo.addItems(["-- Ignorar/Seleccionar --"] + columnas)
 
@@ -545,8 +547,9 @@ class ImportacionListasTab(QWidget):
             except ValueError:
                 costo_val = 0.0
 
-            fila_data = {'sku': sku_val, 'costo': costo_val, 'proveedor': "", 'marca': "", 'nombre': ""}
+            fila_data = {'sku': sku_val, 'costo': costo_val, 'proveedor': "", 'marca': "", 'nombre': "", 'codigo': ""}
             if self.map_proveedor.currentText() != "-- Ignorar/Seleccionar --": fila_data['proveedor'] = str(row.get(self.map_proveedor.currentText(), "")).strip()
+            if self.map_codigo.currentText() != "-- Ignorar/Seleccionar --": fila_data['codigo'] = str(row.get(self.map_codigo.currentText(), "")).strip()
             if self.map_marca.currentText() != "-- Ignorar/Seleccionar --": fila_data['marca'] = str(row.get(self.map_marca.currentText(), "")).strip()
             if self.map_desc.currentText() != "-- Ignorar/Seleccionar --": fila_data['nombre'] = str(row.get(self.map_desc.currentText(), "")).strip()
 

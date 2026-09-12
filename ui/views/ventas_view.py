@@ -62,29 +62,9 @@ class VentasTab(QWidget):
 
         self.form_pago.addRow(self.lbl_acreditacion, self.date_acreditacion)
         self.form_tarjeta = QFormLayout()
-
-        self.txt_banco = QLineEdit()
-        self.txt_banco.setPlaceholderText("Ej: Galicia, MercadoPago")
-
-        self.spin_cuotas = QSpinBox()
-        self.spin_cuotas.setRange(1, 24)
-        self.spin_cuotas.setValue(1)
-
-        self.spin_interes = QDoubleSpinBox()
-        self.spin_interes.setRange(0.0, 500.0)
-        self.spin_interes.setSuffix(" %")
-        self.spin_interes.setValue(0.0)
-        self.spin_interes.valueChanged.connect(self.actualizar_ui)
-
-        self.spin_dias_acred = QSpinBox()
-        self.spin_dias_acred.setRange(0, 365)
-        self.spin_dias_acred.setSuffix(" días")
-        self.spin_dias_acred.setValue(0)
-
-        self.form_tarjeta.addRow("Banco/Tarjeta:", self.txt_banco)
-        self.form_tarjeta.addRow("Cuotas:", self.spin_cuotas)
-        self.form_tarjeta.addRow("Interés:", self.spin_interes)
-        self.form_tarjeta.addRow("Plazo de Acreditación:", self.spin_dias_acred)
+        self.combo_plan_tarjeta = QComboBox()
+        self.combo_plan_tarjeta.currentIndexChanged.connect(self.actualizar_ui)
+        self.form_tarjeta.addRow("Plan de Tarjeta:", self.combo_plan_tarjeta)
 
         # Ocultar por defecto
         self.widget_tarjeta = QWidget()
@@ -360,15 +340,14 @@ class VentasTab(QWidget):
                 QMessageBox.critical(self, "Error", f"No se pudo registrar el pago: {e}")
 
     def toggle_fecha_acreditacion(self, text):
-        if text in ['Tarjeta', 'Débito']:
-            self.lbl_acreditacion.setVisible(True)
-            self.date_acreditacion.setVisible(True)
-            if hasattr(self, 'widget_tarjeta'): self.widget_tarjeta.setVisible(True)
-        else:
-            self.lbl_acreditacion.setVisible(False)
-            self.date_acreditacion.setVisible(False)
-            if hasattr(self, 'widget_tarjeta'): self.widget_tarjeta.setVisible(False)
-            if hasattr(self, 'spin_interes'): self.spin_interes.setValue(0.0)
+        is_tarjeta = text in ['Tarjeta', 'Débito']
+        self.lbl_acreditacion.setVisible(is_tarjeta)
+        self.date_acreditacion.setVisible(is_tarjeta)
+        if hasattr(self, 'widget_tarjeta'):
+            self.widget_tarjeta.setVisible(is_tarjeta)
+
+        # Trigger UI update to recalculate surcharge
+        self.actualizar_ui()
 
     def cargar_clientes(self):
         clientes = ClienteService.listar_todos()
@@ -465,6 +444,32 @@ class VentasTab(QWidget):
         if dialog.exec() and dialog.data_item:
             self.carrito.append(dialog.data_item)
             self.actualizar_ui()
+
+
+    def cargar_planes_tarjeta(self):
+        from database.conexion import get_session
+        from database.models import ConfiguracionTarjeta
+
+        self.combo_plan_tarjeta.clear()
+        self.planes_data = {} # store plan details
+
+        try:
+            with get_session() as session:
+                planes = session.query(ConfiguracionTarjeta).all()
+                if not planes:
+                    self.combo_plan_tarjeta.addItem("Sin Configurar", None)
+                    return
+                for p in planes:
+                    text = f"{p.banco_tarjeta} - {p.cuotas} Cuota(s)"
+                    self.combo_plan_tarjeta.addItem(text, p.id)
+                    self.planes_data[p.id] = {
+                        'banco': p.banco_tarjeta,
+                        'cuotas': p.cuotas,
+                        'interes': p.porcentaje_interes,
+                        'dias': p.dias_acreditacion
+                    }
+        except Exception:
+            pass
 
     def actualizar_ui(self):
         # Desconectar temporalmente
@@ -603,12 +608,22 @@ class VentasTab(QWidget):
                 # Pass extra data for deferred income
                 datos_tarjeta = None
                 if metodo in ['Tarjeta', 'Débito']:
-                    datos_tarjeta = {
-                        'banco': self.txt_banco.text().strip() or "No Especificado",
-                        'cuotas': self.spin_cuotas.value(),
-                        'interes': self.spin_interes.value(),
-                        'plazo_dias': self.spin_dias_acred.value()
-                    }
+                    plan_id = self.combo_plan_tarjeta.currentData()
+                    if plan_id and hasattr(self, 'planes_data') and plan_id in self.planes_data:
+                        p = self.planes_data[plan_id]
+                        datos_tarjeta = {
+                            'banco': p['banco'],
+                            'cuotas': p['cuotas'],
+                            'interes': p['interes'],
+                            'plazo_dias': p['dias']
+                        }
+                    else:
+                        datos_tarjeta = {
+                            'banco': 'Desconocido',
+                            'cuotas': 1,
+                            'interes': 0.0,
+                            'plazo_dias': 0
+                        }
 
                 venta = VentaService.procesar_venta(
                     detalles_final,

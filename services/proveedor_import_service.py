@@ -48,6 +48,7 @@ class ProveedorImportService:
 
                         costo_val = float(row.get('costo', 0.0))
                         nombre_val = str(row.get('nombre', '')).strip()
+                        codigo_val = str(row.get('codigo', '')).strip()
                         prov_nombre = str(row.get('proveedor', '')).strip()
                         marca_nombre = str(row.get('marca', '')).strip()
 
@@ -81,6 +82,8 @@ class ProveedorImportService:
                             prod.costo = costo_val
                             if nombre_val:
                                 prod.nombre = nombre_val
+                            if codigo_val:
+                                prod.codigo_proveedor = codigo_val
                             if prov_obj:
                                 prod.proveedor_id = prov_obj.id
                             if marca_obj:
@@ -91,6 +94,7 @@ class ProveedorImportService:
                             # Insert
                             nuevo_prod = Producto(
                                 sku=sku_val,
+                                codigo_proveedor=codigo_val if codigo_val else None,
                                 nombre=nombre_val if nombre_val else f"Producto {sku_val}",
                                 costo=costo_val,
                                 proveedor_id=prov_obj.id if prov_obj else None,

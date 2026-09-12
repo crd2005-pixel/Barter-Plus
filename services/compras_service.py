@@ -110,9 +110,10 @@ class ComprasService:
 
         elements.extend([titulo, Spacer(1, 12), fecha, prov, Spacer(1, 12)])
 
-        data_table = [["SKU", "Producto", "Cant. a Pedir"]]
+        data_table = [["Cód. Proveedor", "Producto", "Cant. a Pedir"]]
         for d in datos:
-            data_table.append([str(d['sku']), str(d['nombre']), str(d['cantidad'])])
+            codigo = d.get('codigo_proveedor', '') or 'S/C'
+            data_table.append([str(codigo), str(d['nombre']), str(d['cantidad'])])
 
         t = Table(data_table, colWidths=[100, 300, 100])
         t.setStyle(TableStyle([

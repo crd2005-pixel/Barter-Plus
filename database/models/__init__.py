@@ -7,3 +7,4 @@ from .venta import Venta, DetalleVenta
 from .caja import Caja, MovimientoCaja
 from .contabilidad import AsientoDiario, LibroIVA, PedidoManual, GastoOperativo, IngresoDiferido
 from .taller import Vehiculo, GarantiaBateria, CambioAceite
+from .configuracion_tarjetas import ConfiguracionTarjeta

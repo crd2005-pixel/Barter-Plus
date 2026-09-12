@@ -1,4 +1,5 @@
 from PyQt6.QtWidgets import (
+    QSpinBox, QDoubleSpinBox,
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QInputDialog, QDialog, QFormLayout, QLineEdit, QComboBox, QTabWidget
 )
@@ -276,6 +277,118 @@ class HistorialCajaTab(QWidget):
                 item_estado.setForeground(Qt.GlobalColor.darkGreen)
             self.table.setItem(row, 7, item_estado)
 
+
+class ConfiguracionTarjetasTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setup_ui()
+        self.cargar_datos()
+
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+
+        # Controles superiores
+        form_layout = QFormLayout()
+        self.txt_banco = QLineEdit()
+        self.spin_cuotas = QSpinBox()
+        self.spin_cuotas.setRange(1, 48)
+        self.spin_interes = QDoubleSpinBox()
+        self.spin_interes.setRange(0.0, 500.0)
+        self.spin_interes.setSuffix(" %")
+        self.spin_dias = QSpinBox()
+        self.spin_dias.setRange(0, 365)
+        self.spin_dias.setSuffix(" días")
+
+        form_layout.addRow("Banco / Tarjeta:", self.txt_banco)
+        form_layout.addRow("Cantidad de Cuotas:", self.spin_cuotas)
+        form_layout.addRow("Porcentaje Recargo/Interés:", self.spin_interes)
+        form_layout.addRow("Días para Acreditación:", self.spin_dias)
+
+        btn_layout = QHBoxLayout()
+        self.btn_guardar = QPushButton("Guardar Plan")
+        self.btn_guardar.setStyleSheet("background-color: #28a745; color: white; font-weight: bold;")
+        self.btn_guardar.clicked.connect(self.guardar_plan)
+        self.btn_eliminar = QPushButton("Eliminar Seleccionado")
+        self.btn_eliminar.setStyleSheet("background-color: #dc3545; color: white; font-weight: bold;")
+        self.btn_eliminar.clicked.connect(self.eliminar_plan)
+
+        btn_layout.addWidget(self.btn_guardar)
+        btn_layout.addWidget(self.btn_eliminar)
+
+        layout.addLayout(form_layout)
+        layout.addLayout(btn_layout)
+
+        # Grilla de Configuraciones
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels([
+            "ID", "Banco / Tarjeta", "Cuotas", "Interés (%)", "Acreditación (Días)"
+        ])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+
+        layout.addWidget(self.table)
+
+    def cargar_datos(self):
+        from database.conexion import get_session
+        from database.models import ConfiguracionTarjeta
+        with get_session() as session:
+            planes = session.query(ConfiguracionTarjeta).all()
+            self.table.setRowCount(len(planes))
+            for row, plan in enumerate(planes):
+                self.table.setItem(row, 0, QTableWidgetItem(str(plan.id)))
+                self.table.setItem(row, 1, QTableWidgetItem(plan.banco_tarjeta))
+                self.table.setItem(row, 2, QTableWidgetItem(str(plan.cuotas)))
+                self.table.setItem(row, 3, QTableWidgetItem(f"{plan.porcentaje_interes:.2f}%"))
+                self.table.setItem(row, 4, QTableWidgetItem(str(plan.dias_acreditacion)))
+
+    def guardar_plan(self):
+        banco = self.txt_banco.text().strip()
+        if not banco:
+            QMessageBox.warning(self, "Error", "El nombre del Banco/Tarjeta es obligatorio.")
+            return
+
+        from database.conexion import get_session
+        from database.models import ConfiguracionTarjeta
+        try:
+            with get_session() as session:
+                nuevo = ConfiguracionTarjeta(
+                    banco_tarjeta=banco,
+                    cuotas=self.spin_cuotas.value(),
+                    porcentaje_interes=self.spin_interes.value(),
+                    dias_acreditacion=self.spin_dias.value()
+                )
+                session.add(nuevo)
+                session.commit()
+            self.cargar_datos()
+            self.txt_banco.clear()
+            self.spin_cuotas.setValue(1)
+            self.spin_interes.setValue(0.0)
+            self.spin_dias.setValue(0)
+            QMessageBox.information(self, "Éxito", "Plan guardado correctamente.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error al guardar: {e}")
+
+    def eliminar_plan(self):
+        fila = self.table.currentRow()
+        if fila < 0:
+            return
+        plan_id = int(self.table.item(fila, 0).text())
+
+        reply = QMessageBox.question(self, "Confirmar", "¿Eliminar este plan de tarjeta?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            from database.conexion import get_session
+            from database.models import ConfiguracionTarjeta
+            try:
+                with get_session() as session:
+                    plan = session.get(ConfiguracionTarjeta, plan_id)
+                    if plan:
+                        session.delete(plan)
+                        session.commit()
+                self.cargar_datos()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error al eliminar: {e}")
+
 class CajaView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -288,9 +401,11 @@ class CajaView(QWidget):
 
         self.tab_actual = CajaActualTab(self)
         self.tab_historial = HistorialCajaTab()
+        self.tab_tarjetas = ConfiguracionTarjetasTab()
 
         self.tabs.addTab(self.tab_actual, "Caja Actual")
         self.tabs.addTab(self.tab_historial, "Historial / Auditoría")
+        self.tabs.addTab(self.tab_tarjetas, "Configuración de Tarjetas")
 
         layout.addWidget(self.tabs)
 
