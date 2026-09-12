@@ -33,7 +33,7 @@ class GastosView(QWidget):
         self.spin_monto.setRange(0.01, 99999999.0)
         self.spin_monto.setPrefix("$ ")
 
-                self.combo_origen = QComboBox()
+        self.combo_origen = QComboBox()
         self.combo_origen.addItems(["Caja del Día (Mostrador)", "Tesorería (Efectivo Acumulado)", "Cuenta Bancaria"])
 
         form_lay.addRow("Origen de Fondos:", self.combo_origen)
