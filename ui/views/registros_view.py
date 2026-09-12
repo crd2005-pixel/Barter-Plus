@@ -39,13 +39,12 @@ class RegistroVentasTab(QWidget):
         filtros_lay.addWidget(self.date_hasta)
         filtros_lay.addWidget(QLabel("Comprobante:"))
         filtros_lay.addWidget(self.combo_comprobante)
+        filtros_lay.addWidget(btn_filtrar)
         self.btn_anular = QPushButton("Anular Comprobante")
         self.btn_anular.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold;")
         self.btn_anular.clicked.connect(self.anular_venta)
 
         filtros_lay.addWidget(self.btn_anular)
-
-        filtros_lay.addWidget(btn_filtrar)
         filtros_lay.addStretch()
 
         layout.addLayout(filtros_lay)
@@ -59,14 +58,14 @@ class RegistroVentasTab(QWidget):
 
         layout.addWidget(self.table)
 
-def anular_venta(self):
+
+    def anular_venta(self):
         row = self.table.currentRow()
         if row < 0:
             QMessageBox.warning(self, "Atención", "Debe seleccionar una venta de la lista para anularla.")
             return
 
         comprobante_txt = self.table.item(row, 1).text()
-        # Parse ID from "Factura A #12" or "Remito #5"
         try:
             venta_id = int(comprobante_txt.split('#')[-1].strip())
         except:
@@ -80,10 +79,7 @@ def anular_venta(self):
 
         reply = QMessageBox.question(
             self, "Confirmar Anulación",
-            f"¿Está completamente seguro de que desea anular el comprobante {comprobante_txt}?
-
-"
-            "Esta acción DEVOLVERÁ el stock, GENERARÁ contra-asientos financieros/fiscales y no se puede deshacer.",
+            f"¿Está completamente seguro de que desea anular el comprobante {comprobante_txt}?\n\nEsta acción DEVOLVERÁ el stock, GENERARÁ contra-asientos financieros/fiscales y no se puede deshacer.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
 
@@ -161,7 +157,7 @@ class CuentasCorrientesTab(QWidget):
         layout.addWidget(self.lbl_saldo)
 
         # Grilla
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(["Fecha", "Concepto", "Debe", "Haber", "Saldo Histórico"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -178,43 +174,6 @@ class CuentasCorrientesTab(QWidget):
             self.combo_clientes.addItem(c.nombre, c.id)
             nombres.append(c.nombre)
         self.completer.setModel(QStringListModel(nombres))
-
-def anular_venta(self):
-        row = self.table.currentRow()
-        if row < 0:
-            QMessageBox.warning(self, "Atención", "Debe seleccionar una venta de la lista para anularla.")
-            return
-
-        comprobante_txt = self.table.item(row, 1).text()
-        # Parse ID from "Factura A #12" or "Remito #5"
-        try:
-            venta_id = int(comprobante_txt.split('#')[-1].strip())
-        except:
-            QMessageBox.warning(self, "Error", "No se pudo leer el ID del comprobante.")
-            return
-
-        estado = self.table.item(row, 5).text() if self.table.columnCount() > 5 else "Completada"
-        if estado == "Anulado":
-            QMessageBox.information(self, "Aviso", "Esta venta ya está anulada.")
-            return
-
-        reply = QMessageBox.question(
-            self, "Confirmar Anulación",
-            f"¿Está completamente seguro de que desea anular el comprobante {comprobante_txt}?
-
-"
-            "Esta acción DEVOLVERÁ el stock, GENERARÁ contra-asientos financieros/fiscales y no se puede deshacer.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-
-        if reply == QMessageBox.StandardButton.Yes:
-            try:
-                from services.venta_service import VentaService
-                VentaService.anular_venta(venta_id)
-                QMessageBox.information(self, "Éxito", f"Comprobante {comprobante_txt} anulado exitosamente.")
-                self.cargar_datos()
-            except Exception as e:
-                QMessageBox.critical(self, "Error Fatal", str(e))
 
     def cargar_datos(self):
         c_id = self.combo_clientes.currentData()
@@ -269,12 +228,6 @@ class ContabilidadTab(QWidget):
         filtros_lay.addWidget(self.date_desde)
         filtros_lay.addWidget(QLabel("Hasta:"))
         filtros_lay.addWidget(self.date_hasta)
-        self.btn_anular = QPushButton("Anular Comprobante")
-        self.btn_anular.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold;")
-        self.btn_anular.clicked.connect(self.anular_venta)
-
-        filtros_lay.addWidget(self.btn_anular)
-
         filtros_lay.addWidget(btn_filtrar)
         filtros_lay.addStretch()
         layout.addLayout(filtros_lay)
@@ -316,43 +269,6 @@ class ContabilidadTab(QWidget):
         splitter.addWidget(w_iva)
 
         layout.addWidget(splitter)
-
-def anular_venta(self):
-        row = self.table.currentRow()
-        if row < 0:
-            QMessageBox.warning(self, "Atención", "Debe seleccionar una venta de la lista para anularla.")
-            return
-
-        comprobante_txt = self.table.item(row, 1).text()
-        # Parse ID from "Factura A #12" or "Remito #5"
-        try:
-            venta_id = int(comprobante_txt.split('#')[-1].strip())
-        except:
-            QMessageBox.warning(self, "Error", "No se pudo leer el ID del comprobante.")
-            return
-
-        estado = self.table.item(row, 5).text() if self.table.columnCount() > 5 else "Completada"
-        if estado == "Anulado":
-            QMessageBox.information(self, "Aviso", "Esta venta ya está anulada.")
-            return
-
-        reply = QMessageBox.question(
-            self, "Confirmar Anulación",
-            f"¿Está completamente seguro de que desea anular el comprobante {comprobante_txt}?
-
-"
-            "Esta acción DEVOLVERÁ el stock, GENERARÁ contra-asientos financieros/fiscales y no se puede deshacer.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-
-        if reply == QMessageBox.StandardButton.Yes:
-            try:
-                from services.venta_service import VentaService
-                VentaService.anular_venta(venta_id)
-                QMessageBox.information(self, "Éxito", f"Comprobante {comprobante_txt} anulado exitosamente.")
-                self.cargar_datos()
-            except Exception as e:
-                QMessageBox.critical(self, "Error Fatal", str(e))
 
     def cargar_datos(self):
         d_desde = self.date_desde.date().toPyDate()
@@ -428,43 +344,6 @@ class LiquidezBancosTab(QWidget):
         btn_refresh = QPushButton("Actualizar Liquidez")
         btn_refresh.clicked.connect(self.cargar_datos)
         layout.addWidget(btn_refresh)
-
-def anular_venta(self):
-        row = self.table.currentRow()
-        if row < 0:
-            QMessageBox.warning(self, "Atención", "Debe seleccionar una venta de la lista para anularla.")
-            return
-
-        comprobante_txt = self.table.item(row, 1).text()
-        # Parse ID from "Factura A #12" or "Remito #5"
-        try:
-            venta_id = int(comprobante_txt.split('#')[-1].strip())
-        except:
-            QMessageBox.warning(self, "Error", "No se pudo leer el ID del comprobante.")
-            return
-
-        estado = self.table.item(row, 5).text() if self.table.columnCount() > 5 else "Completada"
-        if estado == "Anulado":
-            QMessageBox.information(self, "Aviso", "Esta venta ya está anulada.")
-            return
-
-        reply = QMessageBox.question(
-            self, "Confirmar Anulación",
-            f"¿Está completamente seguro de que desea anular el comprobante {comprobante_txt}?
-
-"
-            "Esta acción DEVOLVERÁ el stock, GENERARÁ contra-asientos financieros/fiscales y no se puede deshacer.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-
-        if reply == QMessageBox.StandardButton.Yes:
-            try:
-                from services.venta_service import VentaService
-                VentaService.anular_venta(venta_id)
-                QMessageBox.information(self, "Éxito", f"Comprobante {comprobante_txt} anulado exitosamente.")
-                self.cargar_datos()
-            except Exception as e:
-                QMessageBox.critical(self, "Error Fatal", str(e))
 
     def cargar_datos(self):
         # 1. Resumen de Liquidez

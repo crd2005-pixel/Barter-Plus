@@ -1,3 +1,4 @@
+from ui.components.dialogs import FastClientDialog, ItemManualDialog
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit,
     QTableWidget, QTableWidgetItem, QHeaderView, QDateEdit, QLabel, QMessageBox,
@@ -204,7 +205,6 @@ class VentasTab(QWidget):
         # --- CONEXIONES ---
         # self.txt_codigo.returnPressed.connect(self.agregar_al_carrito) # Desactivado: Evita auto-inserción de scanners
         self.btn_buscar.clicked.connect(self.agregar_al_carrito)
-        self.btn_item_manual.clicked.connect(self.agregar_item_manual)
         self.tabla.itemChanged.connect(self.modificar_cantidad_grid)
         self.btn_cobrar.clicked.connect(self.procesar_cobro)
         self.combo_clientes.currentIndexChanged.connect(self.evaluar_cliente)
@@ -243,68 +243,13 @@ class VentasTab(QWidget):
         self.completer_prod.setModel(model)
 
     def crear_cliente_rapido(self):
-        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QFormLayout, QLineEdit, QCheckBox
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Nuevo Cliente")
-        layout = QVBoxLayout(dialog)
-        form = QFormLayout()
-
-        txt_nombre = QLineEdit()
-        txt_nombre.setPlaceholderText("Nombre y Apellido (Obligatorio)")
-
-        txt_dni = QLineEdit()
-        txt_dni.setPlaceholderText("DNI / CUIT")
-
-        txt_celular = QLineEdit()
-        txt_celular.setPlaceholderText("Teléfono / Celular")
-
-        txt_direccion = QLineEdit()
-        txt_direccion.setPlaceholderText("Dirección")
-
-        txt_email = QLineEdit()
-        txt_email.setPlaceholderText("Correo Electrónico")
-
-        chk_especial = QCheckBox("Es Cliente VIP (Aplica descuentos 10%)")
-
-        form.addRow("Nombre/Razón Social (*):", txt_nombre)
-        form.addRow("DNI/CUIT:", txt_dni)
-        form.addRow("Celular:", txt_celular)
-        form.addRow("Dirección:", txt_direccion)
-        form.addRow("Email:", txt_email)
-        form.addRow("", chk_especial)
-
-        layout.addLayout(form)
-
-        btn_guardar = QPushButton("Guardar Cliente")
-        btn_guardar.setStyleSheet("background-color: #0275d8; color: white; font-weight: bold;")
-        layout.addWidget(btn_guardar)
-
-        def _guardar():
-            if txt_nombre.text().strip():
-                dialog.accept()
-            else:
-                QMessageBox.warning(dialog, "Error", "El nombre es obligatorio")
-
-        btn_guardar.clicked.connect(_guardar)
-
+        dialog = FastClientDialog(self)
         if dialog.exec():
-            try:
-                nuevo = ClienteService.crear_cliente(
-                    nombre=txt_nombre.text().strip(),
-                    dni=txt_dni.text().strip() or None,
-                    telefono=txt_celular.text().strip() or None,
-                    direccion=txt_direccion.text().strip() or None,
-                    email=txt_email.text().strip() or None,
-                    es_especial=chk_especial.isChecked()
-                )
-                self.cargar_clientes()
-
-                # Auto-seleccionar
-                index = self.combo_clientes.findData(nuevo.id)
+            self.cargar_clientes()
+            if dialog.nuevo_cliente_id:
+                index = self.combo_clientes.findData(dialog.nuevo_cliente_id)
                 if index >= 0:
                     self.combo_clientes.setCurrentIndex(index)
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"No se pudo crear: {e}")
 
     def consultar_precio_rapido(self):
         query, ok = QInputDialog.getText(self, "Consultar Precio (F2)", "Ingrese nombre o código de barras:")
@@ -515,54 +460,11 @@ class VentasTab(QWidget):
         self.txt_cantidad.setText("1")
         self.txt_codigo.setFocus()
 
-def agregar_item_manual(self):
-        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QFormLayout, QLineEdit, QDoubleSpinBox, QPushButton
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Ítem Manual / Servicio")
-        layout = QVBoxLayout(dialog)
-        form = QFormLayout()
-
-        txt_desc = QLineEdit()
-        txt_desc.setPlaceholderText("Ej. Mano de obra, Envío, Servicio...")
-
-        spin_cant = QDoubleSpinBox()
-        spin_cant.setRange(0.01, 99999.0)
-        spin_cant.setValue(1.0)
-
-        spin_precio = QDoubleSpinBox()
-        spin_precio.setRange(0.01, 9999999.0)
-        spin_precio.setPrefix("$ ")
-        spin_precio.setValue(1000.0)
-
-        form.addRow("Descripción:", txt_desc)
-        form.addRow("Cantidad:", spin_cant)
-        form.addRow("Precio Unitario:", spin_precio)
-
-        layout.addLayout(form)
-
-        btn_ok = QPushButton("Añadir al Carrito")
-        btn_ok.setStyleSheet("background-color: #2980b9; color: white; font-weight: bold;")
-        layout.addWidget(btn_ok)
-
-        def _agregar():
-            if not txt_desc.text().strip():
-                QMessageBox.warning(dialog, "Error", "Debe ingresar una descripción.")
-                return
-
-            self.carrito.append({
-                'id': None,
-                'codigo': "MAN-001",
-                'marca': "Servicio/Manual",
-                'nombre': txt_desc.text().strip(),
-                'precio_base': spin_precio.value(),
-                'cantidad': spin_cant.value(),
-                'descuento_unit': 0.0
-            })
+    def agregar_item_manual(self):
+        dialog = ItemManualDialog(self)
+        if dialog.exec() and dialog.data_item:
+            self.carrito.append(dialog.data_item)
             self.actualizar_ui()
-            dialog.accept()
-
-        btn_ok.clicked.connect(_agregar)
-        dialog.exec()
 
     def actualizar_ui(self):
         # Desconectar temporalmente
