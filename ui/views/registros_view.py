@@ -1,4 +1,5 @@
 from PyQt6.QtWidgets import (
+    QMessageBox,
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QTabWidget, QDateEdit, QCompleter, QSplitter
 )
@@ -254,15 +255,25 @@ class ContabilidadTab(QWidget):
         w_iva = QWidget()
         lay_iva = QVBoxLayout(w_iva)
         lay_iva.setContentsMargins(0,0,0,0)
-        lbl_iva = QLabel("Libro IVA (Débito Fiscal)")
-        lbl_iva.setStyleSheet("font-weight: bold; font-size: 14px;")
+
+        # Panel Totales IVA
+        self.panel_iva = QHBoxLayout()
+        self.lbl_iva_ventas = QLabel("Total IVA Débito (Ventas): $0.00")
+        self.lbl_iva_ventas.setStyleSheet("font-size: 16px; font-weight: bold; color: #c0392b; background: #fadbd8; padding: 10px; border-radius: 5px;")
+        self.lbl_iva_compras = QLabel("Total IVA Crédito (Compras): $0.00")
+        self.lbl_iva_compras.setStyleSheet("font-size: 16px; font-weight: bold; color: #27ae60; background: #d5f5e3; padding: 10px; border-radius: 5px;")
+        self.lbl_iva_saldo = QLabel("Saldo IVA: $0.00")
+        self.lbl_iva_saldo.setStyleSheet("font-size: 18px; font-weight: bold; color: #2980b9; background: #d6eaf8; padding: 10px; border-radius: 5px;")
+        self.panel_iva.addWidget(self.lbl_iva_ventas)
+        self.panel_iva.addWidget(self.lbl_iva_compras)
+        self.panel_iva.addWidget(self.lbl_iva_saldo)
 
         self.tbl_iva = QTableWidget(0, 6)
         self.tbl_iva.setHorizontalHeaderLabels(["Fecha", "Tipo (Compra/Venta)", "Comprobante", "Neto Gravado", "IVA", "Total"])
         self.tbl_iva.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.tbl_iva.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 
-        lay_iva.addWidget(lbl_iva)
+        lay_iva.addLayout(self.panel_iva)
         lay_iva.addWidget(self.tbl_iva)
 
         splitter.addWidget(w_diario)

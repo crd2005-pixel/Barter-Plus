@@ -41,6 +41,16 @@ class GastosService:
                         metodo="Efectivo"
                     )
                     session.add(mov_caja)
+                elif origen_fondos == "Transferencia" or origen_fondos == "Cuenta Bancaria":
+                    # Cuenta Bancaria deduction
+                    asiento_banco = AsientoDiario(
+                        fecha=dt.datetime.utcnow(),
+                        cuenta="Cuenta Bancaria",
+                        debe=0.0,
+                        haber=monto,
+                        descripcion=f"Egreso Gasto OP: {descripcion}"
+                    )
+                    session.add(asiento_banco)
                 else:
                     # Registramos el origen contablemente
                     asiento_origen = AsientoDiario(

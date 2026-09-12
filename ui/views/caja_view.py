@@ -363,7 +363,7 @@ class ConfiguracionTarjetasTab(QWidget):
                 session.add(nuevo)
                 session.commit()
             self.cargar_datos()
-            self.txt_banco.clear()
+            self.combo_banco.setCurrentIndex(0)
             self.spin_cuotas.setValue(1)
             self.spin_interes.setValue(0.0)
             self.spin_dias.setValue(0)

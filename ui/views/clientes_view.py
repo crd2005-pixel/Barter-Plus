@@ -74,6 +74,47 @@ class EditarClienteDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo actualizar el cliente:\\n{e}")
 
+class HistorialComprasDialog(QDialog):
+    def __init__(self, cliente, parent=None):
+        super().__init__(parent)
+        self.cliente = cliente
+        self.setWindowTitle(f"Historial de Compras: {cliente.nombre}")
+        self.resize(800, 600)
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["ID Venta", "Fecha", "Comprobante", "Total", "Estado"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+
+        layout.addWidget(self.table)
+        self.cargar_datos()
+
+    def cargar_datos(self):
+        # En la práctica, idealmente se extrae de RegistrosService, o se hace un query rápido.
+        from database.conexion import get_session
+        from database.models.venta import Venta
+        from sqlalchemy import select
+
+        with get_session() as session:
+            ventas = session.scalars(
+                select(Venta)
+                .where(Venta.cliente_id == self.cliente.id)
+                .order_by(Venta.fecha.desc())
+            ).all()
+
+            self.table.setRowCount(len(ventas))
+            for row, v in enumerate(ventas):
+                self.table.setItem(row, 0, QTableWidgetItem(str(v.id)))
+                self.table.setItem(row, 1, QTableWidgetItem(v.fecha.strftime("%Y-%m-%d %H:%M")))
+                self.table.setItem(row, 2, QTableWidgetItem(v.tipo_comprobante))
+                self.table.setItem(row, 3, QTableWidgetItem(f"${v.total:.2f}"))
+                self.table.setItem(row, 4, QTableWidgetItem(v.estado))
+
 class ClientesView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -88,11 +129,21 @@ class ClientesView(QWidget):
         lbl_titulo = QLabel("Maestro de Clientes")
         lbl_titulo.setStyleSheet("font-size: 24px; font-weight: bold;")
 
+        self.txt_buscar = QLineEdit()
+        self.txt_buscar.setPlaceholderText("Buscar por Nombre o DNI...")
+        self.txt_buscar.textChanged.connect(self.filtrar_datos)
+
         self.btn_recargar = QPushButton("Actualizar Lista")
         self.btn_recargar.clicked.connect(self.cargar_datos)
 
+        self.btn_editar = QPushButton("Editar Datos")
+        self.btn_editar.setStyleSheet("background-color: #f39c12; color: white; font-weight: bold;")
+        self.btn_editar.clicked.connect(self.editar_cliente)
+
         header_lay.addWidget(lbl_titulo)
+        header_lay.addWidget(self.txt_buscar)
         header_lay.addStretch()
+        header_lay.addWidget(self.btn_editar)
         header_lay.addWidget(self.btn_recargar)
         layout.addLayout(header_lay)
 
@@ -104,7 +155,7 @@ class ClientesView(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.doubleClicked.connect(self.editar_cliente)
+        self.table.doubleClicked.connect(self.ver_historial)
 
         layout.addWidget(self.table)
 
@@ -127,6 +178,27 @@ class ClientesView(QWidget):
                 font.setBold(True)
                 i_tipo.setFont(font)
             self.table.setItem(row, 6, i_tipo)
+
+    def filtrar_datos(self):
+        text = self.txt_buscar.text().lower()
+        for row in range(self.table.rowCount()):
+            match = False
+            nombre = self.table.item(row, 1)
+            dni = self.table.item(row, 2)
+            if nombre and text in nombre.text().lower():
+                match = True
+            if dni and text in dni.text().lower():
+                match = True
+            self.table.setRowHidden(row, not match)
+
+    def ver_historial(self):
+        fila = self.table.currentRow()
+        if fila < 0: return
+        cliente_id = int(self.table.item(fila, 0).text())
+        cliente_obj = next((c for c in self.clientes if c.id == cliente_id), None)
+        if cliente_obj:
+            dialog = HistorialComprasDialog(cliente_obj, self)
+            dialog.exec()
 
     def editar_cliente(self):
         row = self.table.currentRow()

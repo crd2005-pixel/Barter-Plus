@@ -109,18 +109,30 @@ class ProveedorService:
                 session.add(mov_cc)
 
                 if origen_caja:
-                    caja_abierta = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
-                    if not caja_abierta:
-                        raise ValueError("No hay una caja abierta para extraer el pago.")
+                    if metodo == "Transferencia":
+                        from database.models.contabilidad import AsientoDiario
+                        import datetime as dt
+                        asiento = AsientoDiario(
+                            fecha=dt.datetime.utcnow(),
+                            cuenta="Cuenta Bancaria",
+                            debe=0.0,
+                            haber=monto,
+                            descripcion=f"Pago Proveedor Transferencia #{proveedor_id}"
+                        )
+                        session.add(asiento)
+                    else:
+                        caja_abierta = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
+                        if not caja_abierta:
+                            raise ValueError("No hay una caja abierta para extraer el pago.")
 
-                    mov_caja = MovimientoCaja(
-                        caja_id=caja_abierta.id,
-                        tipo="Egreso",
-                        concepto=f"Pago Proveedor #{proveedor_id} - CC",
-                        monto=monto,
-                        metodo=metodo
-                    )
-                    session.add(mov_caja)
+                        mov_caja = MovimientoCaja(
+                            caja_id=caja_abierta.id,
+                            tipo="Egreso",
+                            concepto=f"Pago Proveedor #{proveedor_id} - CC",
+                            monto=monto,
+                            metodo=metodo
+                        )
+                        session.add(mov_caja)
 
                 session.commit()
                 session.refresh(mov_cc)

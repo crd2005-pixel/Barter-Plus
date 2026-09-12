@@ -209,6 +209,17 @@ class VentaService:
                         estado="Pendiente"
                     )
                     session.add(ingreso_dif)
+                elif metodo_pago == "Transferencia":
+                    # Registramos la transferencia bancaria (no entra en la caja física)
+                    asiento_banco = AsientoDiario(
+                        fecha=nueva_venta.fecha,
+                        cuenta="Cuenta Bancaria",
+                        debe=total_final,
+                        haber=0.0,
+                        descripcion=f"Venta Transferencia #{nueva_venta.id}",
+                        venta_id=nueva_venta.id
+                    )
+                    session.add(asiento_banco)
                 else:
                     caja_activa = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
                     if not caja_activa:
