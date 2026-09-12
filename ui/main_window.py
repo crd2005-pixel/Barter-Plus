@@ -7,6 +7,7 @@ from ui.views.ventas_view import VentasTab
 from ui.views.caja_view import CajaView
 from ui.views.taller_view import TallerView
 from ui.views.registros_view import RegistrosView
+from ui.views.gastos_view import GastosView
 from ui.views.clientes_view import ClientesView
 from ui.styles import LIGHT_THEME, DARK_THEME
 
@@ -63,6 +64,10 @@ class MainWindow(QMainWindow):
 
         self.caja_view = CajaView()
         self.tabs.addTab(self.caja_view, "Caja / Tesorería")
+
+        self.gastos_view = GastosView()
+        self.tabs.addTab(self.gastos_view, "Gastos y Egresos (OPEX)")
+
 
         self.taller_view = TallerView()
         self.tabs.addTab(self.taller_view, "Taller / Servicios")

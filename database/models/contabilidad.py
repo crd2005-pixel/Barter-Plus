@@ -38,3 +38,13 @@ class PedidoManual(Base):
     fecha: Mapped[dt.datetime] = mapped_column(default=dt.datetime.utcnow)
     detalle: Mapped[str] = mapped_column(String, nullable=False)
     estado: Mapped[str] = mapped_column(String, default="Pendiente")
+
+
+class GastoOperativo(Base):
+    __tablename__ = 'gastos_operativos'
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    fecha: Mapped[dt.datetime] = mapped_column(default=dt.datetime.utcnow, index=True)
+    categoria: Mapped[str] = mapped_column(String, nullable=False)
+    descripcion: Mapped[str] = mapped_column(String, nullable=False)
+    monto: Mapped[float] = mapped_column(default=0.0)
