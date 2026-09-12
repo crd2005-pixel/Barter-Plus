@@ -4,7 +4,7 @@ from database.models.venta import Venta, DetalleVenta
 from database.models.producto import Producto
 from database.models.cliente import Cliente, ClienteCuentaCorriente
 from database.models.caja import Caja, MovimientoCaja
-from database.models.contabilidad import AsientoDiario, LibroIVA
+from database.models.contabilidad import AsientoDiario, LibroIVA, IngresoDiferido
 from database.models.caja import Caja, MovimientoCaja
 from typing import List, Dict, Optional
 import datetime as dt
@@ -14,7 +14,7 @@ class VentaService:
     def procesar_venta(detalles: List[Dict], cliente_id: Optional[int] = None,
                        metodo_pago: str = "Efectivo", monto_abonado: float = 0.0,
                        descuento_global: float = 0.0, recargo_global: float = 0.0,
-                       tipo_comprobante: str = "Remito") -> Venta:
+                       tipo_comprobante: str = "Remito", datos_tarjeta: Optional[Dict] = None) -> Venta:
         """
         Procesa una venta completa.
         `detalles` es una lista de diccionarios: {'producto_id': int, 'cantidad': float, 'precio_unitario': float, 'descuento_unitario': float}
@@ -67,7 +67,13 @@ class VentaService:
                     )
                     session.add(detalle)
 
-                # Calcular total final
+                # Calcular total final y recargos
+                if datos_tarjeta and datos_tarjeta.get('interes', 0.0) > 0:
+                    tasa = datos_tarjeta['interes']
+                    recargo_tarjeta = (subtotal_venta - descuento_global) * (tasa / 100)
+                    recargo_global += recargo_tarjeta
+                    nueva_venta.recargo = recargo_global
+
                 total_final = subtotal_venta - descuento_global + recargo_global
                 nueva_venta.subtotal = subtotal_venta
                 nueva_venta.total = total_final
@@ -157,6 +163,23 @@ class VentaService:
                         venta_id=nueva_venta.id
                     )
                     session.add(mov_cc)
+                elif metodo_pago in ["Tarjeta", "Débito"] and datos_tarjeta:
+                    # Registramos el Ingreso Diferido, no toca caja física
+                    fecha_acred = dt.datetime.utcnow().date() + dt.timedelta(days=datos_tarjeta.get('plazo_dias', 0))
+
+                    ingreso_dif = IngresoDiferido(
+                        venta_id=nueva_venta.id,
+                        fecha_venta=nueva_venta.fecha,
+                        fecha_acreditacion=fecha_acred,
+                        banco_tarjeta=datos_tarjeta.get('banco', 'No Especificado'),
+                        cuotas=datos_tarjeta.get('cuotas', 1),
+                        monto_original=subtotal_venta - descuento_global,
+                        interes_aplicado=datos_tarjeta.get('interes', 0.0),
+                        monto_acreditar=total_final,
+                        cuenta_destino="Banco Central / Adquirente",
+                        estado="Pendiente"
+                    )
+                    session.add(ingreso_dif)
                 else:
                     caja_activa = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
                     if not caja_activa:

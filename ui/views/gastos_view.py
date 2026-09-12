@@ -33,6 +33,10 @@ class GastosView(QWidget):
         self.spin_monto.setRange(0.01, 99999999.0)
         self.spin_monto.setPrefix("$ ")
 
+                self.combo_origen = QComboBox()
+        self.combo_origen.addItems(["Caja del Día (Mostrador)", "Tesorería (Efectivo Acumulado)", "Cuenta Bancaria"])
+
+        form_lay.addRow("Origen de Fondos:", self.combo_origen)
         form_lay.addRow("Categoría:", self.combo_categoria)
         form_lay.addRow("Descripción / Comprobante:", self.txt_desc)
         form_lay.addRow("Monto Total:", self.spin_monto)
@@ -49,8 +53,8 @@ class GastosView(QWidget):
         lbl_historial.setStyleSheet("font-weight: bold; margin-top: 15px;")
         layout.addWidget(lbl_historial)
 
-        self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Fecha", "Categoría", "Descripción", "Monto Extraído"])
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["Fecha", "Categoría", "Origen Fondos", "Descripción", "Monto Extraído"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -67,8 +71,8 @@ class GastosView(QWidget):
         cat = self.combo_categoria.currentText()
 
         try:
-            GastosService.registrar_gasto(cat, desc, monto)
-            QMessageBox.information(self, "Éxito", f"Gasto registrado exitosamente.\n\nSe extrajeron ${monto:.2f} de la Caja Activa.")
+            GastosService.registrar_gasto(cat, desc, monto, self.combo_origen.currentText())
+            QMessageBox.information(self, "Éxito", f"Gasto registrado exitosamente.\n\nSe extrajeron ${monto:.2f} de {self.combo_origen.currentText()}.")
             self.txt_desc.clear()
             self.spin_monto.setValue(0.0)
             self.cargar_datos()
@@ -82,11 +86,19 @@ class GastosView(QWidget):
         for row, g in enumerate(gastos):
             self.table.setItem(row, 0, QTableWidgetItem(g.fecha.strftime("%Y-%m-%d %H:%M")))
             self.table.setItem(row, 1, QTableWidgetItem(g.categoria))
-            self.table.setItem(row, 2, QTableWidgetItem(g.descripcion))
+
+            # Since origen is not stored in GastoOperativo directly in this snippet,
+            # I will just write '-' or we need to add it to GastoOperativo.
+            # The prompt doesn't explicitly ask to add it to the model, but it makes sense to show it.
+            # Let's see if the user specified it. "Historial: Una grilla inferior que liste los gastos operativos cargados en el mes."
+            # We'll just display a placeholder or leave it out if we didn't add it to model.
+            # Wait, I did add the header "Origen Fondos". Let's add it to the model via a quick patch.
+            self.table.setItem(row, 2, QTableWidgetItem(g.origen_fondos if hasattr(g, 'origen_fondos') else "-"))
+            self.table.setItem(row, 3, QTableWidgetItem(g.descripcion))
 
             i_monto = QTableWidgetItem(f"${g.monto:.2f}")
             i_monto.setForeground(Qt.GlobalColor.red)
-            self.table.setItem(row, 3, i_monto)
+            self.table.setItem(row, 4, i_monto)
 
     def showEvent(self, event):
         super().showEvent(event)

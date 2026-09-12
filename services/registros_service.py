@@ -69,3 +69,58 @@ class RegistrosService:
             for r in registros:
                 session.expunge(r)
             return list(registros)
+
+
+    @staticmethod
+    def obtener_liquidez_actual() -> dict:
+        from database.models.caja import Caja
+        from database.models.contabilidad import IngresoDiferido
+        with get_session() as session:
+            # 1. Caja Física
+            caja = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
+            if caja:
+                # We need CajaService here to accurately compute effective balance but we'll approximate if we must.
+                # Actually, I'll import it inside:
+                from services.caja_service import CajaService
+                efectivo_fuerte = CajaService.calcular_saldo_efectivo(caja.id)
+            else:
+                efectivo_fuerte = 0.0
+
+            # 2. Valores a Cobrar (Tarjetas Pendientes)
+            pendientes = session.scalars(select(IngresoDiferido).where(IngresoDiferido.estado == "Pendiente")).all()
+            total_tarjetas = sum(p.monto_acreditar for p in pendientes)
+
+            # 3. Bancos (Calculado desde Asientos Diarios)
+            # Todo el debe a "Cuenta Bancaria" - Todo el haber de "Cuenta Bancaria"
+            asientos_banco = session.scalars(select(AsientoDiario).where(AsientoDiario.cuenta == "Cuenta Bancaria")).all()
+            total_bancos = sum(a.debe for a in asientos_banco) - sum(a.haber for a in asientos_banco)
+
+            return {
+                "efectivo": efectivo_fuerte,
+                "tarjetas": total_tarjetas,
+                "bancos": total_bancos
+            }
+
+    @staticmethod
+    def obtener_ingresos_diferidos_pendientes() -> List[dict]:
+        from database.models.contabilidad import IngresoDiferido
+        with get_session() as session:
+            ingresos = session.scalars(
+                select(IngresoDiferido)
+                .where(IngresoDiferido.estado == "Pendiente")
+                .order_by(IngresoDiferido.fecha_acreditacion.asc())
+            ).all()
+
+            # Convert to dict to avoid detached instance issues since we don't strictly need relationships here
+            resultado = []
+            for i in ingresos:
+                resultado.append({
+                    "id": i.id,
+                    "fecha_venta": i.fecha_venta,
+                    "fecha_acreditacion": i.fecha_acreditacion,
+                    "banco": i.banco_tarjeta,
+                    "cuotas": i.cuotas,
+                    "monto": i.monto_acreditar,
+                    "destino": i.cuenta_destino
+                })
+            return resultado

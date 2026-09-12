@@ -7,7 +7,7 @@ import datetime as dt
 
 class GastosService:
     @staticmethod
-    def registrar_gasto(categoria: str, descripcion: str, monto: float) -> GastoOperativo:
+    def registrar_gasto(categoria: str, descripcion: str, monto: float, origen_fondos: str = "Caja del Día (Mostrador)") -> GastoOperativo:
         """
         Registra un gasto operativo. Inyecta el egreso en la Caja Activa y genera el Asiento Diario.
         No toca la cuenta corriente de proveedores.
@@ -21,24 +21,36 @@ class GastosService:
                 gasto = GastoOperativo(
                     categoria=categoria,
                     descripcion=descripcion,
-                    monto=monto
+                    monto=monto,
+                    origen_fondos=origen_fondos
                 )
                 session.add(gasto)
                 session.flush()
 
-                # 2. Asentar en la Caja Activa
-                caja_activa = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
-                if not caja_activa:
-                    raise ValueError("No hay una caja abierta para registrar el egreso de dinero.")
+                # 2. Asentar origen de fondos
+                if origen_fondos == "Caja del Día (Mostrador)":
+                    caja_activa = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
+                    if not caja_activa:
+                        raise ValueError("No hay una caja abierta para registrar el egreso de dinero en la Caja del Día.")
 
-                mov_caja = MovimientoCaja(
-                    caja_id=caja_activa.id,
-                    tipo="Egreso",
-                    concepto=f"Gasto OP: {categoria} - {descripcion}",
-                    monto=monto,
-                    metodo="Efectivo"
-                )
-                session.add(mov_caja)
+                    mov_caja = MovimientoCaja(
+                        caja_id=caja_activa.id,
+                        tipo="Egreso",
+                        concepto=f"Gasto OP: {categoria} - {descripcion}",
+                        monto=monto,
+                        metodo="Efectivo"
+                    )
+                    session.add(mov_caja)
+                else:
+                    # Registramos el origen contablemente
+                    asiento_origen = AsientoDiario(
+                        fecha=dt.datetime.utcnow(),
+                        cuenta=origen_fondos,
+                        debe=0.0,
+                        haber=monto,
+                        descripcion=f"Egreso para Gasto OP: {descripcion}"
+                    )
+                    session.add(asiento_origen)
 
                 # 3. Asentar en Libro Diario
                 asiento = AsientoDiario(

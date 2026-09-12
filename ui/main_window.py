@@ -60,20 +60,20 @@ class MainWindow(QMainWindow):
         self.proveedores_tab = ProveedoresView()
 
         # Añadir pestañas al QTabWidget
-        self.tabs.addTab(self.ventas_tab, "Punto de Venta")
+        self.tabs.addTab(self.ventas_tab, "POS")
 
         self.caja_view = CajaView()
-        self.tabs.addTab(self.caja_view, "Caja / Tesorería")
+        self.tabs.addTab(self.caja_view, "Caja")
 
         self.gastos_view = GastosView()
-        self.tabs.addTab(self.gastos_view, "Gastos y Egresos (OPEX)")
+        self.tabs.addTab(self.gastos_view, "Egresos")
 
 
         self.taller_view = TallerView()
-        self.tabs.addTab(self.taller_view, "Taller / Servicios")
+        self.tabs.addTab(self.taller_view, "Taller")
 
         self.registros_view = RegistrosView()
-        self.tabs.addTab(self.registros_view, "Registros y Finanzas")
+        self.tabs.addTab(self.registros_view, "Finanzas")
 
         self.clientes_view = ClientesView()
         self.tabs.addTab(self.clientes_view, "Clientes")
@@ -81,8 +81,8 @@ class MainWindow(QMainWindow):
 
 
         self.tabs.addTab(self.productos_tab, "Productos")
-        self.tabs.addTab(self.precios_tab, "Remarcación (Precios)")
-        self.tabs.addTab(self.proveedores_tab, "Proveedores y Compras")
+        self.tabs.addTab(self.precios_tab, "Precios")
+        self.tabs.addTab(self.proveedores_tab, "Proveedores")
 
 
 # Hacer las pestañas movibles

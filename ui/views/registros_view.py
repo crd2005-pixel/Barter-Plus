@@ -245,6 +245,89 @@ class ContabilidadTab(QWidget):
             self.tbl_iva.setItem(row, 5, QTableWidgetItem(f"${r.total:.2f}"))
 
 
+
+class LiquidezBancosTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setup_ui()
+        self.cargar_datos()
+
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+
+        # Panel Superior (Resumen de Liquidez)
+        panel_resumen = QWidget()
+        resumen_lay = QHBoxLayout(panel_resumen)
+
+        self.lbl_efectivo = QLabel("Caja Fuerte (Efectivo):\n$ 0.00")
+        self.lbl_efectivo.setStyleSheet("font-size: 20px; font-weight: bold; color: #27ae60; background: #eaeee8; padding: 15px; border-radius: 5px;")
+        self.lbl_efectivo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.lbl_bancos = QLabel("Cuentas Bancarias:\n$ 0.00")
+        self.lbl_bancos.setStyleSheet("font-size: 20px; font-weight: bold; color: #2980b9; background: #eaf2f8; padding: 15px; border-radius: 5px;")
+        self.lbl_bancos.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.lbl_tarjetas = QLabel("Valores a Cobrar (Tarjetas):\n$ 0.00")
+        self.lbl_tarjetas.setStyleSheet("font-size: 20px; font-weight: bold; color: #f39c12; background: #fef5e7; padding: 15px; border-radius: 5px;")
+        self.lbl_tarjetas.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        resumen_lay.addWidget(self.lbl_efectivo)
+        resumen_lay.addWidget(self.lbl_bancos)
+        resumen_lay.addWidget(self.lbl_tarjetas)
+
+        layout.addWidget(panel_resumen)
+
+        # Grilla de Acreditaciones Próximas
+        lbl_grilla = QLabel("Próximas Acreditaciones (Tarjetas y Diferidos)")
+        lbl_grilla.setStyleSheet("font-size: 16px; font-weight: bold; margin-top: 20px;")
+        layout.addWidget(lbl_grilla)
+
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(["Acreditación", "Origen/Banco", "Cuotas", "Monto a Ingresar", "Destino Estimado", "Estado"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+
+        layout.addWidget(self.table)
+
+        btn_refresh = QPushButton("Actualizar Liquidez")
+        btn_refresh.clicked.connect(self.cargar_datos)
+        layout.addWidget(btn_refresh)
+
+    def cargar_datos(self):
+        # 1. Resumen de Liquidez
+        liquidez = RegistrosService.obtener_liquidez_actual()
+        self.lbl_efectivo.setText(f"Caja Fuerte (Efectivo):\n$ {liquidez['efectivo']:.2f}")
+        self.lbl_bancos.setText(f"Cuentas Bancarias:\n$ {liquidez['bancos']:.2f}")
+        self.lbl_tarjetas.setText(f"Valores a Cobrar (Tarjetas):\n$ {liquidez['tarjetas']:.2f}")
+
+        # 2. Grilla
+        pendientes = RegistrosService.obtener_ingresos_diferidos_pendientes()
+        self.table.setRowCount(len(pendientes))
+
+        hoy = dt.date.today()
+        from PyQt6.QtGui import QBrush, QColor
+
+        for row, p in enumerate(pendientes):
+            fecha_acred = p['fecha_acreditacion']
+
+            i_fec = QTableWidgetItem(fecha_acred.strftime("%Y-%m-%d"))
+            if fecha_acred <= hoy:
+                i_fec.setForeground(Qt.GlobalColor.red)
+                i_fec.setToolTip("Debería estar acreditado hoy o está atrasado.")
+
+            self.table.setItem(row, 0, i_fec)
+            self.table.setItem(row, 1, QTableWidgetItem(p['banco']))
+            self.table.setItem(row, 2, QTableWidgetItem(str(p['cuotas'])))
+
+            i_monto = QTableWidgetItem(f"${p['monto']:.2f}")
+            i_monto.setStyleSheet("font-weight: bold;")
+            self.table.setItem(row, 3, i_monto)
+
+            self.table.setItem(row, 4, QTableWidgetItem(p['destino']))
+            self.table.setItem(row, 5, QTableWidgetItem("Pendiente"))
+
+
 class RegistrosView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -257,10 +340,12 @@ class RegistrosView(QWidget):
         self.tab_ventas = RegistroVentasTab()
         self.tab_cc = CuentasCorrientesTab()
         self.tab_conta = ContabilidadTab()
+        self.tab_liquidez = LiquidezBancosTab()
 
         self.tabs.addTab(self.tab_ventas, "Registro de Ventas")
         self.tabs.addTab(self.tab_cc, "Cuentas Corrientes (Clientes)")
         self.tabs.addTab(self.tab_conta, "Libro Diario e IVA")
+        self.tabs.addTab(self.tab_liquidez, "Liquidez y Bancos")
 
         layout.addWidget(self.tabs)
 
@@ -269,3 +354,4 @@ class RegistrosView(QWidget):
         self.tab_ventas.cargar_datos()
         self.tab_cc.cargar_clientes()
         self.tab_conta.cargar_datos()
+        self.tab_liquidez.cargar_datos()

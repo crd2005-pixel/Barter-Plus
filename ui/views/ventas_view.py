@@ -60,6 +60,37 @@ class VentasTab(QWidget):
         self.lbl_acreditacion.setVisible(False)
 
         self.form_pago.addRow(self.lbl_acreditacion, self.date_acreditacion)
+        self.form_tarjeta = QFormLayout()
+
+        self.txt_banco = QLineEdit()
+        self.txt_banco.setPlaceholderText("Ej: Galicia, MercadoPago")
+
+        self.spin_cuotas = QSpinBox()
+        self.spin_cuotas.setRange(1, 24)
+        self.spin_cuotas.setValue(1)
+
+        self.spin_interes = QDoubleSpinBox()
+        self.spin_interes.setRange(0.0, 500.0)
+        self.spin_interes.setSuffix(" %")
+        self.spin_interes.setValue(0.0)
+        self.spin_interes.valueChanged.connect(self.actualizar_ui)
+
+        self.spin_dias_acred = QSpinBox()
+        self.spin_dias_acred.setRange(0, 365)
+        self.spin_dias_acred.setSuffix(" días")
+        self.spin_dias_acred.setValue(0)
+
+        self.form_tarjeta.addRow("Banco/Tarjeta:", self.txt_banco)
+        self.form_tarjeta.addRow("Cuotas:", self.spin_cuotas)
+        self.form_tarjeta.addRow("Interés:", self.spin_interes)
+        self.form_tarjeta.addRow("Plazo de Acreditación:", self.spin_dias_acred)
+
+        # Ocultar por defecto
+        self.widget_tarjeta = QWidget()
+        self.widget_tarjeta.setLayout(self.form_tarjeta)
+        self.widget_tarjeta.setVisible(False)
+        self.form_pago.addRow(self.widget_tarjeta)
+
         self.combo_pago.currentTextChanged.connect(self.toggle_fecha_acreditacion)
 
         self.box_opciones.addLayout(self.form_cliente)
@@ -386,9 +417,12 @@ class VentasTab(QWidget):
         if text in ['Tarjeta', 'Débito']:
             self.lbl_acreditacion.setVisible(True)
             self.date_acreditacion.setVisible(True)
+            if hasattr(self, 'widget_tarjeta'): self.widget_tarjeta.setVisible(True)
         else:
             self.lbl_acreditacion.setVisible(False)
             self.date_acreditacion.setVisible(False)
+            if hasattr(self, 'widget_tarjeta'): self.widget_tarjeta.setVisible(False)
+            if hasattr(self, 'spin_interes'): self.spin_interes.setValue(0.0)
 
     def cargar_clientes(self):
         clientes = ClienteService.listar_todos()
@@ -534,6 +568,12 @@ class VentasTab(QWidget):
         total_final = subtotal_general - self.descuento_global
         if total_final < 0: total_final = 0.0
 
+        # Apply Credit Card Interest
+        if hasattr(self, 'spin_interes') and self.widget_tarjeta.isVisible():
+            tasa = self.spin_interes.value()
+            if tasa > 0:
+                total_final = total_final * (1 + (tasa / 100))
+
         self.lbl_total_valor.setText(f"$ {total_final:.2f}")
         self.btn_cobrar.setEnabled(len(self.carrito) > 0)
 
@@ -607,13 +647,24 @@ class VentasTab(QWidget):
                         'descuento_unitario': item['descuento_unit']
                     })
 
+                # Pass extra data for deferred income
+                datos_tarjeta = None
+                if metodo in ['Tarjeta', 'Débito']:
+                    datos_tarjeta = {
+                        'banco': self.txt_banco.text().strip() or "No Especificado",
+                        'cuotas': self.spin_cuotas.value(),
+                        'interes': self.spin_interes.value(),
+                        'plazo_dias': self.spin_dias_acred.value()
+                    }
+
                 venta = VentaService.procesar_venta(
                     detalles_final,
                     cliente_id=cliente_id,
                     metodo_pago=metodo,
                     monto_abonado=monto_abonado,
                     descuento_global=self.descuento_global,
-                    tipo_comprobante=tipo_comprobante
+                    tipo_comprobante=tipo_comprobante,
+                    datos_tarjeta=datos_tarjeta
                 )
 
                 vuelto = venta.vuelto
