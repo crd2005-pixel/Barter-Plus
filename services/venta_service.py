@@ -36,35 +36,47 @@ class VentaService:
                 subtotal_venta = 0.0
 
                 for item in detalles:
-                    producto = session.get(Producto, item['producto_id'])
-                    if not producto:
-                        raise ValueError(f"Producto ID {item['producto_id']} no encontrado.")
-
                     cantidad = item['cantidad']
                     precio = item['precio_unitario']
                     desc_unitario = item.get('descuento_unitario', 0.0)
                     precio_final_item = precio - desc_unitario
-
-                    # Disminuir stock real, considerando fraccionamiento
-                    descuento_stock = cantidad
-                    if producto.es_granel and producto.divisor_granel > 0:
-                        descuento_stock = cantidad / producto.divisor_granel
-
-                    producto.stock_actual -= descuento_stock
-
                     subtotal_item = cantidad * precio_final_item
                     subtotal_venta += subtotal_item
 
-                    detalle = DetalleVenta(
-                        venta_id=nueva_venta.id,
-                        producto_id=producto.id,
-                        codigo_barras=producto.codigo_barras,
-                        descripcion=producto.nombre,
-                        cantidad=cantidad,
-                        precio_unitario=precio,
-                        descuento_unitario=desc_unitario,
-                        subtotal=subtotal_item
-                    )
+                    if item.get('producto_id'):
+                        producto = session.get(Producto, item['producto_id'])
+                        if not producto:
+                            raise ValueError(f"Producto ID {item['producto_id']} no encontrado.")
+
+                        descuento_stock = cantidad
+                        if producto.es_granel and producto.divisor_granel > 0:
+                            descuento_stock = cantidad / producto.divisor_granel
+
+                        producto.stock_actual -= descuento_stock
+
+                        detalle = DetalleVenta(
+                            venta_id=nueva_venta.id,
+                            producto_id=producto.id,
+                            codigo_barras=producto.codigo_barras,
+                            descripcion=producto.nombre,
+                            cantidad=cantidad,
+                            precio_unitario=precio,
+                            descuento_unitario=desc_unitario,
+                            subtotal=subtotal_item
+                        )
+                    else:
+                        # Item Manual / Libre
+                        detalle = DetalleVenta(
+                            venta_id=nueva_venta.id,
+                            producto_id=None,
+                            codigo_barras="MAN-001",
+                            descripcion=item.get('nombre', 'Ítem Manual'),
+                            cantidad=cantidad,
+                            precio_unitario=precio,
+                            descuento_unitario=desc_unitario,
+                            subtotal=subtotal_item
+                        )
+
                     session.add(detalle)
 
                 # Calcular total final y recargos
@@ -201,6 +213,81 @@ class VentaService:
                 session.expunge(nueva_venta)
                 return nueva_venta
 
+            except Exception as e:
+                session.rollback()
+                raise e
+
+    @staticmethod
+    def anular_venta(venta_id: int):
+        with get_session() as session:
+            try:
+                venta = session.get(Venta, venta_id)
+                if not venta:
+                    raise ValueError(f"Venta ID {venta_id} no encontrada.")
+                if venta.estado == "Anulado":
+                    raise ValueError("Esta venta ya se encuentra anulada.")
+
+                # 1. Devolver Stock (solo items de catalogo)
+                for detalle in venta.detalles:
+                    if detalle.producto_id:
+                        prod = session.get(Producto, detalle.producto_id)
+                        if prod:
+                            aumento_stock = detalle.cantidad
+                            if prod.es_granel and prod.divisor_granel > 0:
+                                aumento_stock = detalle.cantidad / prod.divisor_granel
+                            prod.stock_actual += aumento_stock
+
+                # 2. Revertir Finanzas
+                if venta.metodo_pago == "Efectivo":
+                    caja_activa = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
+                    if caja_activa:
+                        mov = MovimientoCaja(
+                            caja_id=caja_activa.id,
+                            tipo="Egreso",
+                            concepto=f"Anulación Venta #{venta.id}",
+                            monto=venta.total,
+                            metodo="Efectivo"
+                        )
+                        session.add(mov)
+                elif venta.metodo_pago == "Cuenta Corriente" and venta.cliente_id:
+                    ultimo_mov = session.query(ClienteCuentaCorriente)\
+                        .filter_by(cliente_id=venta.cliente_id)\
+                        .order_by(ClienteCuentaCorriente.id.desc()).first()
+                    saldo_ant = ultimo_mov.saldo if ultimo_mov else 0.0
+                    mov_cc = ClienteCuentaCorriente(
+                        cliente_id=venta.cliente_id,
+                        concepto=f"Anulación Venta #{venta.id}",
+                        debe=0.0,
+                        haber=venta.total,
+                        saldo=saldo_ant - venta.total
+                    )
+                    session.add(mov_cc)
+                # (Para tarjetas, dependeria del procesador. El sistema local marca la venta como anulada nomas y no acredita el diferido si controlamos eso. Por ahora cancelamos fiscalmente y marcamos.)
+                from database.models.contabilidad import IngresoDiferido
+                if venta.metodo_pago in ["Tarjeta", "Débito"]:
+                    difs = session.scalars(select(IngresoDiferido).where(IngresoDiferido.venta_id == venta.id)).all()
+                    for d in difs:
+                        d.estado = "Anulado"
+
+                # 3. Impuestos (Revertir Débito Fiscal)
+                if venta.tipo_comprobante.startswith("Factura"):
+                    # Asentar en negativo o marcar anulado en Libro IVA
+                    ivas = session.scalars(select(LibroIVA).where(LibroIVA.venta_id == venta.id)).all()
+                    for iva in ivas:
+                        # Generamos contracomprobante
+                        contra = LibroIVA(
+                            fecha=dt.datetime.utcnow(),
+                            tipo="Venta (Anulación)",
+                            comprobante=f"ANULACIÓN {iva.comprobante}",
+                            neto_gravado=-iva.neto_gravado,
+                            iva_21=-iva.iva_21,
+                            total=-iva.total,
+                            venta_id=venta.id
+                        )
+                        session.add(contra)
+
+                venta.estado = "Anulado"
+                session.commit()
             except Exception as e:
                 session.rollback()
                 raise e

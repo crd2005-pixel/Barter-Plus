@@ -204,6 +204,7 @@ class VentasTab(QWidget):
         # --- CONEXIONES ---
         # self.txt_codigo.returnPressed.connect(self.agregar_al_carrito) # Desactivado: Evita auto-inserción de scanners
         self.btn_buscar.clicked.connect(self.agregar_al_carrito)
+        self.btn_item_manual.clicked.connect(self.agregar_item_manual)
         self.tabla.itemChanged.connect(self.modificar_cantidad_grid)
         self.btn_cobrar.clicked.connect(self.procesar_cobro)
         self.combo_clientes.currentIndexChanged.connect(self.evaluar_cliente)
@@ -514,6 +515,55 @@ class VentasTab(QWidget):
         self.txt_cantidad.setText("1")
         self.txt_codigo.setFocus()
 
+def agregar_item_manual(self):
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QFormLayout, QLineEdit, QDoubleSpinBox, QPushButton
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Ítem Manual / Servicio")
+        layout = QVBoxLayout(dialog)
+        form = QFormLayout()
+
+        txt_desc = QLineEdit()
+        txt_desc.setPlaceholderText("Ej. Mano de obra, Envío, Servicio...")
+
+        spin_cant = QDoubleSpinBox()
+        spin_cant.setRange(0.01, 99999.0)
+        spin_cant.setValue(1.0)
+
+        spin_precio = QDoubleSpinBox()
+        spin_precio.setRange(0.01, 9999999.0)
+        spin_precio.setPrefix("$ ")
+        spin_precio.setValue(1000.0)
+
+        form.addRow("Descripción:", txt_desc)
+        form.addRow("Cantidad:", spin_cant)
+        form.addRow("Precio Unitario:", spin_precio)
+
+        layout.addLayout(form)
+
+        btn_ok = QPushButton("Añadir al Carrito")
+        btn_ok.setStyleSheet("background-color: #2980b9; color: white; font-weight: bold;")
+        layout.addWidget(btn_ok)
+
+        def _agregar():
+            if not txt_desc.text().strip():
+                QMessageBox.warning(dialog, "Error", "Debe ingresar una descripción.")
+                return
+
+            self.carrito.append({
+                'id': None,
+                'codigo': "MAN-001",
+                'marca': "Servicio/Manual",
+                'nombre': txt_desc.text().strip(),
+                'precio_base': spin_precio.value(),
+                'cantidad': spin_cant.value(),
+                'descuento_unit': 0.0
+            })
+            self.actualizar_ui()
+            dialog.accept()
+
+        btn_ok.clicked.connect(_agregar)
+        dialog.exec()
+
     def actualizar_ui(self):
         # Desconectar temporalmente
         self.tabla.itemChanged.disconnect(self.modificar_cantidad_grid)
@@ -531,7 +581,7 @@ class VentasTab(QWidget):
             subtotal = item['cantidad'] * precio_neto
             subtotal_general += subtotal
 
-            i_id = QTableWidgetItem(str(item['id']))
+            i_id = QTableWidgetItem(str(item['id']) if item['id'] else "-")
             i_id.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
 
             i_cod = QTableWidgetItem(item['codigo'])
@@ -642,6 +692,7 @@ class VentasTab(QWidget):
                     precio_unitario = item['precio_base'] * 0.9 if self.cliente_vip else item['precio_base']
                     detalles_final.append({
                         'producto_id': item['id'],
+                        'nombre': item.get('nombre', 'Item'),
                         'cantidad': item['cantidad'],
                         'precio_unitario': precio_unitario,
                         'descuento_unitario': item['descuento_unit']
