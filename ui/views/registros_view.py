@@ -295,9 +295,13 @@ class ContabilidadTab(QWidget):
             self.tbl_diario.setItem(row, 3, QTableWidgetItem(f"${a.debe:.2f}"))
             self.tbl_diario.setItem(row, 4, QTableWidgetItem(f"${a.haber:.2f}"))
 
-        # Cargar IVA
+        # Cargar Libro IVA y calcular totales
         registros_iva = RegistrosService.obtener_libro_iva(d_desde, d_hasta)
         self.tbl_iva.setRowCount(len(registros_iva))
+
+        total_debito = 0.0
+        total_credito = 0.0
+
         for row, r in enumerate(registros_iva):
             self.tbl_iva.setItem(row, 0, QTableWidgetItem(r.fecha.strftime("%Y-%m-%d")))
             self.tbl_iva.setItem(row, 1, QTableWidgetItem(r.tipo))
@@ -305,6 +309,22 @@ class ContabilidadTab(QWidget):
             self.tbl_iva.setItem(row, 3, QTableWidgetItem(f"${r.neto_gravado:.2f}"))
             self.tbl_iva.setItem(row, 4, QTableWidgetItem(f"${r.iva_21:.2f}"))
             self.tbl_iva.setItem(row, 5, QTableWidgetItem(f"${r.total:.2f}"))
+
+            if r.tipo == "Venta":
+                total_debito += r.iva_21
+            elif r.tipo == "Compra":
+                total_credito += r.iva_21
+
+        saldo = total_debito - total_credito
+
+        if hasattr(self, 'lbl_iva_ventas'):
+            self.lbl_iva_ventas.setText(f"Total IVA Débito (Ventas): ${total_debito:.2f}")
+            self.lbl_iva_compras.setText(f"Total IVA Crédito (Compras): ${total_credito:.2f}")
+            self.lbl_iva_saldo.setText(f"Saldo IVA: ${saldo:.2f}")
+            if saldo > 0:
+                self.lbl_iva_saldo.setStyleSheet("font-size: 18px; font-weight: bold; color: #c0392b; background: #fadbd8; padding: 10px; border-radius: 5px;")
+            else:
+                self.lbl_iva_saldo.setStyleSheet("font-size: 18px; font-weight: bold; color: #27ae60; background: #d5f5e3; padding: 10px; border-radius: 5px;")
 
 
 

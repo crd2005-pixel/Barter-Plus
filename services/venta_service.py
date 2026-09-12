@@ -299,20 +299,10 @@ class VentaService:
 
                 # 3. Impuestos (Revertir Débito Fiscal)
                 if venta.tipo_comprobante.startswith("Factura"):
-                    # Asentar en negativo o marcar anulado en Libro IVA
+                    # El usuario pide explícitamente: "ejecuta session.delete(registro_iva) para eliminar ese asiento fiscal antes de hacer el session.commit()"
                     ivas = session.scalars(select(LibroIVA).where(LibroIVA.venta_id == venta.id)).all()
                     for iva in ivas:
-                        # Generamos contracomprobante
-                        contra = LibroIVA(
-                            fecha=dt.datetime.utcnow(),
-                            tipo="Venta (Anulación)",
-                            comprobante=f"ANULACIÓN {iva.comprobante}",
-                            neto_gravado=-iva.neto_gravado,
-                            iva_21=-iva.iva_21,
-                            total=-iva.total,
-                            venta_id=venta.id
-                        )
-                        session.add(contra)
+                        session.delete(iva)
 
                 venta.estado = "Anulado"
                 session.commit()

@@ -15,7 +15,7 @@ def run_tests():
         nombre="Aceite Sintético 5W40",
         costo=1000.0,
         iva=21.0,
-        codigo_barras="1789251573487",
+        codigo_barras="1789253655483",
         stock_inicial=50.0
     )
     print(f"Producto creado: {producto.nombre} | ID: {producto.id} | Costo: {producto.costo} | Stock: {producto.stock_actual}")
