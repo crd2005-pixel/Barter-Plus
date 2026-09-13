@@ -156,6 +156,25 @@ class ProductoDialog(QDialog):
         except ValueError:
             self.precio_final_label.setText("Error (Margen >= 100%)")
 
+    def imprimir_etiqueta(self):
+        row = self.table.currentRow()
+        if row < 0:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Impresión", "Seleccione un producto de la grilla para imprimir su etiqueta.")
+            return
+
+        prod_id = int(self.table.item(row, 0).text())
+
+        # Enviar al printer service
+        try:
+            from services.printer_service import PrinterService
+            from PyQt6.QtWidgets import QMessageBox
+            PrinterService.imprimir_etiqueta(prod_id)
+            QMessageBox.information(self, "Impresión", f"Etiqueta enviada a la impresora para el producto ID {prod_id}.")
+        except Exception as e:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Error de Impresión", str(e))
+
     def cargar_datos(self):
         if self.producto:
             self.sku_input.setText(self.producto.sku or "")
@@ -327,6 +346,25 @@ class ProductosTab(QWidget):
 
         # Cargar datos iniciales
         self.cargar_datos()
+
+    def imprimir_etiqueta(self):
+        row = self.table.currentRow()
+        if row < 0:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Impresión", "Seleccione un producto de la grilla para imprimir su etiqueta.")
+            return
+
+        prod_id = int(self.table.item(row, 0).text())
+
+        # Enviar al printer service
+        try:
+            from services.printer_service import PrinterService
+            from PyQt6.QtWidgets import QMessageBox
+            PrinterService.imprimir_etiqueta(prod_id)
+            QMessageBox.information(self, "Impresión", f"Etiqueta enviada a la impresora para el producto ID {prod_id}.")
+        except Exception as e:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Error de Impresión", str(e))
 
     def cargar_datos(self):
         busqueda = self.search_input.text().strip()

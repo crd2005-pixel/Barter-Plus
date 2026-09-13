@@ -28,11 +28,14 @@ class VentaService:
                        tipo_comprobante: str = "Remito", datos_tarjeta: Optional[Dict] = None) -> Venta:
         """
         Procesa una venta completa.
-        `detalles` es una lista de diccionarios: {'producto_id': int, 'cantidad': float, 'precio_unitario': float, 'descuento_unitario': float}
-        El precio_unitario ya debe venir calculado (ej. con el -10% de cliente si aplica).
         """
         with get_session() as session:
             try:
+                # 1. Barrera de Caja Abierta
+                caja_activa = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
+                if not caja_activa:
+                    raise ValueError("No hay una caja abierta. Debe abrir la caja del día antes de procesar cualquier venta.")
+
                 nueva_venta = Venta(
                     cliente_id=cliente_id,
                     metodo_pago=metodo_pago,
@@ -220,7 +223,23 @@ class VentaService:
                         venta_id=nueva_venta.id
                     )
                     session.add(asiento_banco)
+                elif metodo_pago.strip().lower() == "efectivo":
+                    # Lógica estricta: Si entra billete, va a la caja, sin importar el comprobante.
+                    caja_activa = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
+                    if not caja_activa:
+                        raise ValueError("No hay una caja abierta. Debe abrir la caja del día antes de procesar ventas en efectivo.")
+
+                    nuevo_movimiento = MovimientoCaja(
+                        caja_id=caja_activa.id,
+                        tipo="Ingreso",
+                        monto=total_final,
+                        concepto=f"Venta {tipo_comprobante} #{nueva_venta.id}",
+                        metodo="Efectivo",
+                        venta_id=nueva_venta.id
+                    )
+                    session.add(nuevo_movimiento)
                 else:
+                    # Otros métodos físicos
                     caja_activa = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
                     if not caja_activa:
                         raise ValueError("No hay una caja abierta. Debe abrir la caja antes de procesar ventas.")
@@ -238,6 +257,15 @@ class VentaService:
 
                 session.commit()
                 session.refresh(nueva_venta)
+
+                # Imprimir ticket automáticamente
+                try:
+                    from services.printer_service import PrinterService
+                    PrinterService.imprimir_comprobante_venta(nueva_venta.id)
+                except Exception as e:
+                    # No interrumpimos la venta si falla la impresora
+                    print(f"Error al imprimir ticket: {e}")
+
                 session.expunge(nueva_venta)
                 return nueva_venta
 

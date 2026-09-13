@@ -675,6 +675,7 @@ class VentasTab(QWidget):
 
                 vuelto = venta.vuelto
                 msg = f"Venta Registrada Exitosamente (ID: {venta.id})"
+
                 if vuelto > 0: msg += f"\n\nVuelto a entregar: $ {vuelto:.2f}"
 
                 QMessageBox.information(self, "Éxito", msg)
@@ -690,5 +691,7 @@ class VentasTab(QWidget):
                 self.actualizar_ui()
                 self.txt_codigo.setFocus()
 
+            except ValueError as ve:
+                QMessageBox.critical(self, "Error de Validación", f"No se puede procesar la venta.\n{ve}")
             except Exception as e:
-                QMessageBox.critical(self, "Error de Sistema", f"No se pudo guardar la venta:\n{str(e)}")
+                QMessageBox.critical(self, "Error Fatal", f"No se pudo completar la venta: {e}")

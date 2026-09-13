@@ -8,7 +8,7 @@ from PyQt6.QtGui import QColor, QBrush
 from services.producto_service import ProductoService
 from ui.components.pagination import PaginationWidget
 
-class PreciosTab(QWidget):
+class MotorPreciosTab(QWidget):
     def __init__(self):
         super().__init__()
         self.layout = QVBoxLayout(self)
@@ -292,3 +292,176 @@ class PreciosTab(QWidget):
                 self.cargar_grilla()
             except Exception as e:
                 QMessageBox.critical(self, "Error Transaccional", f"La base de datos bloqueó la operación:\n{str(e)}")
+
+
+class CodigosBarraTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.layout = QVBoxLayout(self)
+
+        # 1. Configuración de Hardware
+        from PyQt6.QtWidgets import QGroupBox, QFormLayout, QLineEdit, QPushButton, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView
+        from PyQt6.QtCore import QSettings
+        from services.producto_service import ProductoService
+
+        group_hw = QGroupBox("Configuración de Hardware")
+        form_hw = QFormLayout(group_hw)
+
+        self.txt_imp_eti = QLineEdit()
+        self.txt_imp_eti.setPlaceholderText("Ej: Xprinter XP-58")
+        self.txt_imp_tic = QLineEdit()
+        self.txt_imp_tic.setPlaceholderText("Ej: Xprinter XP-58")
+
+        self.settings = QSettings("BarterPlus", "HardwareConfig")
+        self.txt_imp_eti.setText(str(self.settings.value("printer_etiquetas", "")))
+        self.txt_imp_tic.setText(str(self.settings.value("printer_tickets", "")))
+
+        form_hw.addRow("Impresora de Etiquetas:", self.txt_imp_eti)
+        form_hw.addRow("Impresora de Tickets:", self.txt_imp_tic)
+
+        btn_hw = QPushButton("Guardar Configuración")
+        btn_hw.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold;")
+        btn_hw.clicked.connect(self.guardar_hw)
+        form_hw.addRow("", btn_hw)
+
+        self.layout.addWidget(group_hw)
+
+        # 2. Generador Automático
+        group_gen = QGroupBox("Generador de Códigos")
+        lay_gen = QHBoxLayout(group_gen)
+        btn_gen = QPushButton("Generar Códigos Faltantes")
+        btn_gen.setStyleSheet("background-color: #e67e22; color: white; font-weight: bold; padding: 10px;")
+        btn_gen.clicked.connect(self.generar_codigos)
+        lay_gen.addWidget(btn_gen)
+        lay_gen.addStretch()
+
+        self.layout.addWidget(group_gen)
+
+        # 3. Grilla de Impresión en Lote
+        group_lote = QGroupBox("Grilla de Impresión en Lote")
+        lay_lote = QVBoxLayout(group_lote)
+
+        self.btn_imprimir = QPushButton("Imprimir Lote Seleccionado")
+        self.btn_imprimir.setStyleSheet("background-color: #8e44ad; color: white; font-weight: bold; padding: 10px;")
+        self.btn_imprimir.clicked.connect(self.imprimir_lote)
+
+        lay_lote.addWidget(self.btn_imprimir)
+
+        self.tabla = QTableWidget(0, 5)
+        self.tabla.setHorizontalHeaderLabels(["ID", "Código", "Nombre", "Equivalencias", "Precio"])
+        self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        # Editables sólo las equivalencias
+        self.tabla.itemChanged.connect(self.guardar_equivalencia)
+
+        lay_lote.addWidget(self.tabla)
+        self.layout.addWidget(group_lote)
+
+        self.cargar_datos()
+
+    def guardar_hw(self):
+        from PyQt6.QtWidgets import QMessageBox
+        self.settings.setValue("printer_etiquetas", self.txt_imp_eti.text().strip())
+        self.settings.setValue("printer_tickets", self.txt_imp_tic.text().strip())
+        QMessageBox.information(self, "Configuración", "Configuración de hardware guardada.")
+
+    def generar_codigos(self):
+        from database.conexion import get_session
+        from database.models.producto import Producto
+        from PyQt6.QtWidgets import QMessageBox
+
+        count = 0
+        with get_session() as session:
+            prods = session.query(Producto).all()
+            for p in prods:
+                if not p.codigo_barras or not p.codigo_barras.strip():
+                    p.codigo_barras = f"BP-{p.id:05d}"
+                    count += 1
+            session.commit()
+
+        if count > 0:
+            QMessageBox.information(self, "Éxito", f"Se generaron {count} códigos nuevos.")
+            self.cargar_datos()
+        else:
+            QMessageBox.information(self, "Aviso", "No se encontraron productos sin código de barras.")
+
+    def cargar_datos(self):
+        from services.producto_service import ProductoService
+        from PyQt6.QtWidgets import QTableWidgetItem
+        from PyQt6.QtCore import Qt
+
+        self.tabla.blockSignals(True)
+        prods = ProductoService.listar_todos()
+        self.tabla.setRowCount(len(prods))
+
+        for r, p in enumerate(prods):
+            i_id = QTableWidgetItem(str(p.id))
+            i_id.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            self.tabla.setItem(r, 0, i_id)
+
+            codigo = p.codigo_proveedor or p.codigo_barras or f"INT{p.id:06d}"
+            i_cod = QTableWidgetItem(codigo)
+            i_cod.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            self.tabla.setItem(r, 1, i_cod)
+
+            i_nom = QTableWidgetItem(p.nombre)
+            i_nom.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            self.tabla.setItem(r, 2, i_nom)
+
+            i_eq = QTableWidgetItem(getattr(p, 'equivalencias', '') or '')
+            self.tabla.setItem(r, 3, i_eq)
+
+            i_pre = QTableWidgetItem(f"$ {p.precio_minorista:.2f}")
+            i_pre.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            self.tabla.setItem(r, 4, i_pre)
+
+        self.tabla.blockSignals(False)
+
+    def guardar_equivalencia(self, item):
+        col = item.column()
+        row = item.row()
+        if col == 3:
+            from database.conexion import get_session
+            from database.models.producto import Producto
+            prod_id = int(self.tabla.item(row, 0).text())
+            nuevo_val = item.text().strip()
+
+            with get_session() as session:
+                prod = session.get(Producto, prod_id)
+                if prod:
+                    prod.equivalencias = nuevo_val
+                    session.commit()
+
+    def imprimir_lote(self):
+        from PyQt6.QtWidgets import QMessageBox
+        from services.printer_service import PrinterService
+
+        items = self.tabla.selectedItems()
+        if not items:
+            QMessageBox.warning(self, "Impresión", "Seleccione al menos una fila.")
+            return
+
+        filas = set(i.row() for i in items)
+
+        try:
+            for row in filas:
+                prod_id = int(self.tabla.item(row, 0).text())
+                PrinterService.imprimir_etiqueta(prod_id)
+            QMessageBox.information(self, "Impresión", f"Lote de {len(filas)} etiquetas enviado a la impresora.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error de Impresión", str(e))
+
+
+class PreciosTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout(self)
+        from PyQt6.QtWidgets import QTabWidget
+        self.tabs = QTabWidget()
+
+        self.tab_motor = MotorPreciosTab()
+        self.tab_codigos = CodigosBarraTab()
+
+        self.tabs.addTab(self.tab_motor, "Motor de Precios")
+        self.tabs.addTab(self.tab_codigos, "Códigos de Barra y Etiquetas")
+
+        layout.addWidget(self.tabs)

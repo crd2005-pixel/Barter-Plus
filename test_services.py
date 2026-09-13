@@ -15,7 +15,7 @@ def run_tests():
         nombre="Aceite Sintético 5W40",
         costo=1000.0,
         iva=21.0,
-        codigo_barras="1789254966497",
+        codigo_barras="1789342713268",
         stock_inicial=50.0
     )
     print(f"Producto creado: {producto.nombre} | ID: {producto.id} | Costo: {producto.costo} | Stock: {producto.stock_actual}")
@@ -26,7 +26,14 @@ def run_tests():
     print(f"Precio actualizado: {producto_actualizado.precio_minorista}")
 
     # c) Simular una venta de ese producto (ej. venta de 2 unidades)
-    print("\n[3] Simulando venta de 2 unidades...")
+    print("\n[3] Verificando caja...")
+    from services.caja_service import CajaService
+    try:
+        CajaService.abrir_caja(100.0)
+    except ValueError:
+        pass
+
+    print("\n[4] Simulando venta de 2 unidades...")
     detalles_venta = [
         {'producto_id': producto_actualizado.id, 'cantidad': 2.0, 'precio_unitario': producto_actualizado.precio_minorista}
     ]
