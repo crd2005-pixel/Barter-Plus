@@ -165,12 +165,12 @@ class EtiquetasPreviewDialog(QDialog):
         self.sp_off_y.setValue(float(self.settings.value("offset_y", 0.0)))
         self.sp_font_scale.setValue(float(self.settings.value("font_scale", 1.0)))
 
-        self.chk_marca.setChecked(self.settings.value("show_marca", True, type=bool))
-        self.chk_nombre.setChecked(self.settings.value("show_nombre", True, type=bool))
-        self.chk_codigo.setChecked(self.settings.value("show_codigo", True, type=bool))
-        self.chk_equivalencia.setChecked(self.settings.value("show_equivalencia", False, type=bool))
-        self.chk_sku.setChecked(self.settings.value("show_sku", False, type=bool))
-        self.chk_precio.setChecked(self.settings.value("show_precio", False, type=bool))
+        self.chk_marca.setChecked(self.settings.value("show_marca", True) == "true" or self.settings.value("show_marca", True) == True)
+        self.chk_nombre.setChecked(self.settings.value("show_nombre", True) == "true" or self.settings.value("show_nombre", True) == True)
+        self.chk_codigo.setChecked(self.settings.value("show_codigo", True) == "true" or self.settings.value("show_codigo", True) == True)
+        self.chk_equivalencia.setChecked(self.settings.value("show_equivalencia", False) == "true" or self.settings.value("show_equivalencia", False) == True)
+        self.chk_sku.setChecked(self.settings.value("show_sku", False) == "true" or self.settings.value("show_sku", False) == True)
+        self.chk_precio.setChecked(self.settings.value("show_precio", False) == "true" or self.settings.value("show_precio", False) == True)
 
     def _save_settings(self):
         self.settings.setValue("mode", self.cmb_mode.currentText())
