@@ -1,3 +1,4 @@
+from PyQt6.QtWidgets import QTabWidget,
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QLabel, QComboBox, QRadioButton,
@@ -7,8 +8,9 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QBrush
 from services.producto_service import ProductoService
 from ui.components.pagination import PaginationWidget
+from src.lubricentro.productos.codigos_barra import CodigosBarraTab
 
-class PreciosTab(QWidget):
+class PreciosEngineTab(QWidget):
     def __init__(self):
         super().__init__()
         self.layout = QVBoxLayout(self)
@@ -292,3 +294,17 @@ class PreciosTab(QWidget):
                 self.cargar_grilla()
             except Exception as e:
                 QMessageBox.critical(self, "Error Transaccional", f"La base de datos bloqueó la operación:\n{str(e)}")
+
+class PreciosTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout(self)
+        self.tabs = QTabWidget()
+
+        self.precios_engine = PreciosEngineTab()
+        self.codigos_barra = CodigosBarraTab()
+
+        self.tabs.addTab(self.precios_engine, "Gestor de Precios")
+        self.tabs.addTab(self.codigos_barra, "Códigos de Barra y Etiquetas")
+
+        layout.addWidget(self.tabs)
