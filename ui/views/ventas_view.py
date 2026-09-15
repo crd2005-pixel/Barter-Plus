@@ -187,7 +187,7 @@ class VentasTab(QWidget):
         self.layout.addWidget(self.splitter)
 
         # --- CONEXIONES ---
-        # self.txt_codigo.returnPressed.connect(self.agregar_al_carrito) # Desactivado: Evita auto-inserción de scanners
+        self.txt_codigo.returnPressed.connect(self.agregar_al_carrito)
         self.btn_buscar.clicked.connect(self.agregar_al_carrito)
         self.tabla.itemChanged.connect(self.modificar_cantidad_grid)
         self.btn_cobrar.clicked.connect(self.procesar_cobro)
@@ -593,7 +593,122 @@ class VentasTab(QWidget):
             except ValueError:
                 self.actualizar_ui()
 
+
+    def imprimir_ticket(self, venta):
+        try:
+            from PyQt6.QtPrintSupport import QPrinter
+            from PyQt6.QtGui import QPainter, QFont, QPageSize
+            from PyQt6.QtCore import QSizeF, QSettings, Qt, QRectF
+
+            # Using specific ticket printer settings (independent from labels)
+            settings = QSettings("BarterPlus", "TicketConfig")
+            printer_name = settings.value("printer_name", "")
+
+            printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+            if printer_name:
+                printer.setPrinterName(printer_name)
+
+            # Roll configuration for tickets (usually 58mm or 80mm)
+            # Defaulting to 58mm if not set
+            width_mm = float(settings.value("width", 58.0))
+
+            # Set continuous roll
+            size = QPageSize(QSizeF(width_mm, 200.0), QPageSize.Unit.Millimeter) # Height is arbitrary max, printer cuts
+            printer.setPageSize(size)
+            printer.setFullPage(True)
+
+            painter = QPainter()
+            if painter.begin(printer):
+                dpi = printer.resolution()
+                if dpi <= 0: dpi = 96
+                ppm = dpi / 25.4
+                w_px = width_mm * ppm
+
+                font_title = QFont("Arial", int(10 * (dpi/72.0)))
+                font_title.setBold(True)
+
+                font_body = QFont("Arial", int(8 * (dpi/72.0)))
+
+                y = 0
+                painter.setFont(font_title)
+                fm_title = painter.fontMetrics()
+
+                # Header
+                rect_title = QRectF(0, y, w_px, fm_title.height())
+                painter.drawText(rect_title, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, "BARTER PLUS")
+                y += fm_title.height()
+
+                painter.setFont(font_body)
+                fm_body = painter.fontMetrics()
+
+                rect_sub = QRectF(0, y, w_px, fm_body.height())
+                painter.drawText(rect_sub, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, "Ticket de Venta")
+                y += fm_body.height() + (2 * ppm)
+
+                # Separator
+                painter.drawLine(0, int(y), int(w_px), int(y))
+                y += (2 * ppm)
+
+                # Details
+                rect_det = QRectF(0, y, w_px, fm_body.height())
+                painter.drawText(rect_det, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, f"Venta ID: {venta.id}")
+                y += fm_body.height()
+
+                rect_det = QRectF(0, y, w_px, fm_body.height())
+                painter.drawText(rect_det, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, f"Fecha: {venta.fecha.strftime('%d/%m/%Y %H:%M')}")
+                y += fm_body.height() + (2 * ppm)
+
+                painter.drawLine(0, int(y), int(w_px), int(y))
+                y += (2 * ppm)
+
+                # Items
+                for item in venta.detalles:
+                    # Nombre
+                    rect_item = QRectF(0, y, w_px, fm_body.height())
+                    painter.drawText(rect_item, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, f"{item.cantidad}x {item.producto_nombre}")
+                    y += fm_body.height()
+
+                    # Precio
+                    rect_price = QRectF(0, y, w_px, fm_body.height())
+                    painter.drawText(rect_price, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop, f"${item.subtotal:.2f}")
+                    y += fm_body.height()
+
+                y += (2 * ppm)
+                painter.drawLine(0, int(y), int(w_px), int(y))
+                y += (2 * ppm)
+
+                # Totals
+                painter.setFont(font_title)
+                fm_title = painter.fontMetrics()
+
+                rect_total = QRectF(0, y, w_px, fm_title.height())
+                painter.drawText(rect_total, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop, f"TOTAL: ${venta.total:.2f}")
+                y += fm_title.height()
+
+                if venta.metodo_pago == "Efectivo":
+                    painter.setFont(font_body)
+                    fm_body = painter.fontMetrics()
+
+                    rect_abonado = QRectF(0, y, w_px, fm_body.height())
+                    painter.drawText(rect_abonado, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop, f"Abonado: ${venta.monto_abonado:.2f}")
+                    y += fm_body.height()
+
+                    rect_vuelto = QRectF(0, y, w_px, fm_body.height())
+                    painter.drawText(rect_vuelto, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop, f"Vuelto: ${venta.vuelto:.2f}")
+                    y += fm_body.height()
+
+                y += (5 * ppm)
+                painter.setFont(font_body)
+                rect_foot = QRectF(0, y, w_px, fm_body.height())
+                painter.drawText(rect_foot, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, "¡Gracias por su compra!")
+
+                painter.end()
+                QMessageBox.information(self, "Imprimir", "Ticket enviado a la impresora.")
+        except Exception as e:
+            QMessageBox.warning(self, "Error de Impresión", f"No se pudo imprimir el ticket: {e}")
+
     def procesar_cobro(self):
+
         if not self.carrito: return
 
         # Parse total final
@@ -677,7 +792,18 @@ class VentasTab(QWidget):
                 msg = f"Venta Registrada Exitosamente (ID: {venta.id})"
                 if vuelto > 0: msg += f"\n\nVuelto a entregar: $ {vuelto:.2f}"
 
+
                 QMessageBox.information(self, "Éxito", msg)
+
+                # Check for ticket print
+                reply_print = QMessageBox.question(
+                    self, "Imprimir Ticket",
+                    "¿Desea imprimir el ticket de esta venta?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply_print == QMessageBox.StandardButton.Yes:
+                    self.imprimir_ticket(venta)
+
 
                 # Reset
                 self.carrito = []
