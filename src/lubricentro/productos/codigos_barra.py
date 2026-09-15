@@ -19,11 +19,64 @@ try:
 except ImportError:
     Marca = None
 
+from .barcode_utils import get_code128_pattern
+
 
 
 # =============================================================================
 # Custom Dialog: Configuration + Preview + Quantity Selection
 # =============================================================================
+
+class ConfiguracionTicketDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Configurar Impresora de Tickets (POS)")
+        self.resize(400, 200)
+
+        layout = QVBoxLayout(self)
+
+        form = QFormLayout()
+        self.cmb_printer = QComboBox()
+
+        from PyQt6.QtPrintSupport import QPrinterInfo
+        printers = [p.printerName() for p in QPrinterInfo.availablePrinters()]
+        self.cmb_printer.addItems(printers)
+
+        self.sp_width = QDoubleSpinBox()
+        self.sp_width.setRange(20, 200)
+        self.sp_width.setSuffix(" mm")
+        self.sp_width.setValue(58.0)
+
+        form.addRow("Impresora:", self.cmb_printer)
+        form.addRow("Ancho Papel:", self.sp_width)
+
+        layout.addLayout(form)
+
+        btn_box = QHBoxLayout()
+        btn_save = QPushButton("Guardar")
+        btn_save.clicked.connect(self.save_config)
+        btn_box.addWidget(btn_save)
+
+        layout.addLayout(btn_box)
+
+        self.load_config()
+
+    def load_config(self):
+        settings = QSettings("BarterPlus", "TicketConfig")
+        printer_name = settings.value("printer_name", "")
+        idx = self.cmb_printer.findText(printer_name)
+        if idx >= 0:
+            self.cmb_printer.setCurrentIndex(idx)
+
+        self.sp_width.setValue(float(settings.value("width", 58.0)))
+
+    def save_config(self):
+        settings = QSettings("BarterPlus", "TicketConfig")
+        settings.setValue("printer_name", self.cmb_printer.currentText())
+        settings.setValue("width", self.sp_width.value())
+        QMessageBox.information(self, "Éxito", "Configuración de Tickets guardada.")
+        self.accept()
+
 class EtiquetasPreviewDialog(QDialog):
     def __init__(self, items, parent=None):
         """
@@ -114,9 +167,9 @@ class EtiquetasPreviewDialog(QDialog):
         # 3. Action Buttons
         btn_box = QVBoxLayout()
         hb_print = QHBoxLayout()
-        self.btn_print_direct = QPushButton("Imprimir Directo (Por Defecto)")
-        self.btn_print_direct.setStyleSheet("font-weight:bold; height: 40px; background-color: #c8e6c9;")
-        self.btn_print_direct.clicked.connect(self._print_direct)
+        self.btn_imprimir_etiqueta = QPushButton("Imprimir")
+        self.btn_imprimir_etiqueta.setStyleSheet("font-weight:bold; height: 40px; background-color: #c8e6c9;")
+        self.btn_imprimir_etiqueta.clicked.connect(self._print_etiquetas)
 
         self.btn_print_dialog = QPushButton("Seleccionar Impresora...")
         self.btn_print_dialog.setStyleSheet("height: 40px; background-color: #e0f7fa;")
@@ -433,49 +486,55 @@ class EtiquetasPreviewDialog(QDialog):
 
         painter.restore()
 
+
     def _draw_bars(self, painter, x, y, w, h, code):
-        import barcode
-        from barcode.writer import ImageWriter
-        from io import BytesIO
-        from PyQt6.QtGui import QImage, QPixmap
+        pattern = get_code128_pattern(code)
+        if not pattern: return
 
-        if code.isdigit() and len(code) in (12, 13):
-            barcode_class = barcode.get_barcode_class('ean13')
-        else:
-            barcode_class = barcode.get_barcode_class('code128')
+        total_units = sum(int(c) for c in pattern)
+        if total_units == 0: return
 
-        try:
-            writer = ImageWriter()
-            barcode_instance = barcode_class(code, writer=writer)
+        unit_w = w / total_units
 
-            options = {
-                'write_text': False,
-                'quiet_zone': 0.0,
-                'format': 'PNG'
-            }
+        curr_x = x
+        is_bar = True
 
-            fp = BytesIO()
-            barcode_instance.write(fp, options)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(Qt.GlobalColor.black))
 
-            qimg = QImage()
-            qimg.loadFromData(fp.getvalue())
-            pixmap = QPixmap.fromImage(qimg)
+        for char in pattern:
+            width_units = int(char)
+            width_px = width_units * unit_w
 
-            target_rect = QRectF(x, y, w, h)
-            source_rect = QRectF(0, 0, pixmap.width(), pixmap.height())
-            painter.drawPixmap(target_rect, pixmap, source_rect)
-        except Exception as e:
-            print(f"Error drawing barcode: {e}")
+            if is_bar:
+                painter.drawRect(QRectF(curr_x, y, width_px, h))
 
-    def _print_direct(self):
+            curr_x += width_px
+            is_bar = not is_bar
+
+    def _print_etiquetas(self):
         print_job = QPrinter(QPrinter.PrinterMode.HighResolution)
         print_job.setOutputFormat(QPrinter.OutputFormat.NativeFormat)
-        self._apply_printer_config(print_job)
-        painter = QPainter()
-        if painter.begin(print_job):
-            self._draw_labels(painter, print_job)
-            painter.end()
-        QMessageBox.information(self, "Impresión", "Enviado a la impresora por defecto.")
+
+        # Opcional: guardar nombre en settings
+        printer_name = self.settings.value("printer_name", "")
+        if printer_name:
+            print_job.setPrinterName(printer_name)
+            self._apply_printer_config(print_job)
+            painter = QPainter()
+            if painter.begin(print_job):
+                self._draw_labels(painter, print_job)
+                painter.end()
+            QMessageBox.information(self, "Impresión", "Enviado a la impresora.")
+        else:
+            dlg = QPrintDialog(print_job, self)
+            if dlg.exec() == int(QDialog.DialogCode.Accepted):
+                self.settings.setValue("printer_name", print_job.printerName())
+                self._apply_printer_config(print_job)
+                painter = QPainter()
+                if painter.begin(print_job):
+                    self._draw_labels(painter, print_job)
+                    painter.end()
 
     def _print_dialog(self):
         print_job = QPrinter(QPrinter.PrinterMode.HighResolution)
@@ -561,6 +620,12 @@ class CodigosBarraTab(QWidget):
         self.btn_generar = QPushButton("Asignar Códigos Auto")
         self.btn_generar.clicked.connect(self._asignar_codigos_faltantes)
         bar.addWidget(self.btn_generar)
+
+        self.btn_config_ticket_pos = QPushButton("Config. Ticket POS")
+        self.btn_config_ticket_pos.setStyleSheet("color: purple; font-weight: bold;")
+        self.btn_config_ticket_pos.clicked.connect(self._abrir_config_ticket)
+        bar.addWidget(self.btn_config_ticket_pos)
+
 
         layout.addLayout(bar)
 
@@ -788,6 +853,11 @@ class CodigosBarraTab(QWidget):
                     self._selected_ids.add(pid)
                 else:
                     self._selected_ids.discard(pid)
+
+
+    def _abrir_config_ticket(self):
+        dlg = ConfiguracionTicketDialog(self)
+        dlg.exec()
 
     def _get_selected_ids(self):
         if not hasattr(self, '_selected_ids'):

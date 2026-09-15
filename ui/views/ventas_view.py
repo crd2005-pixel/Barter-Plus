@@ -12,56 +12,6 @@ from services.cliente_service import ClienteService
 from services.venta_service import VentaService
 
 
-class ConfiguracionTicketDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Configurar Impresora de Tickets")
-        self.resize(400, 200)
-
-        layout = QVBoxLayout(self)
-
-        form = QFormLayout()
-        self.cmb_printer = QComboBox()
-
-        # Populate printers
-        from PyQt6.QtPrintSupport import QPrinterInfo
-        printers = QPrinterInfo.availablePrinterNames()
-        self.cmb_printer.addItems(printers)
-
-        self.sp_width = QDoubleSpinBox()
-        self.sp_width.setRange(20, 200)
-        self.sp_width.setSuffix(" mm")
-        self.sp_width.setValue(58.0)
-
-        form.addRow("Impresora:", self.cmb_printer)
-        form.addRow("Ancho Papel:", self.sp_width)
-
-        layout.addLayout(form)
-
-        btn_box = QHBoxLayout()
-        btn_save = QPushButton("Guardar")
-        btn_save.clicked.connect(self.save_config)
-        btn_box.addWidget(btn_save)
-
-        layout.addLayout(btn_box)
-
-        self.load_config()
-
-    def load_config(self):
-        settings = QSettings("BarterPlus", "TicketConfig")
-        printer_name = settings.value("printer_name", "")
-        idx = self.cmb_printer.findText(printer_name)
-        if idx >= 0:
-            self.cmb_printer.setCurrentIndex(idx)
-
-        self.sp_width.setValue(float(settings.value("width", 58.0)))
-
-    def save_config(self):
-        settings = QSettings("BarterPlus", "TicketConfig")
-        settings.setValue("printer_name", self.cmb_printer.currentText())
-        settings.setValue("width", self.sp_width.value())
-        QMessageBox.information(self, "Éxito", "Configuración guardada.")
-        self.accept()
 
 class VentasTab(QWidget):
     def __init__(self):
@@ -134,8 +84,6 @@ class VentasTab(QWidget):
         self.box_opciones.addLayout(self.form_pago)
         self.box_opciones.addStretch()
 
-        self.btn_config_ticket = QPushButton("Config. Impresora Ticket")
-        self.btn_config_ticket.clicked.connect(self.abrir_config_ticket)
         self.btn_consulta_rapida = QPushButton("Consultar Precio (F2)")
         self.btn_consulta_rapida.setStyleSheet("padding: 10px; font-weight: bold; background-color: #f39c12; color: white;")
 
@@ -178,9 +126,6 @@ class VentasTab(QWidget):
         self.top_layout.addLayout(self.box_ingreso)
 
         # --- QCompleter SETUP ---
-        self.txt_codigo.installEventFilter(self)
-        self.txt_cantidad.installEventFilter(self)
-        self.btn_buscar.installEventFilter(self)
 
         self.setup_completers()
 
@@ -246,8 +191,15 @@ class VentasTab(QWidget):
 
         # --- CONEXIONES ---
         # --- CONEXIONES ---
-        # self.txt_codigo.returnPressed.connect(self.agregar_al_carrito) # Desactivado: Evita auto-inserción de scanners
+        # # self.txt_codigo.returnPressed.connect(self.agregar_al_carrito) # Disabled
         self.btn_buscar.clicked.connect(self.agregar_al_carrito)
+
+        # Shortcut para el boton agregar carrito con el enter
+        self.shortcut_enter = QShortcut(QKeySequence(Qt.Key.Key_Return), self)
+        self.shortcut_enter.activated.connect(self.on_enter_pressed)
+        self.shortcut_enter2 = QShortcut(QKeySequence(Qt.Key.Key_Enter), self)
+        self.shortcut_enter2.activated.connect(self.on_enter_pressed)
+
 
         # Shortcut para el boton agregar carrito con el enter
         self.tabla.itemChanged.connect(self.modificar_cantidad_grid)
@@ -270,21 +222,18 @@ class VentasTab(QWidget):
 
 
 
-    def abrir_config_ticket(self):
-        dlg = ConfiguracionTicketDialog(self)
-        dlg.exec()
 
-    def eventFilter(self, obj, event):
-        from PyQt6.QtCore import QEvent, Qt
-        if event.type() == QEvent.Type.KeyPress:
-            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                if obj == self.txt_codigo or obj == self.txt_cantidad:
-                    self.focusNextChild()
-                    return True
-                elif obj == self.btn_buscar:
-                    self.btn_buscar.click()
-                    return True
-        return super().eventFilter(obj, event)
+
+
+    def on_enter_pressed(self):
+        # Si el foco esta en el textbox del codigo, IGNORAR (para que el escaner no dispare auto)
+        if self.txt_codigo.hasFocus():
+            # Mover el foco a la cantidad en su lugar
+            self.txt_cantidad.setFocus()
+            self.txt_cantidad.selectAll()
+        else:
+            # En cualquier otro lado, ejecutar agregar_al_carrito
+            self.btn_buscar.click()
 
     def setup_completers(self):
         # Completer Clientes
