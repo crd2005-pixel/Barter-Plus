@@ -124,6 +124,10 @@ class VentasTab(QWidget):
         self.top_layout.addLayout(self.box_ingreso)
 
         # --- QCompleter SETUP ---
+        self.txt_codigo.installEventFilter(self)
+        self.txt_cantidad.installEventFilter(self)
+        self.btn_buscar.installEventFilter(self)
+
         self.setup_completers()
 
         # --- GRILLA DEL CARRITO ---
@@ -192,10 +196,6 @@ class VentasTab(QWidget):
         self.btn_buscar.clicked.connect(self.agregar_al_carrito)
 
         # Shortcut para el boton agregar carrito con el enter
-        self.shortcut_enter_carrito = QShortcut(QKeySequence(Qt.Key.Key_Return), self)
-        self.shortcut_enter_carrito.activated.connect(self.btn_buscar.click)
-        self.shortcut_enter_carrito2 = QShortcut(QKeySequence(Qt.Key.Key_Enter), self)
-        self.shortcut_enter_carrito2.activated.connect(self.btn_buscar.click)
         self.tabla.itemChanged.connect(self.modificar_cantidad_grid)
         self.btn_cobrar.clicked.connect(self.procesar_cobro)
         self.combo_clientes.currentIndexChanged.connect(self.evaluar_cliente)
@@ -213,6 +213,19 @@ class VentasTab(QWidget):
         shortcut_f2.activated.connect(self.consultar_precio_rapido)
 
         self.cargar_clientes()
+
+
+    def eventFilter(self, obj, event):
+        from PyQt6.QtCore import QEvent, Qt
+        if event.type() == QEvent.Type.KeyPress:
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                if obj == self.txt_codigo or obj == self.txt_cantidad:
+                    self.focusNextChild()
+                    return True
+                elif obj == self.btn_buscar:
+                    self.btn_buscar.click()
+                    return True
+        return super().eventFilter(obj, event)
 
     def setup_completers(self):
         # Completer Clientes
@@ -601,7 +614,7 @@ class VentasTab(QWidget):
                 self.actualizar_ui()
 
 
-    def imprimir_ticket(self, venta):
+    def imprimir_ticket(self, venta, detalles_final):
         try:
             from PyQt6.QtPrintSupport import QPrinter
             from PyQt6.QtGui import QPainter, QFont, QPageSize
@@ -669,15 +682,15 @@ class VentasTab(QWidget):
                 y += (2 * ppm)
 
                 # Items
-                for item in venta.detalles:
+                for item in detalles_final:
                     # Nombre
                     rect_item = QRectF(0, y, w_px, fm_body.height())
-                    painter.drawText(rect_item, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, f"{item.cantidad}x {item.producto_nombre}")
+                    painter.drawText(rect_item, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, f"{item['cantidad']}x {item['nombre']}")
                     y += fm_body.height()
 
                     # Precio
                     rect_price = QRectF(0, y, w_px, fm_body.height())
-                    painter.drawText(rect_price, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop, f"${item.subtotal:.2f}")
+                    painter.drawText(rect_price, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop, f"${item['subtotal']:.2f}")
                     y += fm_body.height()
 
                 y += (2 * ppm)
@@ -809,7 +822,7 @@ class VentasTab(QWidget):
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
                 )
                 if reply_print == QMessageBox.StandardButton.Yes:
-                    self.imprimir_ticket(venta)
+                    self.imprimir_ticket(venta, detalles_final)
 
 
                 # Reset
