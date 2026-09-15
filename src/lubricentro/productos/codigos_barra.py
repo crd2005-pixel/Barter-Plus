@@ -12,10 +12,10 @@ from PyQt6.QtCore import Qt, QSettings, QSizeF, QRectF, QTimer, QMarginsF
 from PyQt6.QtGui import QColor, QPainter, QFont, QPen, QBrush, QPageLayout, QPageSize
 from PyQt6.QtPrintSupport import QPrinter, QPrintDialog, QPrintPreviewWidget
 
-from db import SessionLocal
-from db import Producto
+from database.conexion import get_session
+from database.models.producto import Producto
 try:
-    from db.models.productos import Marca
+    from database.models.producto import Marca
 except ImportError:
     Marca = None
 
@@ -602,7 +602,7 @@ class CodigosBarraTab(QWidget):
         self.tbl.setRowCount(0)
         solo_sin = self.chk_solo_sin_codigo.isChecked()
 
-        with SessionLocal() as s:
+        with get_session() as s:
             if Marca:
                 q = s.query(Producto, Marca.nombre).outerjoin(Marca, Producto.marca_id == Marca.id).filter(Producto.activo == True)
             else:
@@ -796,7 +796,7 @@ class CodigosBarraTab(QWidget):
 
     def _asignar_codigos_faltantes(self):
         count = 0
-        with SessionLocal() as s:
+        with get_session() as s:
             prods = s.query(Producto).filter(Producto.activo == True).all()
             for p in prods:
                 if not p.codigo_barras or not p.codigo_barras.strip():
@@ -817,7 +817,7 @@ class CodigosBarraTab(QWidget):
             return
 
         items = []
-        with SessionLocal() as s:
+        with get_session() as s:
             if Marca:
                 q = s.query(Producto, Marca.nombre).outerjoin(Marca, Producto.marca_id == Marca.id).filter(Producto.id.in_(ids))
             else:
