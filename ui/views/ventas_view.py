@@ -645,8 +645,8 @@ class VentasTab(QWidget):
             printer.setPageSize(size)
             printer.setFullPage(True)
 
-            painter = QPainter()
-            if painter.begin(printer):
+            painter = QPainter(printer)
+            if painter.isActive():
                 dpi = printer.resolution()
                 if dpi <= 0: dpi = 96
                 ppm = dpi / 25.4
@@ -731,6 +731,7 @@ class VentasTab(QWidget):
                 painter.drawText(rect_foot, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, "¡Gracias por su compra!")
 
                 painter.end()
+                del painter
                 QMessageBox.information(self, "Imprimir", "Ticket enviado a la impresora.")
         except Exception as e:
             QMessageBox.warning(self, "Error de Impresión", f"No se pudo imprimir el ticket: {e}")

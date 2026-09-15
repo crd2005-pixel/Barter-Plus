@@ -299,10 +299,11 @@ class EtiquetasPreviewDialog(QDialog):
 
         self._apply_printer_config(printer)
 
-        painter = QPainter()
-        if painter.begin(printer):
+        painter = QPainter(printer)
+        if painter.isActive():
             self._draw_labels(painter, printer)
             painter.end()
+            del painter
 
     def _draw_labels(self, painter, printer):
         # Generate flat list of items to print based on quantity
@@ -518,20 +519,24 @@ class EtiquetasPreviewDialog(QDialog):
         if printer_name:
             print_job.setPrinterName(printer_name)
             self._apply_printer_config(print_job)
-            painter = QPainter()
-            if painter.begin(print_job):
+            painter = QPainter(print_job)
+            if painter.isActive():
                 self._draw_labels(painter, print_job)
                 painter.end()
+                del painter
+            del painter
             QMessageBox.information(self, "Impresión", "Enviado a la impresora.")
         else:
             dlg = QPrintDialog(print_job, self)
             if dlg.exec() == int(QDialog.DialogCode.Accepted):
                 self.settings.setValue("printer_name", print_job.printerName())
                 self._apply_printer_config(print_job)
-                painter = QPainter()
-                if painter.begin(print_job):
+                painter = QPainter(print_job)
+                if painter.isActive():
                     self._draw_labels(painter, print_job)
                     painter.end()
+                del painter
+            del painter
 
     def _print_dialog(self):
         print_job = QPrinter(QPrinter.PrinterMode.HighResolution)
@@ -539,10 +544,12 @@ class EtiquetasPreviewDialog(QDialog):
         dlg = QPrintDialog(print_job, self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._apply_printer_config(print_job)
-            painter = QPainter()
-            if painter.begin(print_job):
+            painter = QPainter(print_job)
+            if painter.isActive():
                 self._draw_labels(painter, print_job)
                 painter.end()
+                del painter
+            del painter
 
     def _export_pdf(self):
         filename, _ = QFileDialog.getSaveFileName(self, "Exportar PDF", "", "PDF Files (*.pdf)")
@@ -552,10 +559,12 @@ class EtiquetasPreviewDialog(QDialog):
             self.printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
             self.printer.setOutputFileName(filename)
 
-            painter = QPainter()
-            if painter.begin(self.printer):
+            painter = QPainter(self.printer)
+            if painter.isActive():
                 self._draw_labels(painter, self.printer)
                 painter.end()
+                del painter
+            del painter
             QMessageBox.information(self, "PDF", f"Guardado en {filename}")
 
 
