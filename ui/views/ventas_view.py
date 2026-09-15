@@ -2,7 +2,7 @@ from ui.components.dialogs import FastClientDialog, ItemManualDialog
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit,
     QTableWidget, QTableWidgetItem, QHeaderView, QDateEdit, QLabel, QMessageBox,
-    QComboBox, QFormLayout, QGroupBox, QInputDialog, QSplitter, QSpinBox, QDoubleSpinBox
+    QComboBox, QFormLayout, QGroupBox, QInputDialog, QSplitter, QSpinBox, QDoubleSpinBox, QDialog
 )
 from PyQt6.QtCore import Qt, QDate, QStringListModel
 from PyQt6.QtGui import QFont, QColor, QBrush, QShortcut, QKeySequence
