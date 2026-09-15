@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QTabWidget,
+from PyQt6.QtWidgets import QTabWidget
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QLabel, QComboBox, QRadioButton,
