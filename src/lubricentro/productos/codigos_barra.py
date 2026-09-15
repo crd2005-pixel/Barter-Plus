@@ -19,7 +19,6 @@ try:
 except ImportError:
     Marca = None
 
-from .barcode_utils import get_code128_pattern
 
 
 
@@ -167,16 +166,12 @@ class EtiquetasPreviewDialog(QDialog):
         # 3. Action Buttons
         btn_box = QVBoxLayout()
         hb_print = QHBoxLayout()
+
         self.btn_imprimir_etiqueta = QPushButton("Imprimir")
         self.btn_imprimir_etiqueta.setStyleSheet("font-weight:bold; height: 40px; background-color: #c8e6c9;")
         self.btn_imprimir_etiqueta.clicked.connect(self._print_etiquetas)
 
-        self.btn_print_dialog = QPushButton("Seleccionar Impresora...")
-        self.btn_print_dialog.setStyleSheet("height: 40px; background-color: #e0f7fa;")
-        self.btn_print_dialog.clicked.connect(self._print_dialog)
-
-        hb_print.addWidget(self.btn_print_direct)
-        hb_print.addWidget(self.btn_print_dialog)
+        hb_print.addWidget(self.btn_imprimir_etiqueta)
         btn_box.addLayout(hb_print)
 
         self.btn_pdf = QPushButton("Exportar PDF")
@@ -488,29 +483,39 @@ class EtiquetasPreviewDialog(QDialog):
 
 
     def _draw_bars(self, painter, x, y, w, h, code):
-        pattern = get_code128_pattern(code)
-        if not pattern: return
+        import barcode
+        from barcode.writer import ImageWriter
+        from io import BytesIO
+        from PyQt6.QtGui import QImage, QPixmap
 
-        total_units = sum(int(c) for c in pattern)
-        if total_units == 0: return
+        if code.isdigit() and len(code) in (12, 13):
+            barcode_class = barcode.get_barcode_class('ean13')
+        else:
+            barcode_class = barcode.get_barcode_class('code128')
 
-        unit_w = w / total_units
+        try:
+            writer = ImageWriter()
+            barcode_instance = barcode_class(code, writer=writer)
 
-        curr_x = x
-        is_bar = True
+            options = {
+                'write_text': False,
+                'quiet_zone': 0.0,
+                'format': 'PNG'
+            }
 
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(Qt.GlobalColor.black))
+            fp = BytesIO()
+            barcode_instance.write(fp, options)
 
-        for char in pattern:
-            width_units = int(char)
-            width_px = width_units * unit_w
+            qimg = QImage()
+            qimg.loadFromData(fp.getvalue())
+            pixmap = QPixmap.fromImage(qimg)
 
-            if is_bar:
-                painter.drawRect(QRectF(curr_x, y, width_px, h))
-
-            curr_x += width_px
-            is_bar = not is_bar
+            # To fix the quality/rendering issue reported by the user, we should ensure scaling is smooth or keep exact rect proportions
+            target_rect = QRectF(x, y, w, h)
+            source_rect = QRectF(0, 0, pixmap.width(), pixmap.height())
+            painter.drawPixmap(target_rect, pixmap, source_rect)
+        except Exception as e:
+            print(f"Error drawing barcode: {e}")
 
     def _print_etiquetas(self):
         print_job = QPrinter(QPrinter.PrinterMode.HighResolution)
