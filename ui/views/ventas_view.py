@@ -11,6 +11,58 @@ from services.producto_service import ProductoService
 from services.cliente_service import ClienteService
 from services.venta_service import VentaService
 
+
+class ConfiguracionTicketDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Configurar Impresora de Tickets")
+        self.resize(400, 200)
+
+        layout = QVBoxLayout(self)
+
+        form = QFormLayout()
+        self.cmb_printer = QComboBox()
+
+        # Populate printers
+        from PyQt6.QtPrintSupport import QPrinterInfo
+        printers = QPrinterInfo.availablePrinterNames()
+        self.cmb_printer.addItems(printers)
+
+        self.sp_width = QDoubleSpinBox()
+        self.sp_width.setRange(20, 200)
+        self.sp_width.setSuffix(" mm")
+        self.sp_width.setValue(58.0)
+
+        form.addRow("Impresora:", self.cmb_printer)
+        form.addRow("Ancho Papel:", self.sp_width)
+
+        layout.addLayout(form)
+
+        btn_box = QHBoxLayout()
+        btn_save = QPushButton("Guardar")
+        btn_save.clicked.connect(self.save_config)
+        btn_box.addWidget(btn_save)
+
+        layout.addLayout(btn_box)
+
+        self.load_config()
+
+    def load_config(self):
+        settings = QSettings("BarterPlus", "TicketConfig")
+        printer_name = settings.value("printer_name", "")
+        idx = self.cmb_printer.findText(printer_name)
+        if idx >= 0:
+            self.cmb_printer.setCurrentIndex(idx)
+
+        self.sp_width.setValue(float(settings.value("width", 58.0)))
+
+    def save_config(self):
+        settings = QSettings("BarterPlus", "TicketConfig")
+        settings.setValue("printer_name", self.cmb_printer.currentText())
+        settings.setValue("width", self.sp_width.value())
+        QMessageBox.information(self, "Éxito", "Configuración guardada.")
+        self.accept()
+
 class VentasTab(QWidget):
     def __init__(self):
         super().__init__()
@@ -82,6 +134,8 @@ class VentasTab(QWidget):
         self.box_opciones.addLayout(self.form_pago)
         self.box_opciones.addStretch()
 
+        self.btn_config_ticket = QPushButton("Config. Impresora Ticket")
+        self.btn_config_ticket.clicked.connect(self.abrir_config_ticket)
         self.btn_consulta_rapida = QPushButton("Consultar Precio (F2)")
         self.btn_consulta_rapida.setStyleSheet("padding: 10px; font-weight: bold; background-color: #f39c12; color: white;")
 
@@ -214,6 +268,11 @@ class VentasTab(QWidget):
 
         self.cargar_clientes()
 
+
+
+    def abrir_config_ticket(self):
+        dlg = ConfiguracionTicketDialog(self)
+        dlg.exec()
 
     def eventFilter(self, obj, event):
         from PyQt6.QtCore import QEvent, Qt
@@ -765,12 +824,14 @@ class VentasTab(QWidget):
                 detalles_final = []
                 for item in self.carrito:
                     precio_unitario = item['precio_base'] * 0.9 if self.cliente_vip else item['precio_base']
+                    subtotal = (precio_unitario - item['descuento_unit']) * item['cantidad']
                     detalles_final.append({
                         'producto_id': item['id'],
                         'nombre': item.get('nombre', 'Item'),
                         'cantidad': item['cantidad'],
                         'precio_unitario': precio_unitario,
-                        'descuento_unitario': item['descuento_unit']
+                        'descuento_unitario': item['descuento_unit'],
+                        'subtotal': subtotal
                     })
 
                 # Pass extra data for deferred income
