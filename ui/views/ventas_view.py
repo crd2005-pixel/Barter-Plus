@@ -187,8 +187,15 @@ class VentasTab(QWidget):
         self.layout.addWidget(self.splitter)
 
         # --- CONEXIONES ---
-        self.txt_codigo.returnPressed.connect(self.agregar_al_carrito)
+        # --- CONEXIONES ---
+        # self.txt_codigo.returnPressed.connect(self.agregar_al_carrito) # Desactivado: Evita auto-inserción de scanners
         self.btn_buscar.clicked.connect(self.agregar_al_carrito)
+
+        # Shortcut para el boton agregar carrito con el enter
+        self.shortcut_enter_carrito = QShortcut(QKeySequence(Qt.Key.Key_Return), self)
+        self.shortcut_enter_carrito.activated.connect(self.btn_buscar.click)
+        self.shortcut_enter_carrito2 = QShortcut(QKeySequence(Qt.Key.Key_Enter), self)
+        self.shortcut_enter_carrito2.activated.connect(self.btn_buscar.click)
         self.tabla.itemChanged.connect(self.modificar_cantidad_grid)
         self.btn_cobrar.clicked.connect(self.procesar_cobro)
         self.combo_clientes.currentIndexChanged.connect(self.evaluar_cliente)
