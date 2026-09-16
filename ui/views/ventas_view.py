@@ -718,7 +718,7 @@ class VentasTab(QWidget):
                     fm_body = painter.fontMetrics()
 
                     rect_abonado = QRectF(0, y, w_px, fm_body.height())
-                    painter.drawText(rect_abonado, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop, f"Abonado: ${venta.monto_abonado:.2f}")
+                    painter.drawText(rect_abonado, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop, f"Abonado: ${venta.pago_efectivo:.2f}")
                     y += fm_body.height()
 
                     rect_vuelto = QRectF(0, y, w_px, fm_body.height())
