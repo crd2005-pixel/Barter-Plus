@@ -210,7 +210,7 @@ class TicketPreviewDialog(QDialog):
 
         self.sp_width.setValue(float(self.settings.value("width", 58.0)))
         self.sp_margin_x.setValue(float(self.settings.value("margin_x", 2.0)))
-        self.sp_margin_y.setValue(float(self.settings.value("margin_y", 5.0)))
+        self.sp_margin_y.setValue(float(self.settings.value("margin_y", 2.0)))
         self.sp_font_size.setValue(int(self.settings.value("font_size", 8)))
         self.txt_logo.setText(self.settings.value("logo_path", ""))
         self.txt_address.setText(self.settings.value("address", ""))
@@ -255,8 +255,22 @@ class TicketPreviewDialog(QDialog):
         y += 2 * ppm
         y += fm_b.height() * 2 + (2 * ppm)
         y += 2 * ppm
+
+        # Calculate dynamic height for items including text wrapping
+        from PyQt6.QtCore import QRect
+        from PyQt6.QtCore import Qt
+
+        w_px = w_mm * ppm
+        margin_x_px = self.sp_margin_x.value() * ppm
+        usable_w = w_px - (margin_x_px * 2)
+
         for item in self.detalles_final:
-            y += fm_b.height() * 2
+            nombre_prod = f"{item['cantidad']}x {item['producto_nombre']}"
+            rect = fm_b.boundingRect(QRect(0, 0, int(usable_w), 1000), Qt.TextFlag.TextWordWrap, nombre_prod)
+            y += rect.height()
+            y += fm_b.height() # for price line
+            y += 1 * ppm # spacing
+
         y += 4 * ppm
         y += fm_t.height()
         if self.venta.metodo_pago == "Efectivo":
