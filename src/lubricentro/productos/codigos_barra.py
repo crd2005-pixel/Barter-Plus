@@ -522,8 +522,7 @@ class EtiquetasPreviewDialog(QDialog):
             painter = QPainter(print_job)
             if painter.isActive():
                 self._draw_labels(painter, print_job)
-                painter.end()
-                del painter
+            painter.end()
             del painter
             QMessageBox.information(self, "Impresión", "Enviado a la impresora.")
         else:
@@ -534,9 +533,8 @@ class EtiquetasPreviewDialog(QDialog):
                 painter = QPainter(print_job)
                 if painter.isActive():
                     self._draw_labels(painter, print_job)
-                    painter.end()
+                painter.end()
                 del painter
-            del painter
 
     def _print_dialog(self):
         print_job = QPrinter(QPrinter.PrinterMode.HighResolution)
