@@ -19,8 +19,6 @@ try:
 except ImportError:
     Marca = None
 
-from .barcode_utils import get_code128_pattern
-
 
 
 
@@ -303,7 +301,7 @@ class EtiquetasPreviewDialog(QDialog):
         if painter.isActive():
             self._draw_labels(painter, printer)
             painter.end()
-            del painter
+        del painter
 
     def _draw_labels(self, painter, printer):
         # Generate flat list of items to print based on quantity
@@ -486,29 +484,41 @@ class EtiquetasPreviewDialog(QDialog):
 
 
     def _draw_bars(self, painter, x, y, w, h, code):
-        pattern = get_code128_pattern(code)
-        if not pattern: return
+        import barcode
+        from barcode.writer import ImageWriter
+        from io import BytesIO
+        from PyQt6.QtGui import QImage, QPixmap
 
-        total_units = sum(int(c) for c in pattern)
-        if total_units == 0: return
+        try:
+            barcode_class = barcode.get_barcode_class('ean13')
+            if len(code) == 12 or len(code) == 13:
+                # EAN13 or EAN12 (UPC-A)
+                barcode_instance = barcode_class(code, writer=ImageWriter())
+            else:
+                barcode_class = barcode.get_barcode_class('code128')
+                barcode_instance = barcode_class(code, writer=ImageWriter())
+        except barcode.errors.BarcodeError:
+            barcode_class = barcode.get_barcode_class('code128')
+            barcode_instance = barcode_class(code, writer=ImageWriter())
 
-        unit_w = w / total_units
+        # Generate barcode in memory
+        rv = BytesIO()
+        options = {
+            'write_text': False,
+            'module_width': 0.2,
+            'module_height': 15.0,
+            'quiet_zone': 1.0
+        }
+        barcode_instance.write(rv, options=options)
 
-        curr_x = x
-        is_bar = True
+        rv.seek(0)
+        image_data = rv.read()
 
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(Qt.GlobalColor.black))
-
-        for char in pattern:
-            width_units = int(char)
-            width_px = width_units * unit_w
-
-            if is_bar:
-                painter.drawRect(QRectF(curr_x, y, width_px, h))
-
-            curr_x += width_px
-            is_bar = not is_bar
+        qimage = QImage.fromData(image_data)
+        if not qimage.isNull():
+            # scale image to fit the provided w, h
+            qpixmap = QPixmap.fromImage(qimage)
+            painter.drawPixmap(int(x), int(y), int(w), int(h), qpixmap)
 
     def _print_etiquetas(self):
         print_job = QPrinter(QPrinter.PrinterMode.HighResolution)
@@ -546,7 +556,6 @@ class EtiquetasPreviewDialog(QDialog):
             if painter.isActive():
                 self._draw_labels(painter, print_job)
                 painter.end()
-                del painter
             del painter
 
     def _export_pdf(self):
@@ -561,7 +570,6 @@ class EtiquetasPreviewDialog(QDialog):
             if painter.isActive():
                 self._draw_labels(painter, self.printer)
                 painter.end()
-                del painter
             del painter
             QMessageBox.information(self, "PDF", f"Guardado en {filename}")
 
