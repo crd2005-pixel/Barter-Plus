@@ -109,7 +109,7 @@ class ItemManualDialog(QDialog):
 
 from PyQt6.QtWidgets import QWidget, QSplitter, QComboBox, QDoubleSpinBox, QSpinBox, QFileDialog
 from PyQt6.QtPrintSupport import QPrinter, QPrintPreviewWidget, QPrintDialog
-from PyQt6.QtGui import QPainter, QFont, QPageSize, QPixmap, QFontMetrics
+from PyQt6.QtGui import QPainter, QFont, QPageSize, QPixmap, QFontMetrics, QPageLayout
 from PyQt6.QtCore import QSizeF, QSettings, Qt, QRectF, QTimer, QMarginsF
 import os
 class TicketPreviewDialog(QDialog):
