@@ -264,7 +264,7 @@ class TicketPreviewDialog(QDialog):
         y += 5 * ppm
         y += fm_b.height()
 
-        h_mm = (y / ppm) + 15 # buffer extra para evitar cortes prematuros
+        h_mm = (y / ppm) + 5 # minimum safe buffer
 
         size = QPageSize(QSizeF(w_mm, h_mm), QPageSize.Unit.Millimeter)
         target_printer.setPageSize(size)
@@ -309,6 +309,7 @@ class TicketPreviewDialog(QDialog):
                 painter.drawPixmap(int(lx), int(y), scaled)
                 y += logo_h + (2 * ppm)
 
+        painter.setPen(Qt.GlobalColor.black)
         painter.setFont(font_title)
         box_size = fm_t.height()
         box_x = start_x + (eff_w / 2) - (box_size / 2) - (15 * ppm)
@@ -342,8 +343,11 @@ class TicketPreviewDialog(QDialog):
         y += (2 * ppm)
 
         for item in self.detalles_final:
-            painter.drawText(QRectF(start_x, y, eff_w, fm_b.height()), Qt.AlignmentFlag.AlignLeft, f"{item['cantidad']}x {item['nombre']}")
-            y += fm_b.height()
+            text_rect = QRectF(start_x, y, eff_w, fm_b.height() * 3)
+            text_item = f"{item['cantidad']}x {item['nombre']}"
+            bounding = painter.boundingRect(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, text_item)
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, text_item)
+            y += bounding.height()
             painter.drawText(QRectF(start_x, y, eff_w, fm_b.height()), Qt.AlignmentFlag.AlignRight, f"${item['subtotal']:.2f}")
             y += fm_b.height()
 
