@@ -235,10 +235,11 @@ class TicketConfigDialog(QDialog):
         self.accept()
 
 class TicketPreviewDialog(QDialog):
-    def __init__(self, venta, detalles_final, parent=None):
+    def __init__(self, venta, detalles_final, cliente_nombre, parent=None):
         super().__init__(parent)
         self.venta = venta
         self.detalles_final = detalles_final
+        self.cliente_nombre = cliente_nombre
         self.setWindowTitle("Impresión de Ticket")
         self.resize(500, 700)
 
@@ -336,11 +337,15 @@ class TicketPreviewDialog(QDialog):
                 uri = "file:///" + logo_path.replace("\\", "/")
                 html += f'<div class="center"><img src="{uri}" width="{logo_width}"></div>'
 
+
+
         html += f"""
         <div class="center">
             <div class="title">[X] {leyenda}</div>
         </div>
-        <div class="center bold" style="margin-top: 5px;">Cliente: {self.venta.cliente.nombre if self.venta.cliente else 'Consumidor Final'}</div>
+        <div class="center bold" style="margin-top: 5px;">Cliente: {self.cliente_nombre}</div>
+
+
         <div class="line"></div>
         <div class="left">Venta ID: {self.venta.id}</div>
         <div class="left">Fecha: {self.venta.fecha.strftime('%d/%m/%Y %H:%M')}</div>
@@ -363,11 +368,7 @@ class TicketPreviewDialog(QDialog):
         <div class="right title">TOTAL: ${self.venta.total:.2f}</div>
         """
 
-        if self.venta.metodo_pago == "Efectivo":
-            html += f"""
-            <div class="right">Abonado: ${self.venta.pago_efectivo:.2f}</div>
-            <div class="right">Vuelto: ${self.venta.vuelto:.2f}</div>
-            """
+
 
         html += f"""
         <br>
@@ -384,7 +385,7 @@ class TicketPreviewDialog(QDialog):
             html += "</div><br>"
 
         html += f"""
-        <div class="center">¡Gracias por su compra!</div>
+        <div class="center">¡Lo esperamos nuevamente!</div>
         <br><br>
         </body>
         </html>
@@ -395,50 +396,40 @@ class TicketPreviewDialog(QDialog):
     def paint_preview(self, printer):
         from PyQt6.QtGui import QTextDocument, QPainter
         from PyQt6.QtCore import QSizeF, QRectF
+        from PyQt6.QtPrintSupport import QPrinter
 
         # Load user settings
         w_mm = float(self.settings.value("width", 78.0))
         margin_x_mm = float(self.settings.value("margin_x", 2.0))
         margin_y_mm = float(self.settings.value("margin_y", 2.0))
-        min_h_mm = float(self.settings.value("height_mm", 130.0))
 
-        # Initial printer setup
-        initial_size = QPageSize(QSizeF(w_mm, min_h_mm), QPageSize.Unit.Millimeter, "", QPageSize.SizeMatchPolicy.ExactMatch)
-        printer.setPageSize(initial_size)
+        # STRICT MATH FOR THERMAL PRINTER TO PREVENT SPOOLER AUTO-TEST CRASH
+        # 40mm header + (10mm per item) + 40mm footer
+        num_items = len(self.detalles_final) if self.detalles_final else 0
+        h_mm = 40.0 + (num_items * 10.0) + 40.0
+
+        # Configure printer dimensions safely
+        final_size = QPageSize(QSizeF(w_mm, h_mm), QPageSize.Unit.Millimeter, "", QPageSize.SizeMatchPolicy.ExactMatch)
+        printer.setPageSize(final_size)
         printer.setFullPage(True)
         printer.setPageMargins(QMarginsF(margin_x_mm, margin_y_mm, margin_x_mm, margin_y_mm), QPageLayout.Unit.Millimeter)
 
+        # Prepare Document
         doc = QTextDocument()
-        doc.setDocumentMargin(0) # Prevent internal padding
+        doc.setDocumentMargin(0)
         doc.setHtml(self._generate_html())
 
         printable_rect = printer.pageLayout().paintRectPixels(printer.resolution())
         doc.setTextWidth(printable_rect.width())
 
-        doc_height_pixels = doc.size().height()
-
-        dynamic_h_mm = (doc_height_pixels / printer.resolution()) * 25.4
-        dynamic_h_mm += 20.0
-
-        h_mm = max(dynamic_h_mm, min_h_mm)
-
-        # Final printer setup
-        final_size = QPageSize(QSizeF(w_mm, h_mm), QPageSize.Unit.Millimeter, "", QPageSize.SizeMatchPolicy.ExactMatch)
-        printer.setPageSize(final_size)
-        # Re-apply margins after changing size, as Qt often resets them
-        printer.setPageMargins(QMarginsF(margin_x_mm, margin_y_mm, margin_x_mm, margin_y_mm), QPageLayout.Unit.Millimeter)
-
-        # Use QPainter to draw contents directly, preventing Qt from injecting page numbers
+        # Render perfectly bounded
         painter = QPainter()
         if painter.begin(printer):
-            # Translate coordinates to account for margins manually if setFullPage(True) overrides them
-            # paintRectPixels gives us the area inside the margins
-            final_paint_rect = printer.pageLayout().paintRectPixels(printer.resolution())
+            painter.translate(printable_rect.x(), printable_rect.y())
+            # HARD CLIP to prevent single-pixel overflow from crashing the spool driver
+            painter.setClipRect(0, 0, int(printable_rect.width()), int(printable_rect.height()))
 
-            painter.translate(final_paint_rect.x(), final_paint_rect.y())
-
-            # Draw HTML document
-            doc.drawContents(painter, QRectF(0, 0, final_paint_rect.width(), final_paint_rect.height()))
+            doc.drawContents(painter, QRectF(0, 0, printable_rect.width(), printable_rect.height()))
 
             painter.end()
             del painter
