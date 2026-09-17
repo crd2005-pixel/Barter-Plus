@@ -271,15 +271,27 @@ class TicketPreviewDialog(QDialog):
         # Para HTML en mm, usualmente es mejor usar el width 100% y manejar el tamano via printer
 
         fs = int(self.settings.value("font_size", 10))
+
         fs_title = int(fs * 1.5)
 
+        # Scale font sizes for HighResolution DPI
+        # A standard point is 1/72 of an inch. We will use the font size as a logical unit
+        # and scale it based on printer's likely DPI ratio relative to standard screen (96).
+        # We'll just define the style directly using standard pt. In QPrinter Native Format, it should theoretically scale.
+        # However, due to HighResolution bug, sometimes we need an explicit larger size if it's too small.
+        # We will use pt, but if it looks tiny on the user's screen, we might need a large multiplier.
+        # But wait! If we do `doc.setDefaultFont()` we can pass a QFont with a point size that is aware of the device!
+        # Let's just fix the `doc.setTextWidth()` first and use `font-size: {fs}pt;`.
+
         address = self.settings.value("address", "")
+
         phone = self.settings.value("phone", "")
         leyenda = self.venta.tipo_comprobante if self.venta.tipo_comprobante else "Remito"
         logo_path = self.settings.value("logo_path", "")
 
 
         spacing = float(self.settings.value("spacing", 1.5))
+
 
         html = f"""
         <html>
@@ -289,9 +301,7 @@ class TicketPreviewDialog(QDialog):
                 font-family: 'Arial', sans-serif;
                 font-size: {fs}pt;
                 color: black;
-                margin-top: 15px; /* Added spacing at the top */
-                margin-left: 5px;
-                margin-right: 5px;
+                margin: 0;
                 padding: 0;
                 line-height: {spacing};
             }}
@@ -372,38 +382,45 @@ class TicketPreviewDialog(QDialog):
         from PyQt6.QtGui import QTextDocument
         from PyQt6.QtCore import QSizeF
 
+        # Load user settings
         w_mm = float(self.settings.value("width", 78.0))
         margin_x_mm = float(self.settings.value("margin_x", 2.0))
         margin_y_mm = float(self.settings.value("margin_y", 2.0))
+        min_h_mm = float(self.settings.value("height_mm", 130.0))
 
-        # Configure printer for continuous paper
+        # We start with the minimum size to give the printer an initial canvas
+        initial_size = QPageSize(QSizeF(w_mm, min_h_mm), QPageSize.Unit.Millimeter, "", QPageSize.SizeMatchPolicy.ExactMatch)
+        printer.setPageSize(initial_size)
         printer.setFullPage(True)
         printer.setPageMargins(QMarginsF(margin_x_mm, margin_y_mm, margin_x_mm, margin_y_mm), QPageLayout.Unit.Millimeter)
 
         doc = QTextDocument()
         doc.setHtml(self._generate_html())
 
-        # QTextDocument uses logical pixels for layout (96 DPI standard)
-        logical_dpi = 96.0
-        printable_width_mm = w_mm - (margin_x_mm * 2)
-        printable_width_px = (printable_width_mm / 25.4) * logical_dpi
+        # IMPORTANT: Instead of manually calculating pixels and DPI which is error-prone,
+        # simply tell QTextDocument to use the printer's page layout width.
+        # By setting the exact printable width (pageRect width minus margins natively calculated by Qt),
+        # QTextDocument will wrap the text perfectly according to the physical paper size.
+        printable_rect = printer.pageLayout().paintRectPixels(printer.resolution())
+        doc.setTextWidth(printable_rect.width())
 
-        doc.setTextWidth(printable_width_px)
+        # Now query the exact height needed by the document to render all text without cutting it
+        doc_height_pixels = doc.size().height()
 
-        # Calculate dynamic height based on document content layout
-        doc_height_px = doc.size().height()
-        dynamic_h_mm = (doc_height_px / logical_dpi) * 25.4
-        dynamic_h_mm += 20.0 # Margen inferior de corte (20mm)
+        # Convert the pixel height back to physical millimeters based on the printer's resolution
+        dynamic_h_mm = (doc_height_pixels / printer.resolution()) * 25.4
 
-        # Minimum height configurable by user
-        min_h_mm = float(self.settings.value("height_mm", 130.0))
+        # Add a comfortable cutting margin at the bottom (e.g. 20mm)
+        dynamic_h_mm += 20.0
+
+        # Final height ensures the paper is at least min_h_mm long
         h_mm = max(dynamic_h_mm, min_h_mm)
 
-        # Set exact custom size on the printer
-        size = QPageSize(QSizeF(w_mm, h_mm), QPageSize.Unit.Millimeter, "", QPageSize.SizeMatchPolicy.ExactMatch)
-        printer.setPageSize(size)
+        # Finally, update the printer page size to match the true height
+        final_size = QPageSize(QSizeF(w_mm, h_mm), QPageSize.Unit.Millimeter, "", QPageSize.SizeMatchPolicy.ExactMatch)
+        printer.setPageSize(final_size)
 
-        # Print scaling is automatically handled by QPrinter/QTextDocument
+        # Print directly
         doc.print(printer)
 
 
