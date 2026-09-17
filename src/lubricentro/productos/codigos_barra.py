@@ -484,8 +484,13 @@ class EtiquetasPreviewDialog(QDialog):
 
 
     def _draw_bars(self, painter, x, y, w, h, code):
-        import barcode
-        from barcode.writer import ImageWriter
+        try:
+            import barcode
+            from barcode.writer import ImageWriter
+        except ImportError:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(None, "Error de Dependencia", "Falta instalar 'python-barcode'.\nEjecute: pip install python-barcode")
+            return
         from io import BytesIO
         from PyQt6.QtGui import QImage, QPixmap
 
