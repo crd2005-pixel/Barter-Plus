@@ -379,8 +379,8 @@ class TicketPreviewDialog(QDialog):
         return html
 
     def paint_preview(self, printer):
-        from PyQt6.QtGui import QTextDocument
-        from PyQt6.QtCore import QSizeF
+        from PyQt6.QtGui import QTextDocument, QPainter
+        from PyQt6.QtCore import QSizeF, QRectF
 
         # Load user settings
         w_mm = float(self.settings.value("width", 78.0))
@@ -388,40 +388,46 @@ class TicketPreviewDialog(QDialog):
         margin_y_mm = float(self.settings.value("margin_y", 2.0))
         min_h_mm = float(self.settings.value("height_mm", 130.0))
 
-        # We start with the minimum size to give the printer an initial canvas
+        # Initial printer setup
         initial_size = QPageSize(QSizeF(w_mm, min_h_mm), QPageSize.Unit.Millimeter, "", QPageSize.SizeMatchPolicy.ExactMatch)
         printer.setPageSize(initial_size)
         printer.setFullPage(True)
         printer.setPageMargins(QMarginsF(margin_x_mm, margin_y_mm, margin_x_mm, margin_y_mm), QPageLayout.Unit.Millimeter)
 
         doc = QTextDocument()
+        doc.setDocumentMargin(0) # Prevent internal padding
         doc.setHtml(self._generate_html())
 
-        # IMPORTANT: Instead of manually calculating pixels and DPI which is error-prone,
-        # simply tell QTextDocument to use the printer's page layout width.
-        # By setting the exact printable width (pageRect width minus margins natively calculated by Qt),
-        # QTextDocument will wrap the text perfectly according to the physical paper size.
         printable_rect = printer.pageLayout().paintRectPixels(printer.resolution())
         doc.setTextWidth(printable_rect.width())
 
-        # Now query the exact height needed by the document to render all text without cutting it
         doc_height_pixels = doc.size().height()
 
-        # Convert the pixel height back to physical millimeters based on the printer's resolution
         dynamic_h_mm = (doc_height_pixels / printer.resolution()) * 25.4
-
-        # Add a comfortable cutting margin at the bottom (e.g. 20mm)
         dynamic_h_mm += 20.0
 
-        # Final height ensures the paper is at least min_h_mm long
         h_mm = max(dynamic_h_mm, min_h_mm)
 
-        # Finally, update the printer page size to match the true height
+        # Final printer setup
         final_size = QPageSize(QSizeF(w_mm, h_mm), QPageSize.Unit.Millimeter, "", QPageSize.SizeMatchPolicy.ExactMatch)
         printer.setPageSize(final_size)
+        # Re-apply margins after changing size, as Qt often resets them
+        printer.setPageMargins(QMarginsF(margin_x_mm, margin_y_mm, margin_x_mm, margin_y_mm), QPageLayout.Unit.Millimeter)
 
-        # Print directly
-        doc.print(printer)
+        # Use QPainter to draw contents directly, preventing Qt from injecting page numbers
+        painter = QPainter()
+        if painter.begin(printer):
+            # Translate coordinates to account for margins manually if setFullPage(True) overrides them
+            # paintRectPixels gives us the area inside the margins
+            final_paint_rect = printer.pageLayout().paintRectPixels(printer.resolution())
+
+            painter.translate(final_paint_rect.x(), final_paint_rect.y())
+
+            # Draw HTML document
+            doc.drawContents(painter, QRectF(0, 0, final_paint_rect.width(), final_paint_rect.height()))
+
+            painter.end()
+            del painter
 
 
 
