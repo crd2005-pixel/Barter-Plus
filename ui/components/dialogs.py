@@ -129,6 +129,12 @@ class TicketConfigDialog(QDialog):
         self.sp_width.setRange(20, 200)
         self.sp_width.setSuffix(" mm")
 
+        self.sp_height = QDoubleSpinBox()
+        self.sp_height.setRange(20, 500)
+        self.sp_height.setSuffix(" mm")
+        self.sp_height.setToolTip("Largo de Papel (min: 130mm)")
+
+
         self.sp_margin_x = QDoubleSpinBox()
         self.sp_margin_x.setRange(0, 50)
         self.sp_margin_x.setSuffix(" mm")
@@ -156,7 +162,10 @@ class TicketConfigDialog(QDialog):
         self.txt_phone = QLineEdit()
 
         layout.addRow("Impresora:", self.cmb_printer)
+
         layout.addRow("Ancho Papel:", self.sp_width)
+        layout.addRow("Largo Papel:", self.sp_height)
+
         layout.addRow("Margen X:", self.sp_margin_x)
         layout.addRow("Margen Y:", self.sp_margin_y)
         layout.addRow("Interlineado:", self.sp_spacing)
@@ -188,7 +197,10 @@ class TicketConfigDialog(QDialog):
         val_x = self.settings.value("margin_x", 2.0)
         val_y = self.settings.value("margin_y", 2.0)
 
+
         self.sp_width.setValue(float(self.settings.value("width", 78.0)))
+        self.sp_height.setValue(float(self.settings.value("height_mm", 130.0)))
+
         self.sp_margin_x.setValue(float(val_x))
         self.sp_margin_y.setValue(float(val_y))
         self.sp_spacing.setValue(float(self.settings.value("spacing", 1.0)))
@@ -199,7 +211,10 @@ class TicketConfigDialog(QDialog):
 
     def save_and_close(self):
         self.settings.setValue("printer_name", self.cmb_printer.currentText())
+
         self.settings.setValue("width", self.sp_width.value())
+        self.settings.setValue("height_mm", self.sp_height.value())
+
         self.settings.setValue("margin_x", self.sp_margin_x.value())
         self.settings.setValue("margin_y", self.sp_margin_y.value())
         self.settings.setValue("spacing", self.sp_spacing.value())
@@ -371,7 +386,12 @@ class TicketPreviewDialog(QDialog):
 
         # The document height in pixels
         doc_height_px = doc.size().height()
-        h_mm = (doc_height_px / ppm) + 20.0 # Margen inferior de corte
+        dynamic_h_mm = (doc_height_px / ppm) + 20.0 # Margen inferior de corte
+
+        # Apply the configured minimum height (default 130mm as requested)
+        min_h_mm = float(self.settings.value("height_mm", 130.0))
+        h_mm = max(dynamic_h_mm, min_h_mm)
+
 
 
         # Set exact custom size
@@ -379,7 +399,7 @@ class TicketPreviewDialog(QDialog):
         printer.setPageSize(size)
 
         # Set document page size to match printer page size to avoid pagination
-        doc.setPageSize(QSizeF(printable_width, doc_height_px + (20.0 * ppm)))
+        doc.setPageSize(QSizeF(printable_width, h_mm * ppm))
 
         doc.print(printer)
 
