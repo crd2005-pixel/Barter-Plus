@@ -269,7 +269,8 @@ class TicketPreviewDialog(QDialog):
     def _generate_html(self):
         w_mm = float(self.settings.value("width", 78.0))
         # Para HTML en mm, usualmente es mejor usar el width 100% y manejar el tamano via printer
-        fs = int(self.settings.value("font_size", 8))
+
+        fs = int(self.settings.value("font_size", 10))
         fs_title = int(fs * 1.5)
 
         address = self.settings.value("address", "")
@@ -398,14 +399,11 @@ class TicketPreviewDialog(QDialog):
         min_h_mm = float(self.settings.value("height_mm", 130.0))
         h_mm = max(dynamic_h_mm, min_h_mm)
 
-
         # Set exact custom size on the printer
         size = QPageSize(QSizeF(w_mm, h_mm), QPageSize.Unit.Millimeter, "", QPageSize.SizeMatchPolicy.ExactMatch)
         printer.setPageSize(size)
 
-        # Set document page size to match printer page size to avoid pagination
-        doc.setPageSize(QSizeF(printable_width_px, doc_height_px + (20.0 * logical_dpi / 25.4)))
-
+        # Print scaling is automatically handled by QPrinter/QTextDocument
         doc.print(printer)
 
 
