@@ -277,6 +277,9 @@ class TicketPreviewDialog(QDialog):
         leyenda = self.venta.tipo_comprobante if self.venta.tipo_comprobante else "Remito"
         logo_path = self.settings.value("logo_path", "")
 
+
+        spacing = float(self.settings.value("spacing", 1.5))
+
         html = f"""
         <html>
         <head>
@@ -285,8 +288,11 @@ class TicketPreviewDialog(QDialog):
                 font-family: 'Arial', sans-serif;
                 font-size: {fs}pt;
                 color: black;
-                margin: 0;
+                margin-top: 15px; /* Added spacing at the top */
+                margin-left: 5px;
+                margin-right: 5px;
                 padding: 0;
+                line-height: {spacing};
             }}
             .center {{ text-align: center; }}
             .right {{ text-align: right; }}
@@ -295,12 +301,13 @@ class TicketPreviewDialog(QDialog):
             .title {{ font-size: {fs_title}pt; font-weight: bold; margin-bottom: 5px; }}
             .line {{ border-bottom: 1px solid black; margin: 10px 0; }}
             table {{ width: 100%; border-collapse: collapse; }}
-            td {{ vertical-align: top; padding: 2px 0; }}
+            td {{ vertical-align: top; padding: 4px 0; }}
             .logo {{ max-height: 100px; max-width: 80%; display: block; margin: 0 auto 10px auto; }}
         </style>
         </head>
         <body>
         """
+
 
         if logo_path:
             # HTML doesn't reliably load local absolute paths in QTextDocument without specific resource loading,
@@ -361,7 +368,6 @@ class TicketPreviewDialog(QDialog):
         return html
 
     def paint_preview(self, printer):
-        # En html no calculamos la altura a mano, dejamos que el documento se dimensione solo
         from PyQt6.QtGui import QTextDocument
         from PyQt6.QtCore import QSizeF
 
@@ -369,39 +375,40 @@ class TicketPreviewDialog(QDialog):
         margin_x_mm = float(self.settings.value("margin_x", 2.0))
         margin_y_mm = float(self.settings.value("margin_y", 2.0))
 
-        # Configurar impresora para papel continuo
+        # Configure printer for continuous paper
         printer.setFullPage(True)
         printer.setPageMargins(QMarginsF(margin_x_mm, margin_y_mm, margin_x_mm, margin_y_mm), QPageLayout.Unit.Millimeter)
 
         doc = QTextDocument()
         doc.setHtml(self._generate_html())
 
-        # Calculate dynamic height based on document size
-        # We set the document width to the printable area in pixels
-        dpi = printer.resolution()
-        ppm = dpi / 25.4
-        printable_width = (w_mm - margin_x_mm * 2) * ppm
+        # QTextDocument uses logical pixels for layout (96 DPI standard)
+        logical_dpi = 96.0
+        printable_width_mm = w_mm - (margin_x_mm * 2)
+        printable_width_px = (printable_width_mm / 25.4) * logical_dpi
 
-        doc.setTextWidth(printable_width)
+        doc.setTextWidth(printable_width_px)
 
-        # The document height in pixels
+        # Calculate dynamic height based on document content layout
         doc_height_px = doc.size().height()
-        dynamic_h_mm = (doc_height_px / ppm) + 20.0 # Margen inferior de corte
+        dynamic_h_mm = (doc_height_px / logical_dpi) * 25.4
+        dynamic_h_mm += 20.0 # Margen inferior de corte (20mm)
 
-        # Apply the configured minimum height (default 130mm as requested)
+        # Minimum height configurable by user
         min_h_mm = float(self.settings.value("height_mm", 130.0))
         h_mm = max(dynamic_h_mm, min_h_mm)
 
 
-
-        # Set exact custom size
+        # Set exact custom size on the printer
         size = QPageSize(QSizeF(w_mm, h_mm), QPageSize.Unit.Millimeter, "", QPageSize.SizeMatchPolicy.ExactMatch)
         printer.setPageSize(size)
 
         # Set document page size to match printer page size to avoid pagination
-        doc.setPageSize(QSizeF(printable_width, h_mm * ppm))
+        doc.setPageSize(QSizeF(printable_width_px, doc_height_px + (20.0 * logical_dpi / 25.4)))
 
         doc.print(printer)
+
+
 
 
     def imprimir(self):
