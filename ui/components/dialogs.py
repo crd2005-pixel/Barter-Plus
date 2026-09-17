@@ -151,6 +151,11 @@ class TicketConfigDialog(QDialog):
         self.sp_font_size = QSpinBox()
         self.sp_font_size.setRange(5, 30)
 
+        self.sp_logo_width = QSpinBox()
+        self.sp_logo_width.setRange(10, 500)
+        self.sp_logo_width.setSuffix(" px")
+        self.sp_logo_width.setToolTip("Ancho del Logo en pixeles")
+
         self.txt_logo = QLineEdit()
         self.btn_logo = QPushButton("...")
         self.btn_logo.clicked.connect(self.browse_logo)
@@ -170,6 +175,7 @@ class TicketConfigDialog(QDialog):
         layout.addRow("Margen Y:", self.sp_margin_y)
         layout.addRow("Interlineado:", self.sp_spacing)
         layout.addRow("Tamaño Fuente:", self.sp_font_size)
+        layout.addRow("Ancho Logo:", self.sp_logo_width)
         layout.addRow("Logo:", lay_logo)
         layout.addRow("Dirección:", self.txt_address)
         layout.addRow("Teléfono:", self.txt_phone)
@@ -205,6 +211,7 @@ class TicketConfigDialog(QDialog):
         self.sp_margin_y.setValue(float(val_y))
         self.sp_spacing.setValue(float(self.settings.value("spacing", 1.0)))
         self.sp_font_size.setValue(int(self.settings.value("font_size", 8)))
+        self.sp_logo_width.setValue(int(self.settings.value("logo_width", 150)))
         self.txt_logo.setText(self.settings.value("logo_path", ""))
         self.txt_address.setText(self.settings.value("address", ""))
         self.txt_phone.setText(self.settings.value("phone", ""))
@@ -219,6 +226,7 @@ class TicketConfigDialog(QDialog):
         self.settings.setValue("margin_y", self.sp_margin_y.value())
         self.settings.setValue("spacing", self.sp_spacing.value())
         self.settings.setValue("font_size", self.sp_font_size.value())
+        self.settings.setValue("logo_width", self.sp_logo_width.value())
         self.settings.setValue("logo_path", self.txt_logo.text())
         self.settings.setValue("address", self.txt_address.text())
         self.settings.setValue("phone", self.txt_phone.text())
@@ -320,27 +328,19 @@ class TicketPreviewDialog(QDialog):
         """
 
 
+        logo_width = int(self.settings.value("logo_width", 150))
+
         if logo_path:
-            # HTML doesn't reliably load local absolute paths in QTextDocument without specific resource loading,
-            # but we can try file:///
             import os
             if os.path.exists(logo_path):
-                # Format to file URI
                 uri = "file:///" + logo_path.replace("\\", "/")
-                html += f'<div class="center"><img src="{uri}" width="150"></div>'
+                html += f'<div class="center"><img src="{uri}" width="{logo_width}"></div>'
 
         html += f"""
         <div class="center">
             <div class="title">[X] {leyenda}</div>
-        """
-
-        if address:
-            html += f"<div>{address}</div>"
-        if phone:
-            html += f"<div>{phone}</div>"
-
-        html += f"""
         </div>
+        <div class="center bold" style="margin-top: 5px;">Cliente: {self.venta.cliente.nombre if self.venta.cliente else 'Consumidor Final'}</div>
         <div class="line"></div>
         <div class="left">Venta ID: {self.venta.id}</div>
         <div class="left">Fecha: {self.venta.fecha.strftime('%d/%m/%Y %H:%M')}</div>
@@ -370,13 +370,27 @@ class TicketPreviewDialog(QDialog):
             """
 
         html += f"""
-        <br><br>
+        <br>
+        <div class="center" style="font-size: {int(fs*0.8)}pt;">ESTE COMPROBANTE NO ES VÁLIDO COMO FACTURA</div>
+        <br>
+        """
+
+        if address or phone:
+            html += "<div class='center' style='margin-top: 10px;'>"
+            if address:
+                html += f"<div>{address}</div>"
+            if phone:
+                html += f"<div>{phone}</div>"
+            html += "</div><br>"
+
+        html += f"""
         <div class="center">¡Gracias por su compra!</div>
-        <br><br><br>
+        <br><br>
         </body>
         </html>
         """
         return html
+
 
     def paint_preview(self, printer):
         from PyQt6.QtGui import QTextDocument, QPainter
