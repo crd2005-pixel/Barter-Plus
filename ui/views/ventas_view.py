@@ -721,7 +721,7 @@ class VentasTab(QWidget):
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
                 )
                 if reply_print == QMessageBox.StandardButton.Yes:
-                    cliente_seleccionado = self.cmb_cliente.currentText()
+                    cliente_seleccionado = self.combo_clientes.currentText()
                     if not cliente_seleccionado or "Consumidor Final" in cliente_seleccionado:
                         cliente_seleccionado = "Consumidor Final"
                     dlg = TicketPreviewDialog(venta, detalles_final, cliente_seleccionado, self)
