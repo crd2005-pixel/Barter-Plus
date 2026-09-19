@@ -61,6 +61,12 @@ class EtiquetasPreviewDialog(QDialog):
         self.cmb_mode = QComboBox()
         self.cmb_mode.addItems(["A4 (Grilla)", "Rollo / Térmica (Individual)"])
 
+        # Printer selector
+        self.cmb_printer = QComboBox()
+        from PyQt6.QtPrintSupport import QPrinterInfo
+        printers = [p.printerName() for p in QPrinterInfo.availablePrinters()]
+        self.cmb_printer.addItems(printers)
+
         # Dimensions
         hb_dim = QHBoxLayout()
         self.sp_width = QDoubleSpinBox(); self.sp_width.setRange(10, 300); self.sp_width.setSuffix(" mm"); self.sp_width.setToolTip("Ancho")
@@ -87,6 +93,7 @@ class EtiquetasPreviewDialog(QDialog):
         self.chk_precio = QCheckBox("Precio")
 
         # Layout Config
+        form.addRow("Impresora:", self.cmb_printer)
         form.addRow("Modo:", self.cmb_mode)
         form.addRow("Tamaño:", hb_dim)
         form.addRow("Desfase (Centro):", hb_off)
@@ -173,6 +180,7 @@ class EtiquetasPreviewDialog(QDialog):
         self.chk_precio.setChecked(self.settings.value("show_precio", False, type=bool))
 
     def _save_settings(self):
+        self.settings.setValue("printer_name", self.cmb_printer.currentText())
         self.settings.setValue("mode", self.cmb_mode.currentText())
         self.settings.setValue("width", self.sp_width.value())
         self.settings.setValue("height", self.sp_height.value())
@@ -480,20 +488,17 @@ class EtiquetasPreviewDialog(QDialog):
         print_job = QPrinter(QPrinter.PrinterMode.HighResolution)
         print_job.setOutputFormat(QPrinter.OutputFormat.NativeFormat)
 
-        printer_name = self.settings.value("printer_name", "")
+        printer_name = self.cmb_printer.currentText()
         if printer_name:
             print_job.setPrinterName(printer_name)
 
-        dlg = QPrintDialog(print_job, self)
-        if dlg.exec() == int(QDialog.DialogCode.Accepted):
-            self.settings.setValue("printer_name", print_job.printerName())
-            self._apply_printer_config(print_job)
-            painter = QPainter(print_job)
-            if painter.isActive():
-                self._draw_labels(painter, print_job)
-            painter.end()
-            del painter
-            QMessageBox.information(self, "Impresión", "Enviado a la impresora.")
+        self._apply_printer_config(print_job)
+        painter = QPainter(print_job)
+        if painter.isActive():
+            self._draw_labels(painter, print_job)
+        painter.end()
+        del painter
+        QMessageBox.information(self, "Impresión", "Enviado a la impresora.")
 
     def _print_dialog(self):
         print_job = QPrinter(QPrinter.PrinterMode.HighResolution)
