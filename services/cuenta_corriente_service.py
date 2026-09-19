@@ -7,11 +7,22 @@ class CuentaCorrienteService:
     @staticmethod
     def obtener_historial_cliente(cliente_id: int):
         with get_session() as session:
+            # Consulta plana a la tabla, sin joins
             movimientos = session.query(ClienteCuentaCorriente).filter(
                 ClienteCuentaCorriente.cliente_id == cliente_id
             ).order_by(ClienteCuentaCorriente.fecha.asc()).all()
-            session.expunge_all()
-            return movimientos
+
+            # Devolver diccionarios puros evita que la UI intente lazy_loading accidental
+            # de relaciones como 'venta.detalles' (que multiplicaría resultados en vistas)
+            return [{
+                "id": m.id,
+                "fecha": m.fecha,
+                "concepto": m.concepto,
+                "debe": m.debe,
+                "haber": m.haber,
+                "saldo": m.saldo,
+                "venta_id": m.venta_id
+            } for m in movimientos]
 
     @staticmethod
     def obtener_saldo_cliente(cliente_id: int) -> float:
@@ -57,8 +68,16 @@ class CuentaCorrienteService:
             movimientos = session.query(ProveedorCuentaCorriente).filter(
                 ProveedorCuentaCorriente.proveedor_id == proveedor_id
             ).order_by(ProveedorCuentaCorriente.fecha.asc()).all()
-            session.expunge_all()
-            return movimientos
+
+            return [{
+                "id": m.id,
+                "fecha": m.fecha,
+                "concepto": m.concepto,
+                "debe": m.debe,
+                "haber": m.haber,
+                "saldo": m.saldo,
+                "fecha_vencimiento": m.fecha_vencimiento
+            } for m in movimientos]
 
     @staticmethod
     def obtener_saldo_proveedor(proveedor_id: int) -> float:

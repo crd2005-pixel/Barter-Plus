@@ -42,6 +42,7 @@ class TabCuentasBase(QWidget):
         self.table.setHorizontalHeaderLabels(["Fecha", "Concepto", "Debe", "Haber", "Saldo"])
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.table.setAlternatingRowColors(True)
+        self.table.cellDoubleClicked.connect(self._mostrar_detalle_movimiento)
         layout.addWidget(self.table)
 
         # Botón Acción
@@ -90,15 +91,18 @@ class TabCuentasBase(QWidget):
 
         self.table.setRowCount(len(movimientos))
         for r, m in enumerate(movimientos):
-            self.table.setItem(r, 0, QTableWidgetItem(m.fecha.strftime("%d/%m/%Y %H:%M")))
-            self.table.setItem(r, 1, QTableWidgetItem(m.concepto))
-            self.table.setItem(r, 2, QTableWidgetItem(f"$ {m.debe:.2f}"))
-            self.table.setItem(r, 3, QTableWidgetItem(f"$ {m.haber:.2f}"))
+            item_fecha = QTableWidgetItem(m['fecha'].strftime("%d/%m/%Y %H:%M"))
+            if 'venta_id' in m and m['venta_id']:
+                item_fecha.setData(Qt.ItemDataRole.UserRole, m['venta_id'])
+            self.table.setItem(r, 0, item_fecha)
+            self.table.setItem(r, 1, QTableWidgetItem(m['concepto']))
+            self.table.setItem(r, 2, QTableWidgetItem(f"$ {m['debe']:.2f}"))
+            self.table.setItem(r, 3, QTableWidgetItem(f"$ {m['haber']:.2f}"))
 
-            item_saldo = QTableWidgetItem(f"$ {m.saldo:.2f}")
-            if m.saldo > 0:
+            item_saldo = QTableWidgetItem(f"$ {m['saldo']:.2f}")
+            if m['saldo'] > 0:
                 item_saldo.setForeground(Qt.GlobalColor.red)
-            elif m.saldo < 0:
+            elif m['saldo'] < 0:
                 item_saldo.setForeground(Qt.GlobalColor.darkGreen)
 
             self.table.setItem(r, 4, item_saldo)
@@ -106,6 +110,38 @@ class TabCuentasBase(QWidget):
         color_saldo = "red" if saldo_actual > 0 else ("green" if saldo_actual < 0 else "#2E86C1")
         self.lbl_saldo.setText(f"Saldo Actual: $ {saldo_actual:.2f}")
         self.lbl_saldo.setStyleSheet(f"font-size: 28px; font-weight: bold; color: {color_saldo}; margin: 15px 0;")
+
+    def _mostrar_detalle_movimiento(self, row, col):
+        item_fecha = self.table.item(row, 0)
+        if not item_fecha: return
+        venta_id = item_fecha.data(Qt.ItemDataRole.UserRole)
+        if not venta_id: return
+
+        from PyQt6.QtWidgets import QDialog, QTableWidget, QTableWidgetItem, QVBoxLayout, QHeaderView
+        from database.conexion import get_session
+        from database.models.venta import DetalleVenta
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Detalle de Venta #{venta_id}")
+        dlg.resize(600, 400)
+        dlg_layout = QVBoxLayout(dlg)
+
+        tabla_detalle = QTableWidget()
+        tabla_detalle.setColumnCount(4)
+        tabla_detalle.setHorizontalHeaderLabels(["Producto", "Cantidad", "Precio Unitario", "Subtotal"])
+        tabla_detalle.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        dlg_layout.addWidget(tabla_detalle)
+
+        with get_session() as session:
+            detalles = session.query(DetalleVenta).filter(DetalleVenta.venta_id == venta_id).all()
+            tabla_detalle.setRowCount(len(detalles))
+            for i, det in enumerate(detalles):
+                tabla_detalle.setItem(i, 0, QTableWidgetItem(det.descripcion))
+                tabla_detalle.setItem(i, 1, QTableWidgetItem(f"{det.cantidad:.2f}"))
+                tabla_detalle.setItem(i, 2, QTableWidgetItem(f"$ {det.precio_unitario:.2f}"))
+                tabla_detalle.setItem(i, 3, QTableWidgetItem(f"$ {det.subtotal:.2f}"))
+
+        dlg.exec()
 
     def _registrar_movimiento(self):
         entidad_id = self.cmb_entidad.currentData()
