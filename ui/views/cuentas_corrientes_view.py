@@ -79,6 +79,7 @@ class TabCuentasBase(QWidget):
 
     def _cargar_historial(self, entidad_id):
         self.table.setRowCount(0)
+        self.table.clearContents()
 
         if self.tipo_entidad == "Cliente":
             movimientos = CuentaCorrienteService.obtener_historial_cliente(entidad_id)
@@ -143,7 +144,11 @@ class TabCuentasBase(QWidget):
         if current_id:
             idx = self.cmb_entidad.findData(current_id)
             if idx >= 0:
+                self.cmb_entidad.blockSignals(True)
                 self.cmb_entidad.setCurrentIndex(idx)
+                self.cmb_entidad.blockSignals(False)
+                # Forzar recarga una única vez para este registro
+                self._cargar_historial(current_id)
 
 
 class CuentasCorrientesTab(QWidget):

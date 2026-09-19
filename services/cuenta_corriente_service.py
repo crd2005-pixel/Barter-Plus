@@ -10,7 +10,8 @@ class CuentaCorrienteService:
             movimientos = session.query(ClienteCuentaCorriente).filter(
                 ClienteCuentaCorriente.cliente_id == cliente_id
             ).order_by(ClienteCuentaCorriente.fecha.asc()).all()
-            return [m for m in movimientos]
+            session.expunge_all()
+            return movimientos
 
     @staticmethod
     def obtener_saldo_cliente(cliente_id: int) -> float:
@@ -56,7 +57,8 @@ class CuentaCorrienteService:
             movimientos = session.query(ProveedorCuentaCorriente).filter(
                 ProveedorCuentaCorriente.proveedor_id == proveedor_id
             ).order_by(ProveedorCuentaCorriente.fecha.asc()).all()
-            return [m for m in movimientos]
+            session.expunge_all()
+            return movimientos
 
     @staticmethod
     def obtener_saldo_proveedor(proveedor_id: int) -> float:
