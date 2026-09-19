@@ -350,8 +350,7 @@ class TicketPreviewDialog(QDialog):
         p_measure.end()
 
         # 2. SET PAGE SIZE DYNAMICALLY (CRITICAL FOR AVOID INFINITE PAPER / 27cm A4 FALLBACK)
-        alto_total_mm = y_cursor_px / ppm
-        alto_total_mm += margin_y_mm + 5.0 # Add 5mm cutting margin at the bottom
+        alto_total_mm = (y_cursor_px / ppm) + 10.0 # Add 10mm cutting margin at the bottom
 
         # Enforce reasonable hardware limits
         if alto_total_mm < 50.0: alto_total_mm = 50.0

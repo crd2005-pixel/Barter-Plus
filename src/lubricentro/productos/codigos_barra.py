@@ -230,10 +230,11 @@ class EtiquetasPreviewDialog(QDialog):
         h_mm = self.sp_height.value()
 
         if mode.startswith("Rollo"):
-            # Set custom page size for thermal printer
-            size = QPageSize(QSizeF(w_mm, h_mm), QPageSize.Unit.Millimeter)
-            printer.setPageSize(size)
-            # Minimal margins
+            # AVOID CUSTOM EXACTMATCH / CUSTOM PAGESIZE FOR THERMAL ROLLS
+            # Dynamic lengths fail on ESC/POS thermal printers.
+            # It defaults to A4 length and spools paper.
+
+            # Just set fullpage true and minimal margins
             printer.setPageMargins(QMarginsF(0.0, 0.0, 0.0, 0.0), QPageLayout.Unit.Millimeter)
             printer.setFullPage(True) # Force full page drawing for roll printers to avoid driver margins
         else:
