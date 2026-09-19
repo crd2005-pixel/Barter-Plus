@@ -112,6 +112,117 @@ from PyQt6.QtPrintSupport import QPrinter, QPrintPreviewWidget, QPrintDialog
 from PyQt6.QtGui import QPainter, QFont, QPageSize, QPixmap, QFontMetrics, QPageLayout
 from PyQt6.QtCore import QSizeF, QSettings, Qt, QRectF, QTimer, QMarginsF
 import os
+class ConfiguracionTicketDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Configurar Impresora de Tickets (POS)")
+        self.resize(450, 400)
+
+        from PyQt6.QtWidgets import QVBoxLayout, QFormLayout, QComboBox, QDoubleSpinBox, QSpinBox, QHBoxLayout, QPushButton, QLineEdit, QMessageBox, QFileDialog
+        from PyQt6.QtCore import QSettings
+
+        layout = QVBoxLayout(self)
+
+        form = QFormLayout()
+        self.cmb_printer = QComboBox()
+
+        from PyQt6.QtPrintSupport import QPrinterInfo
+        printers = [p.printerName() for p in QPrinterInfo.availablePrinters()]
+        self.cmb_printer.addItems(printers)
+
+        self.sp_width = QDoubleSpinBox()
+        self.sp_width.setRange(20, 200)
+        self.sp_width.setSuffix(" mm")
+        self.sp_width.setValue(58.0)
+
+        self.sp_margin_x = QDoubleSpinBox()
+        self.sp_margin_x.setRange(0, 50)
+        self.sp_margin_x.setSuffix(" mm")
+
+        self.sp_margin_y = QDoubleSpinBox()
+        self.sp_margin_y.setRange(0, 50)
+        self.sp_margin_y.setSuffix(" mm")
+
+        self.sp_font_size = QSpinBox()
+        self.sp_font_size.setRange(5, 30)
+
+        self.sp_logo_width = QSpinBox()
+        self.sp_logo_width.setRange(50, 500)
+        self.sp_logo_width.setSuffix(" px")
+        self.sp_logo_width.setValue(150)
+
+        self.txt_logo = QLineEdit()
+        self.btn_logo = QPushButton("...")
+        self.btn_logo.clicked.connect(self.browse_logo)
+        lay_logo = QHBoxLayout()
+        lay_logo.addWidget(self.txt_logo)
+        lay_logo.addWidget(self.btn_logo)
+
+        self.txt_address = QLineEdit()
+        self.txt_phone = QLineEdit()
+
+        form.addRow("Impresora:", self.cmb_printer)
+        form.addRow("Ancho Papel:", self.sp_width)
+        form.addRow("Margen X:", self.sp_margin_x)
+        form.addRow("Margen Y:", self.sp_margin_y)
+        form.addRow("Tamaño Fuente:", self.sp_font_size)
+        form.addRow("Ancho Logo:", self.sp_logo_width)
+        form.addRow("Logo:", lay_logo)
+        form.addRow("Dirección:", self.txt_address)
+        form.addRow("Teléfono:", self.txt_phone)
+
+        layout.addLayout(form)
+
+        btn_box = QHBoxLayout()
+        btn_save = QPushButton("Guardar")
+        btn_save.clicked.connect(self.save_config)
+        btn_box.addWidget(btn_save)
+
+        layout.addLayout(btn_box)
+
+        self.load_config()
+
+    def browse_logo(self):
+        import os
+        from PyQt6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(self, "Seleccionar Logo", "", "Images (*.png *.jpg *.jpeg *.bmp)")
+        if path:
+            self.txt_logo.setText(path)
+
+    def load_config(self):
+        from PyQt6.QtCore import QSettings
+        settings = QSettings("BarterPlus", "TicketConfig")
+        printer_name = settings.value("printer_name", "")
+        idx = self.cmb_printer.findText(printer_name)
+        if idx >= 0:
+            self.cmb_printer.setCurrentIndex(idx)
+
+        self.sp_width.setValue(float(settings.value("width", 58.0)))
+        self.sp_margin_x.setValue(float(settings.value("margin_x", 2.0)))
+        self.sp_margin_y.setValue(float(settings.value("margin_y", 2.0)))
+        self.sp_font_size.setValue(int(settings.value("font_size", 8)))
+        self.txt_logo.setText(settings.value("logo_path", ""))
+        self.txt_address.setText(settings.value("address", ""))
+        self.txt_phone.setText(settings.value("phone", ""))
+        self.sp_logo_width.setValue(int(settings.value("logo_width", 150)))
+
+    def save_config(self):
+        from PyQt6.QtCore import QSettings
+        from PyQt6.QtWidgets import QMessageBox
+        settings = QSettings("BarterPlus", "TicketConfig")
+        settings.setValue("printer_name", self.cmb_printer.currentText())
+        settings.setValue("width", self.sp_width.value())
+        settings.setValue("margin_x", self.sp_margin_x.value())
+        settings.setValue("margin_y", self.sp_margin_y.value())
+        settings.setValue("font_size", self.sp_font_size.value())
+        settings.setValue("logo_path", self.txt_logo.text())
+        settings.setValue("address", self.txt_address.text())
+        settings.setValue("phone", self.txt_phone.text())
+        settings.setValue("logo_width", self.sp_logo_width.value())
+
+        QMessageBox.information(self, "Éxito", "Configuración de Tickets guardada.")
+        self.accept()
+
 class TicketPreviewDialog(QDialog):
     def __init__(self, venta, detalles_final, cliente_nombre="Consumidor Final", parent=None):
         super().__init__(parent)
@@ -149,14 +260,9 @@ class TicketPreviewDialog(QDialog):
         QTimer.singleShot(100, self.preview.updatePreview)
 
     def open_config(self):
-        # Assumes ConfiguracionTicketDialog exists (e.g. imported from codigos_barra)
-        try:
-            from src.lubricentro.productos.codigos_barra import ConfiguracionTicketDialog
-            dlg = ConfiguracionTicketDialog(self)
-            if dlg.exec():
-                self.preview.updatePreview()
-        except ImportError:
-            QMessageBox.warning(self, "Error", "Módulo de configuración no encontrado.")
+        dlg = ConfiguracionTicketDialog(self)
+        if dlg.exec():
+            self.preview.updatePreview()
 
     def paint_preview(self, printer):
         from PyQt6.QtGui import QPainter, QFont, QFontMetricsF, QImage, QPen
@@ -180,28 +286,33 @@ class TicketPreviewDialog(QDialog):
 
         w_inner_mm = w_mm - (margin_x_mm * 2)
 
-        dpi = 96.0
+        # Determine actual DPI of the printer to avoid scaling issues (or default to 96 for screen)
+        dpi = printer.resolution()
+        if dpi <= 0: dpi = 96.0
         ppm = dpi / 25.4
 
         inner_width_px = w_inner_mm * ppm
 
-        font_normal = QFont("Arial")
-        font_normal.setPixelSize(int(fs_pt * (96.0 / 72.0)))
+        def get_font(pts, bold=False):
+            # IMPORTANT: We use setPixelSize specifically scaled to the exact printer DPI.
+            # Using points without scaling on HighResolution printers causes them to become microscopic/transparent.
+            px_size = pts * (dpi / 72.0)
+            f = QFont("Arial")
+            f.setPixelSize(int(px_size))
+            f.setBold(bold)
+            return f
 
-        font_bold = QFont("Arial")
-        font_bold.setPixelSize(int(fs_pt * (96.0 / 72.0)))
-        font_bold.setBold(True)
+        font_normal = get_font(fs_pt, False)
+        font_bold = get_font(fs_pt, True)
+        font_title = get_font(fs_title, True)
+        font_small = get_font(int(fs_pt * 0.8), False)
 
-        font_title = QFont("Arial")
-        font_title.setPixelSize(int(fs_title * (96.0 / 72.0)))
-        font_title.setBold(True)
-
-        font_small = QFont("Arial")
-        font_small.setPixelSize(int(fs_pt * 0.8 * (96.0 / 72.0)))
-
-        temp_img = QImage(int(inner_width_px), 1000, QImage.Format.Format_RGB32)
+        # 1. DRY RUN MEASUREMENT ON PRINTER QPAINTER (OR A TEMP PIXMAP AT ACTUAL DPI)
+        # Using a QImage at actual DPI to measure fonts accurately for this specific printer
+        temp_img = QImage(int(w_mm * ppm), 1000, QImage.Format.Format_RGB32)
+        temp_img.setDotsPerMeterX(int(ppm * 1000))
+        temp_img.setDotsPerMeterY(int(ppm * 1000))
         p_measure = QPainter(temp_img)
-
         y_cursor_px = 0.0
 
         if logo_path and os.path.exists(logo_path):
@@ -227,7 +338,7 @@ class TicketPreviewDialog(QDialog):
         for item in self.detalles_final:
             nombre = item.get('nombre', '')
             texto_izq = f"{item['cantidad']}x {nombre}"
-            rect_item = p_measure.boundingRect(QRectF(0, 0, inner_width_px * 0.7, 1000), Qt.TextFlag.TextWordWrap, texto_izq)
+            rect_item = p_measure.boundingRect(QRectF(0, 0, inner_width_px * 0.65, 1000), Qt.TextFlag.TextWordWrap, texto_izq)
             y_cursor_px += rect_item.height() + (2 * ppm)
 
         y_cursor_px += line_height + (5 * ppm)
@@ -249,12 +360,23 @@ class TicketPreviewDialog(QDialog):
 
         p_measure.end()
 
+        # CONVERT HEIGHT BACK TO MM
         alto_total_mm = y_cursor_px / ppm
         alto_total_mm += 10.0 + margin_y_mm * 2
 
         from PyQt6.QtGui import QPageSize, QPageLayout
-        from PyQt6.QtCore import QMarginsF
-        size = QPageSize(QSizeF(w_mm, alto_total_mm), QPageSize.Unit.Millimeter, "", QPageSize.SizeMatchPolicy.ExactMatch)
+        from PyQt6.QtCore import QMarginsF, QSizeF
+
+        # CRITICAL FIX FOR THERMAL ROLL LENGTH
+        # Thermal generic drivers MUST receive a QPageSize with exact Custom Dimensions, otherwise they default to A4 or 3 meters.
+        from PyQt6.QtGui import QPageSize, QPageLayout
+        from PyQt6.QtCore import QMarginsF, QSizeF
+
+        if alto_total_mm < 50.0: alto_total_mm = 50.0
+        if alto_total_mm > 1000.0: alto_total_mm = 1000.0
+
+        # We enforce custom size and exact match. If the driver ignores ExactMatch, we still pass the custom size via FuzzyMatch or fallback
+        size = QPageSize(QSizeF(w_mm, alto_total_mm), QPageSize.Unit.Millimeter, "", QPageSize.SizeMatchPolicy.FuzzyMatch)
         printer.setPageSize(size)
         printer.setPageMargins(QMarginsF(0.0, 0.0, 0.0, 0.0), QPageLayout.Unit.Millimeter)
         printer.setFullPage(True)
@@ -262,10 +384,7 @@ class TicketPreviewDialog(QDialog):
         painter = QPainter()
         if painter.begin(printer):
             painter.setPen(QPen(Qt.GlobalColor.black))
-
-            actual_dpi = printer.resolution()
-            painter.setWindow(0, 0, int(w_mm * (96.0 / 25.4)), int(alto_total_mm * (96.0 / 25.4)))
-            painter.setViewport(0, 0, int(w_mm * (actual_dpi / 25.4)), int(alto_total_mm * (actual_dpi / 25.4)))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
 
             start_x = margin_x_mm * ppm
             start_y = margin_y_mm * ppm
@@ -275,14 +394,14 @@ class TicketPreviewDialog(QDialog):
                 nonlocal y
                 painter.setFont(font)
                 fm = painter.fontMetrics()
-                painter.drawText(QRectF(start_x, y, inner_width_px, fm.height()), Qt.AlignmentFlag.AlignCenter, text)
+                painter.drawText(QRectF(start_x, y, inner_width_px, float(fm.height())), Qt.AlignmentFlag.AlignCenter, text)
                 y += fm.height() + (advance_padding_mm * ppm)
 
             def draw_text_left(text, font, advance_padding_mm=2):
                 nonlocal y
                 painter.setFont(font)
                 fm = painter.fontMetrics()
-                painter.drawText(QRectF(start_x, y, inner_width_px, fm.height()), Qt.AlignmentFlag.AlignLeft, text)
+                painter.drawText(QRectF(start_x, y, inner_width_px, float(fm.height())), Qt.AlignmentFlag.AlignLeft, text)
                 y += fm.height() + (advance_padding_mm * ppm)
 
             def draw_line(advance_padding_mm=4):
@@ -296,7 +415,7 @@ class TicketPreviewDialog(QDialog):
                 if not img.isNull():
                     scaled_h = int(img.height() * (logo_width_px / img.width()))
                     x_img = start_x + (inner_width_px - logo_width_px) / 2
-                    painter.drawImage(QRectF(x_img, y, logo_width_px, scaled_h), img)
+                    painter.drawImage(QRectF(x_img, y, logo_width_px, float(scaled_h)), img)
                     y += scaled_h + (5 * ppm)
 
             draw_text_center(f"[X] {leyenda}", font_title, 2)
@@ -313,10 +432,10 @@ class TicketPreviewDialog(QDialog):
                 texto_der = f"${item['subtotal']:.2f}"
 
                 fm = painter.fontMetrics()
-                rect_der = QRectF(start_x + (inner_width_px * 0.7), y, inner_width_px * 0.3, fm.height())
+                rect_der = QRectF(start_x + (inner_width_px * 0.7), y, inner_width_px * 0.3, float(fm.height()))
                 painter.drawText(rect_der, Qt.AlignmentFlag.AlignRight, texto_der)
 
-                rect_izq_bound = QRectF(start_x, y, inner_width_px * 0.65, 1000)
+                rect_izq_bound = QRectF(start_x, y, inner_width_px * 0.65, 1000.0)
                 bounding = painter.boundingRect(rect_izq_bound, Qt.TextFlag.TextWordWrap, texto_izq)
                 painter.drawText(rect_izq_bound, Qt.TextFlag.TextWordWrap, texto_izq)
 
@@ -326,10 +445,10 @@ class TicketPreviewDialog(QDialog):
 
             painter.setFont(font_title)
             fm = painter.fontMetrics()
-            painter.drawText(QRectF(start_x, y, inner_width_px, fm.height()), Qt.AlignmentFlag.AlignRight, f"TOTAL: ${self.venta.total:.2f}")
+            painter.drawText(QRectF(start_x, y, inner_width_px, float(fm.height())), Qt.AlignmentFlag.AlignRight, f"TOTAL: ${self.venta.total:.2f}")
             y += fm.height() + (10 * ppm)
 
-            draw_text_center("ESTE COMPROBANTE NO ES VÁLIDO COMO FACTURA", font_small, 5)
+            draw_text_center("ESTE COMPROBANTE NO ES VALIDO COMO FACTURA", font_small, 5)
 
             if address or phone:
                 if address: draw_text_center(address, font_normal, 1)

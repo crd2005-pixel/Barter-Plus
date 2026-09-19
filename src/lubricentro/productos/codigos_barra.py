@@ -26,56 +26,6 @@ except ImportError:
 # Custom Dialog: Configuration + Preview + Quantity Selection
 # =============================================================================
 
-class ConfiguracionTicketDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Configurar Impresora de Tickets (POS)")
-        self.resize(400, 200)
-
-        layout = QVBoxLayout(self)
-
-        form = QFormLayout()
-        self.cmb_printer = QComboBox()
-
-        from PyQt6.QtPrintSupport import QPrinterInfo
-        printers = [p.printerName() for p in QPrinterInfo.availablePrinters()]
-        self.cmb_printer.addItems(printers)
-
-        self.sp_width = QDoubleSpinBox()
-        self.sp_width.setRange(20, 200)
-        self.sp_width.setSuffix(" mm")
-        self.sp_width.setValue(58.0)
-
-        form.addRow("Impresora:", self.cmb_printer)
-        form.addRow("Ancho Papel:", self.sp_width)
-
-        layout.addLayout(form)
-
-        btn_box = QHBoxLayout()
-        btn_save = QPushButton("Guardar")
-        btn_save.clicked.connect(self.save_config)
-        btn_box.addWidget(btn_save)
-
-        layout.addLayout(btn_box)
-
-        self.load_config()
-
-    def load_config(self):
-        settings = QSettings("BarterPlus", "TicketConfig")
-        printer_name = settings.value("printer_name", "")
-        idx = self.cmb_printer.findText(printer_name)
-        if idx >= 0:
-            self.cmb_printer.setCurrentIndex(idx)
-
-        self.sp_width.setValue(float(settings.value("width", 58.0)))
-
-    def save_config(self):
-        settings = QSettings("BarterPlus", "TicketConfig")
-        settings.setValue("printer_name", self.cmb_printer.currentText())
-        settings.setValue("width", self.sp_width.value())
-        QMessageBox.information(self, "Éxito", "Configuración de Tickets guardada.")
-        self.accept()
-
 class EtiquetasPreviewDialog(QDialog):
     def __init__(self, items, parent=None):
         """
