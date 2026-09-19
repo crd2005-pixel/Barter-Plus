@@ -265,8 +265,8 @@ class TicketPreviewDialog(QDialog):
             self.preview.updatePreview()
 
     def paint_preview(self, printer):
-        from PyQt6.QtGui import QPainter, QFont, QFontMetricsF, QImage, QPen
-        from PyQt6.QtCore import QSizeF, QRectF, Qt
+        from PyQt6.QtGui import QPainter, QFont, QFontMetricsF, QImage, QPen, QPageLayout
+        from PyQt6.QtCore import QSizeF, QRectF, Qt, QMarginsF
         from PyQt6.QtPrintSupport import QPrinter
         import os
 
@@ -284,14 +284,10 @@ class TicketPreviewDialog(QDialog):
         cliente_nombre = getattr(self, 'cliente_nombre', "Consumidor Final")
         if not cliente_nombre: cliente_nombre = "Consumidor Final"
 
-        w_inner_mm = w_mm - (margin_x_mm * 2)
-
         # Determine actual DPI of the printer to avoid scaling issues (or default to 96 for screen)
         dpi = printer.resolution()
         if dpi <= 0: dpi = 96.0
         ppm = dpi / 25.4
-
-        inner_width_px = w_inner_mm * ppm
 
         def get_font(pts, bold=False):
             # IMPORTANT: We use setPixelSize specifically scaled to the exact printer DPI.
@@ -307,114 +303,68 @@ class TicketPreviewDialog(QDialog):
         font_title = get_font(fs_title, True)
         font_small = get_font(int(fs_pt * 0.8), False)
 
-        # 1. DRY RUN MEASUREMENT ON PRINTER QPAINTER (OR A TEMP PIXMAP AT ACTUAL DPI)
-        # Using a QImage at actual DPI to measure fonts accurately for this specific printer
-        temp_img = QImage(int(w_mm * ppm), 1000, QImage.Format.Format_RGB32)
-        temp_img.setDotsPerMeterX(int(ppm * 1000))
-        temp_img.setDotsPerMeterY(int(ppm * 1000))
-        p_measure = QPainter(temp_img)
-        y_cursor_px = 0.0
-
-        if logo_path and os.path.exists(logo_path):
-            img = QImage(logo_path)
-            if not img.isNull():
-                scaled_h = int(img.height() * (logo_width_px / img.width()))
-                y_cursor_px += scaled_h + (5 * ppm)
-
-        p_measure.setFont(font_title)
-        fm_t = p_measure.fontMetrics()
-        y_cursor_px += fm_t.height() + (5 * ppm)
-
-        p_measure.setFont(font_bold)
-        fm_b = p_measure.fontMetrics()
-        y_cursor_px += fm_b.height() + (5 * ppm)
-
-        p_measure.setFont(font_normal)
-        fm_n = p_measure.fontMetrics()
-        line_height = fm_n.height()
-
-        y_cursor_px += line_height * 4 + (10 * ppm)
-
-        for item in self.detalles_final:
-            nombre = item.get('nombre', '')
-            texto_izq = f"{item['cantidad']}x {nombre}"
-            rect_item = p_measure.boundingRect(QRectF(0, 0, inner_width_px * 0.65, 1000), Qt.TextFlag.TextWordWrap, texto_izq)
-            y_cursor_px += rect_item.height() + (2 * ppm)
-
-        y_cursor_px += line_height + (5 * ppm)
-
-        p_measure.setFont(font_title)
-        y_cursor_px += p_measure.fontMetrics().height() + (10 * ppm)
-
-        p_measure.setFont(font_small)
-        y_cursor_px += p_measure.fontMetrics().height() * 2 + (10 * ppm)
-
-        if address or phone:
-            p_measure.setFont(font_normal)
-            if address: y_cursor_px += line_height
-            if phone: y_cursor_px += line_height
-            y_cursor_px += (5 * ppm)
-
-        p_measure.setFont(font_normal)
-        y_cursor_px += line_height + (5 * ppm)
-
-        p_measure.end()
-
-        # CONVERT HEIGHT BACK TO MM
-        alto_total_mm = y_cursor_px / ppm
-        alto_total_mm += 10.0 + margin_y_mm * 2
-
-        from PyQt6.QtGui import QPageSize, QPageLayout
-        from PyQt6.QtCore import QMarginsF, QSizeF
-
-        # CRITICAL FIX FOR THERMAL ROLL LENGTH
-        # Thermal generic drivers MUST receive a QPageSize with exact Custom Dimensions, otherwise they default to A4 or 3 meters.
-        from PyQt6.QtGui import QPageSize, QPageLayout
-        from PyQt6.QtCore import QMarginsF, QSizeF
-
-        if alto_total_mm < 50.0: alto_total_mm = 50.0
-        if alto_total_mm > 1000.0: alto_total_mm = 1000.0
-
-        # We enforce custom size and exact match. If the driver ignores ExactMatch, we still pass the custom size via FuzzyMatch or fallback
-        size = QPageSize(QSizeF(w_mm, alto_total_mm), QPageSize.Unit.Millimeter, "", QPageSize.SizeMatchPolicy.FuzzyMatch)
-        printer.setPageSize(size)
+        # CRITICAL FIX FOR INFINITE PAPER ROLL ON THERMAL PRINTERS:
+        # We DO NOT override the QPageSize! If we pass custom mm dimensions, ESC/POS generic drivers
+        # (like XPrinter or EPSON TM-T20) will reject the job bounds and fallback to an A4 page length (297mm),
+        # causing the printer to feed 27cm of blank paper and emit an error beep.
+        # Instead, we let the driver use its native roll length form and cut precisely when painter.end() is called.
         printer.setPageMargins(QMarginsF(0.0, 0.0, 0.0, 0.0), QPageLayout.Unit.Millimeter)
         printer.setFullPage(True)
 
         painter = QPainter()
         if painter.begin(printer):
-            painter.setPen(QPen(Qt.GlobalColor.black))
+            # Force a solid, thick, explicitly black pen.
+            pen = QPen(Qt.GlobalColor.black)
+            pen.setWidth(2) # Force a non-cosmetic width
+            pen.setStyle(Qt.PenStyle.SolidLine)
+            painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
 
+            # CRITICAL FIX FOR CROPPING AND ALIGNMENT:
+            # Generic ESC/POS drivers often lie about paintRectPixels if they default to A4.
+            # We MUST strictly use the user's configured `w_mm` to determine our drawing bounding box,
+            # otherwise text gets centered/aligned based on a 210mm wide invisible canvas and gets cut off.
+
+            # The absolute width of the printable area given by the user configuration
+            usable_w = w_mm * ppm
+
+            # Ensure we start at the physical margin boundaries.
+            # We assume x=0 is the left edge of the physical thermal roll.
             start_x = margin_x_mm * ppm
             start_y = margin_y_mm * ppm
+
+            # Effective width for drawing text
+            eff_w = usable_w - (margin_x_mm * ppm * 2)
+            if eff_w <= 0: eff_w = usable_w # Fallback if math fails
+
             y = start_y
 
             def draw_text_center(text, font, advance_padding_mm=2):
                 nonlocal y
                 painter.setFont(font)
                 fm = painter.fontMetrics()
-                painter.drawText(QRectF(start_x, y, inner_width_px, float(fm.height())), Qt.AlignmentFlag.AlignCenter, text)
+                # Center exactly in the effective width bounding box
+                painter.drawText(QRectF(start_x, y, eff_w, float(fm.height())), Qt.AlignmentFlag.AlignCenter, text)
                 y += fm.height() + (advance_padding_mm * ppm)
 
             def draw_text_left(text, font, advance_padding_mm=2):
                 nonlocal y
                 painter.setFont(font)
                 fm = painter.fontMetrics()
-                painter.drawText(QRectF(start_x, y, inner_width_px, float(fm.height())), Qt.AlignmentFlag.AlignLeft, text)
+                painter.drawText(QRectF(start_x, y, eff_w, float(fm.height())), Qt.AlignmentFlag.AlignLeft, text)
                 y += fm.height() + (advance_padding_mm * ppm)
 
             def draw_line(advance_padding_mm=4):
                 nonlocal y
                 y += (advance_padding_mm * ppm) / 2
-                painter.drawLine(int(start_x), int(y), int(start_x + inner_width_px), int(y))
+                painter.drawLine(int(start_x), int(y), int(start_x + eff_w), int(y))
                 y += (advance_padding_mm * ppm) / 2
 
             if logo_path and os.path.exists(logo_path):
                 img = QImage(logo_path)
                 if not img.isNull():
                     scaled_h = int(img.height() * (logo_width_px / img.width()))
-                    x_img = start_x + (inner_width_px - logo_width_px) / 2
+                    x_img = start_x + (eff_w - logo_width_px) / 2
                     painter.drawImage(QRectF(x_img, y, logo_width_px, float(scaled_h)), img)
                     y += scaled_h + (5 * ppm)
 
@@ -432,10 +382,10 @@ class TicketPreviewDialog(QDialog):
                 texto_der = f"${item['subtotal']:.2f}"
 
                 fm = painter.fontMetrics()
-                rect_der = QRectF(start_x + (inner_width_px * 0.7), y, inner_width_px * 0.3, float(fm.height()))
+                rect_der = QRectF(start_x + (eff_w * 0.7), y, eff_w * 0.3, float(fm.height()))
                 painter.drawText(rect_der, Qt.AlignmentFlag.AlignRight, texto_der)
 
-                rect_izq_bound = QRectF(start_x, y, inner_width_px * 0.65, 1000.0)
+                rect_izq_bound = QRectF(start_x, y, eff_w * 0.65, 1000.0)
                 bounding = painter.boundingRect(rect_izq_bound, Qt.TextFlag.TextWordWrap, texto_izq)
                 painter.drawText(rect_izq_bound, Qt.TextFlag.TextWordWrap, texto_izq)
 
@@ -445,7 +395,7 @@ class TicketPreviewDialog(QDialog):
 
             painter.setFont(font_title)
             fm = painter.fontMetrics()
-            painter.drawText(QRectF(start_x, y, inner_width_px, float(fm.height())), Qt.AlignmentFlag.AlignRight, f"TOTAL: ${self.venta.total:.2f}")
+            painter.drawText(QRectF(start_x, y, eff_w, float(fm.height())), Qt.AlignmentFlag.AlignRight, f"TOTAL: ${self.venta.total:.2f}")
             y += fm.height() + (10 * ppm)
 
             draw_text_center("ESTE COMPROBANTE NO ES VALIDO COMO FACTURA", font_small, 5)
