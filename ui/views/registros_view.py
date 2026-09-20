@@ -46,6 +46,11 @@ class RegistroVentasTab(QWidget):
         self.btn_anular.clicked.connect(self.anular_venta)
 
         filtros_lay.addWidget(self.btn_anular)
+
+        self.btn_export_v = QPushButton("Exportar")
+        self.btn_export_v.clicked.connect(lambda: self._export(self.table))
+        filtros_lay.addWidget(self.btn_export_v)
+
         filtros_lay.addStretch()
 
         layout.addLayout(filtros_lay)
@@ -70,6 +75,10 @@ class RegistroVentasTab(QWidget):
         from ui.components.dialogs import DetalleVentaDialog
         dlg = DetalleVentaDialog(venta_id, self)
         dlg.exec()
+
+    def _export(self, tbl):
+        from utils.export_utils import ExportUtils
+        ExportUtils.exportar_tabla_csv(tbl, self, "Ventas")
 
     def anular_venta(self):
         row = self.table.currentRow()

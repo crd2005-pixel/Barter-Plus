@@ -8,3 +8,5 @@ from .caja import Caja, MovimientoCaja
 from .contabilidad import AsientoDiario, LibroIVA, PedidoManual, GastoOperativo, IngresoDiferido
 from .taller import Vehiculo, GarantiaBateria, CambioAceite
 from .configuracion_tarjetas import ConfiguracionTarjeta
+
+from .presupuesto import Presupuesto, DetallePresupuesto

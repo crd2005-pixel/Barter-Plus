@@ -624,6 +624,31 @@ class VentasTab(QWidget):
 
 
 
+
+    def _actualizar_estado_boton_cobrar(self, text):
+        if text == "Presupuesto":
+            self.btn_cobrar.setText("F12 - Guardar Presupuesto")
+            self.btn_cobrar.setStyleSheet("background-color: #f39c12; color: white; font-size: 20px; font-weight: bold; padding: 15px;")
+        else:
+            self.btn_cobrar.setText("F12 - COBRAR / FINALIZAR")
+            self.btn_cobrar.setStyleSheet("background-color: #27ae60; color: white; font-size: 20px; font-weight: bold; padding: 15px;")
+
+    def _abrir_recuperar_dialog(self):
+        from ui.components.recuperar_dialog import RecuperarComprobanteDialog
+        dlg = RecuperarComprobanteDialog(self)
+        if dlg.exec():
+            for item in dlg.detalles_recuperados:
+                # Need to match the structure the cart uses
+                self.carrito.append({
+                    'id': item.get('id', item.get('producto_id')),
+                    'codigo': item.get('codigo', ''),
+                    'nombre': item.get('nombre', ''),
+                    'precio_base': item.get('precio_base', 0.0),
+                    'cantidad': item.get('cantidad', 1.0),
+                    'descuento_unit': item.get('descuento_unit', 0.0)
+                })
+            self.actualizar_ui()
+
     def procesar_cobro(self):
 
         if not self.carrito: return
@@ -697,15 +722,26 @@ class VentasTab(QWidget):
                         QMessageBox.warning(self, "Error", "Seleccione un plan de tarjeta válido.")
                         return
 
-                venta = VentaService.procesar_venta(
-                    detalles_final,
-                    cliente_id=cliente_id,
-                    metodo_pago=metodo,
-                    monto_abonado=monto_abonado,
-                    descuento_global=self.descuento_global,
-                    tipo_comprobante=tipo_comprobante,
-                    datos_tarjeta=datos_tarjeta
-                )
+                if tipo_comprobante == "Presupuesto":
+                    from services.presupuesto_service import PresupuestoService
+                    venta = PresupuestoService.guardar_presupuesto(
+                        detalles_final,
+                        cliente_id=cliente_id,
+                        descuento_global=self.descuento_global
+                    )
+                    venta.tipo_comprobante = "Presupuesto" # For ticket dialog compat
+                    venta.metodo_pago = "N/A"
+                    venta.vuelto = 0.0
+                else:
+                    venta = VentaService.procesar_venta(
+                        detalles_final,
+                        cliente_id=cliente_id,
+                        metodo_pago=metodo,
+                        monto_abonado=monto_abonado,
+                        descuento_global=self.descuento_global,
+                        tipo_comprobante=tipo_comprobante,
+                        datos_tarjeta=datos_tarjeta
+                    )
 
                 vuelto = venta.vuelto
                 msg = f"Venta Registrada Exitosamente (ID: {venta.id})"
