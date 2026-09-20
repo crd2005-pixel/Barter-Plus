@@ -397,7 +397,6 @@ class LiquidezBancosTab(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.cellDoubleClicked.connect(self._abrir_detalle)
 
         layout.addWidget(self.table)
 
