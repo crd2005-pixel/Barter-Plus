@@ -220,20 +220,23 @@ class VentaService:
                         venta_id=nueva_venta.id
                     )
                     session.add(asiento_banco)
-                else:
-                    caja_activa = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
-                    if not caja_activa:
-                        raise ValueError("No hay una caja abierta. Debe abrir la caja antes de procesar ventas.")
 
-                    mov_caja = MovimientoCaja(
-                        caja_id=caja_activa.id,
-                        tipo="Ingreso",
-                        concepto=f"Venta #{nueva_venta.id} - {tipo_comprobante}",
-                        monto=total_final,
-                        metodo=metodo_pago,
-                        venta_id=nueva_venta.id
-                    )
-                    session.add(mov_caja)
+                # REGLA: Toda venta genera un movimiento de caja (sea efectivo, tarjeta o cuenta corriente)
+                # Transferencias bancarias podrían exclurse de la caja física, pero la regla solicitada:
+                # "TODA venta, sin importar el método de pago, DEBE generar un registro en movimientos_caja."
+                caja_activa = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
+                if not caja_activa:
+                    raise ValueError("No hay una caja abierta. Debe abrir la caja antes de procesar ventas.")
+
+                mov_caja = MovimientoCaja(
+                    caja_id=caja_activa.id,
+                    tipo="Ingreso",
+                    concepto=f"Venta #{nueva_venta.id} - {tipo_comprobante}",
+                    monto=total_final,
+                    metodo=metodo_pago,
+                    venta_id=nueva_venta.id
+                )
+                session.add(mov_caja)
                 # -----------------------------------------------
 
                 session.commit()
