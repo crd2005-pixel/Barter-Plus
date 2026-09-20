@@ -9,7 +9,6 @@ from ui.views.taller_view import TallerView
 from ui.views.registros_view import RegistrosView
 from ui.views.gastos_view import GastosView
 from ui.views.clientes_view import ClientesView
-from ui.views.cuentas_corrientes_view import CuentasCorrientesTab
 from ui.styles import LIGHT_THEME, DARK_THEME
 
 class MainWindow(QMainWindow):
@@ -78,10 +77,6 @@ class MainWindow(QMainWindow):
 
         self.clientes_view = ClientesView()
         self.tabs.addTab(self.clientes_view, "Clientes")
-
-        self.cuentas_corrientes_tab = CuentasCorrientesTab()
-        self.tabs.addTab(self.cuentas_corrientes_tab, "Cuentas Corrientes")
-
 
 
         self.tabs.addTab(self.productos_tab, "Productos")

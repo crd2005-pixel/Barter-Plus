@@ -29,16 +29,21 @@ class RegistrosService:
             return list(ventas)
 
     @staticmethod
-    def obtener_estado_cc(cliente_id: int) -> List[ClienteCuentaCorriente]:
+    def obtener_estado_cc(cliente_id: int):
         with get_session() as session:
-            movimientos = session.scalars(
-                select(ClienteCuentaCorriente)
-                .where(ClienteCuentaCorriente.cliente_id == cliente_id)
-                .order_by(ClienteCuentaCorriente.fecha.asc())
-            ).all()
-            for m in movimientos:
-                session.expunge(m)
-            return list(movimientos)
+            movimientos = session.query(ClienteCuentaCorriente).filter(
+                ClienteCuentaCorriente.cliente_id == cliente_id
+            ).order_by(ClienteCuentaCorriente.fecha.asc()).all()
+
+            return [{
+                "id": m.id,
+                "fecha": m.fecha,
+                "concepto": m.concepto,
+                "debe": m.debe,
+                "haber": m.haber,
+                "saldo": m.saldo,
+                "venta_id": m.venta_id
+            } for m in movimientos]
 
     @staticmethod
     def obtener_asientos_diarios(fecha_desde: dt.date, fecha_hasta: dt.date) -> List[AsientoDiario]:

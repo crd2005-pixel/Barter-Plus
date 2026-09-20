@@ -58,16 +58,21 @@ class ProveedorService:
                 raise e
 
     @staticmethod
-    def obtener_estado_cc(proveedor_id: int) -> List[ProveedorCuentaCorriente]:
+    def obtener_estado_cc(proveedor_id: int):
         with get_session() as session:
-            movimientos = session.scalars(
-                select(ProveedorCuentaCorriente)
-                .where(ProveedorCuentaCorriente.proveedor_id == proveedor_id)
-                .order_by(ProveedorCuentaCorriente.fecha.asc())
-            ).all()
-            for m in movimientos:
-                session.expunge(m)
-            return list(movimientos)
+            movimientos = session.query(ProveedorCuentaCorriente).filter(
+                ProveedorCuentaCorriente.proveedor_id == proveedor_id
+            ).order_by(ProveedorCuentaCorriente.fecha.asc()).all()
+
+            return [{
+                "id": m.id,
+                "fecha": m.fecha,
+                "concepto": m.concepto,
+                "debe": m.debe,
+                "haber": m.haber,
+                "saldo": m.saldo,
+                "fecha_vencimiento": m.fecha_vencimiento
+            } for m in movimientos]
 
     @staticmethod
     def obtener_deuda_total(proveedor_id: int) -> float:
