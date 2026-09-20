@@ -638,17 +638,26 @@ class VentasTab(QWidget):
         from ui.components.recuperar_dialog import RecuperarComprobanteDialog
         dlg = RecuperarComprobanteDialog(self)
         if dlg.exec():
-            for item in dlg.detalles_recuperados:
-                # Need to match the structure the cart uses
-                self.carrito.append({
-                    'id': item.get('id', item.get('producto_id')),
-                    'codigo': item.get('codigo', ''),
-                    'nombre': item.get('nombre', ''),
-                    'precio_base': item.get('precio_base', 0.0),
-                    'cantidad': item.get('cantidad', 1.0),
-                    'descuento_unit': item.get('descuento_unit', 0.0)
-                })
-            self.actualizar_ui()
+            if dlg.detalles_recuperados:
+                self.carrito = [] # Vaciar el carrito
+                for item in dlg.detalles_recuperados:
+                    self.carrito.append({
+                        'id': item.get('id', item.get('producto_id')),
+                        'codigo': item.get('codigo', ''),
+                        'nombre': item.get('nombre', ''),
+                        'precio_base': item.get('precio_base', 0.0),
+                        'cantidad': item.get('cantidad', 1.0),
+                        'descuento_unit': item.get('descuento_unit', 0.0)
+                    })
+
+                # Retrieve client ID if possible
+                cliente_id = dlg.cliente_id_seleccionado
+                if cliente_id:
+                    idx = self.combo_clientes.findData(cliente_id)
+                    if idx >= 0:
+                        self.combo_clientes.setCurrentIndex(idx)
+
+                self.actualizar_ui()
 
     def procesar_cobro(self):
 

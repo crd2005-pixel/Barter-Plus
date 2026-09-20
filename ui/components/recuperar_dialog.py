@@ -10,6 +10,7 @@ class RecuperarComprobanteDialog(QDialog):
         self.setWindowTitle("Cargar Comprobante")
         self.resize(700, 500)
         self.detalles_recuperados = [] # Aquí dejaremos los items
+        self.cliente_id_seleccionado = None
         self.setup_ui()
         self.cargar_datos()
 
@@ -26,6 +27,7 @@ class RecuperarComprobanteDialog(QDialog):
         self.tbl_pres.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.tbl_pres.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.tbl_pres.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.tbl_pres.cellDoubleClicked.connect(self.cargar_seleccion)
         lay_pres.addWidget(self.tbl_pres)
         self.tabs.addTab(self.tab_pres, "Presupuestos")
 
@@ -37,6 +39,7 @@ class RecuperarComprobanteDialog(QDialog):
         self.tbl_rem.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.tbl_rem.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.tbl_rem.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.tbl_rem.cellDoubleClicked.connect(self.cargar_seleccion)
         lay_rem.addWidget(self.tbl_rem)
         self.tabs.addTab(self.tab_remitos, "Remitos (Últimos)")
 
@@ -58,7 +61,9 @@ class RecuperarComprobanteDialog(QDialog):
         for r, p in enumerate(presupuestos):
             self.tbl_pres.setItem(r, 0, QTableWidgetItem(str(p['id'])))
             self.tbl_pres.setItem(r, 1, QTableWidgetItem(p['fecha'].strftime("%Y-%m-%d %H:%M")))
-            self.tbl_pres.setItem(r, 2, QTableWidgetItem(f"Cliente ID: {p['cliente_id']}" if p['cliente_id'] else "Genérico"))
+            item_cliente = QTableWidgetItem(f"Cliente ID: {p['cliente_id']}" if p['cliente_id'] else "Genérico")
+            if p['cliente_id']: item_cliente.setData(Qt.ItemDataRole.UserRole, p['cliente_id'])
+            self.tbl_pres.setItem(r, 2, item_cliente)
             self.tbl_pres.setItem(r, 3, QTableWidgetItem(f"${p['total']:.2f}"))
 
         # Cargar Remitos (Podemos reusar un query de ventas)
@@ -73,7 +78,9 @@ class RecuperarComprobanteDialog(QDialog):
             self.tbl_rem.setItem(r, 0, QTableWidgetItem(str(v.id)))
             self.tbl_rem.setItem(r, 1, QTableWidgetItem(v.fecha.strftime("%Y-%m-%d %H:%M")))
             c_nom = v.cliente.nombre if v.cliente else "Consumidor Final"
-            self.tbl_rem.setItem(r, 2, QTableWidgetItem(c_nom))
+            item_cliente = QTableWidgetItem(c_nom)
+            if v.cliente_id: item_cliente.setData(Qt.ItemDataRole.UserRole, v.cliente_id)
+            self.tbl_rem.setItem(r, 2, item_cliente)
             self.tbl_rem.setItem(r, 3, QTableWidgetItem(f"${v.total:.2f}"))
 
     def cargar_seleccion(self):
@@ -82,12 +89,20 @@ class RecuperarComprobanteDialog(QDialog):
             row = self.tbl_pres.currentRow()
             if row < 0: return
             p_id = int(self.tbl_pres.item(row, 0).text())
+
+            item_cliente = self.tbl_pres.item(row, 2)
+            if item_cliente: self.cliente_id_seleccionado = item_cliente.data(Qt.ItemDataRole.UserRole)
+
             self.detalles_recuperados = PresupuestoService.obtener_detalle(p_id)
             self.accept()
         else:
             row = self.tbl_rem.currentRow()
             if row < 0: return
             v_id = int(self.tbl_rem.item(row, 0).text())
+
+            item_cliente = self.tbl_rem.item(row, 2)
+            if item_cliente: self.cliente_id_seleccionado = item_cliente.data(Qt.ItemDataRole.UserRole)
+
             # Rehydrate from DetalleVenta
             from database.conexion import get_session
             from database.models.venta import DetalleVenta
