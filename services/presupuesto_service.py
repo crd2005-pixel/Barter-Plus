@@ -6,6 +6,21 @@ import datetime as dt
 
 class PresupuestoService:
     @staticmethod
+    def obtener_por_fecha(fecha_desde: dt.date, fecha_hasta: dt.date) -> List[Presupuesto]:
+        from sqlalchemy.orm import joinedload
+        from sqlalchemy import select, and_
+        with get_session() as session:
+            dt_desde = dt.datetime.combine(fecha_desde, dt.time.min)
+            dt_hasta = dt.datetime.combine(fecha_hasta, dt.time.max)
+            stmt = select(Presupuesto).options(joinedload(Presupuesto.cliente)).where(
+                and_(Presupuesto.fecha >= dt_desde, Presupuesto.fecha <= dt_hasta)
+            ).order_by(Presupuesto.fecha.desc())
+            res = session.scalars(stmt).all()
+            for p in res:
+                session.expunge(p)
+            return list(res)
+
+    @staticmethod
     def guardar_presupuesto(detalles: List[Dict], cliente_id: Optional[int] = None,
                             descuento_global: float = 0.0, recargo_global: float = 0.0) -> Presupuesto:
         """

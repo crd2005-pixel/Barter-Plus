@@ -465,13 +465,13 @@ class TicketPreviewDialog(QDialog):
             self.accept()
 
 class DetalleVentaDialog(QDialog):
-    def __init__(self, venta_id, parent=None):
+    def __init__(self, venta_id, parent=None, es_presupuesto=False):
         super().__init__(parent)
-        self.setWindowTitle(f"Detalle de Venta #{venta_id}")
+        title = f"Detalle de Presupuesto #{venta_id}" if es_presupuesto else f"Detalle de Venta #{venta_id}"
+        self.setWindowTitle(title)
         self.resize(600, 400)
         from PyQt6.QtWidgets import QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView
         from database.conexion import get_session
-        from database.models.venta import DetalleVenta
 
         layout = QVBoxLayout(self)
         self.tabla = QTableWidget()
@@ -483,7 +483,13 @@ class DetalleVentaDialog(QDialog):
         layout.addWidget(self.tabla)
 
         with get_session() as session:
-            detalles = session.query(DetalleVenta).filter(DetalleVenta.venta_id == venta_id).all()
+            if es_presupuesto:
+                from database.models.presupuestos import DetallePresupuesto
+                detalles = session.query(DetallePresupuesto).filter(DetallePresupuesto.presupuesto_id == venta_id).all()
+            else:
+                from database.models.venta import DetalleVenta
+                detalles = session.query(DetalleVenta).filter(DetalleVenta.venta_id == venta_id).all()
+
             self.tabla.setRowCount(len(detalles))
             for i, det in enumerate(detalles):
                 self.tabla.setItem(i, 0, QTableWidgetItem(det.descripcion))

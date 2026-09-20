@@ -145,6 +145,94 @@ class RegistroVentasTab(QWidget):
                     item.setForeground(Qt.GlobalColor.darkRed)
             self.table.setItem(row, 5, i_est)
 
+
+class RegistroPresupuestosTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setup_ui()
+        self.cargar_datos()
+
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+
+        # Filtros
+        filtros_lay = QHBoxLayout()
+
+        self.date_desde = QDateEdit()
+        self.date_desde.setCalendarPopup(True)
+        self.date_desde.setDate(QDate.currentDate().addDays(-30))
+
+        self.date_hasta = QDateEdit()
+        self.date_hasta.setCalendarPopup(True)
+        self.date_hasta.setDate(QDate.currentDate())
+
+        btn_filtrar = QPushButton("Filtrar")
+        btn_filtrar.clicked.connect(self.cargar_datos)
+
+        filtros_lay.addWidget(QLabel("Desde:"))
+        filtros_lay.addWidget(self.date_desde)
+        filtros_lay.addWidget(QLabel("Hasta:"))
+        filtros_lay.addWidget(self.date_hasta)
+        filtros_lay.addWidget(btn_filtrar)
+
+        self.btn_export = QPushButton("Exportar")
+        self.btn_export.clicked.connect(lambda: self._export(self.table))
+        filtros_lay.addWidget(self.btn_export)
+
+        filtros_lay.addStretch()
+
+        layout.addLayout(filtros_lay)
+
+        # Grilla
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["Fecha", "Presupuesto", "Cliente", "Total", "Estado"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.cellDoubleClicked.connect(self._abrir_detalle)
+
+        layout.addWidget(self.table)
+
+    def _export(self, tbl):
+        from utils.export_utils import ExportUtils
+        ExportUtils.exportar_tabla_csv(tbl, self, "Presupuestos")
+
+    def _abrir_detalle(self, row, col):
+        item_f = self.table.item(row, 0)
+        if not item_f: return
+        p_id = item_f.data(Qt.ItemDataRole.UserRole)
+        if not p_id: return
+
+        from ui.components.dialogs import DetalleVentaDialog
+        # We reuse the dialog. We need to tweak DetalleVentaDialog slightly to handle Presupuesto details if we want it completely decoupled, but for now we'll just pass a flag or handle it internally. Wait, the prompt says: "Debe incluir la función de Doble Clic para abrir el DetalleVentaDialog (reutilizado) y ver los productos de ese presupuesto."
+        dlg = DetalleVentaDialog(p_id, self, es_presupuesto=True)
+        dlg.exec()
+
+    def cargar_datos(self):
+        d_desde = self.date_desde.date().toPyDate()
+        d_hasta = self.date_hasta.date().toPyDate()
+
+        from services.presupuesto_service import PresupuestoService
+        presupuestos = PresupuestoService.obtener_por_fecha(d_desde, d_hasta)
+        self.table.setRowCount(len(presupuestos))
+
+        for row, p in enumerate(presupuestos):
+            f_str = p.fecha.strftime("%Y-%m-%d %H:%M:%S")
+            c_nom = p.cliente.nombre if p.cliente else "Consumidor Final"
+
+            item_f = QTableWidgetItem(f_str)
+            item_f.setData(Qt.ItemDataRole.UserRole, p.id)
+            self.table.setItem(row, 0, item_f)
+            self.table.setItem(row, 1, QTableWidgetItem(f"Presupuesto #{p.id}"))
+            self.table.setItem(row, 2, QTableWidgetItem(c_nom))
+            self.table.setItem(row, 3, QTableWidgetItem(f"${p.total:.2f}"))
+
+            item_est = QTableWidgetItem(p.estado)
+            if p.estado == "Pendiente":
+                item_est.setForeground(Qt.GlobalColor.darkYellow)
+            self.table.setItem(row, 4, item_est)
+
+
 class CuentasCorrientesTab(QWidget):
     def __init__(self):
         super().__init__()
@@ -457,11 +545,13 @@ class RegistrosView(QWidget):
         self.tabs = QTabWidget()
 
         self.tab_ventas = RegistroVentasTab()
+        self.tab_pres = RegistroPresupuestosTab()
         self.tab_cc = CuentasCorrientesTab()
         self.tab_conta = ContabilidadTab()
         self.tab_liquidez = LiquidezBancosTab()
 
         self.tabs.addTab(self.tab_ventas, "Registro de Ventas")
+        self.tabs.addTab(self.tab_pres, "Presupuestos")
         self.tabs.addTab(self.tab_cc, "Cuentas Corrientes (Clientes)")
         self.tabs.addTab(self.tab_conta, "Libro Diario e IVA")
         self.tabs.addTab(self.tab_liquidez, "Liquidez y Bancos")
@@ -471,6 +561,7 @@ class RegistrosView(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self.tab_ventas.cargar_datos()
+        self.tab_pres.cargar_datos()
         self.tab_cc.cargar_clientes()
         self.tab_conta.cargar_datos()
         self.tab_liquidez.cargar_datos()
