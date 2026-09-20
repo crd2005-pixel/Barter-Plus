@@ -463,3 +463,30 @@ class TicketPreviewDialog(QDialog):
             self.paint_preview(print_job)
             QMessageBox.information(self, "Impresión", "Ticket enviado a la impresora.")
             self.accept()
+
+class DetalleVentaDialog(QDialog):
+    def __init__(self, venta_id, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Detalle de Venta #{venta_id}")
+        self.resize(600, 400)
+        from PyQt6.QtWidgets import QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView
+        from database.conexion import get_session
+        from database.models.venta import DetalleVenta
+
+        layout = QVBoxLayout(self)
+        self.tabla = QTableWidget()
+        self.tabla.setColumnCount(4)
+        self.tabla.setHorizontalHeaderLabels(["Producto", "Cantidad", "Precio Unitario", "Subtotal"])
+        self.tabla.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.tabla.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.tabla.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        layout.addWidget(self.tabla)
+
+        with get_session() as session:
+            detalles = session.query(DetalleVenta).filter(DetalleVenta.venta_id == venta_id).all()
+            self.tabla.setRowCount(len(detalles))
+            for i, det in enumerate(detalles):
+                self.tabla.setItem(i, 0, QTableWidgetItem(det.descripcion))
+                self.tabla.setItem(i, 1, QTableWidgetItem(f"{det.cantidad:.2f}"))
+                self.tabla.setItem(i, 2, QTableWidgetItem(f"$ {det.precio_unitario:.2f}"))
+                self.tabla.setItem(i, 3, QTableWidgetItem(f"$ {det.subtotal:.2f}"))

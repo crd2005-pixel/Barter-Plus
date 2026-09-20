@@ -95,6 +95,7 @@ class CajaActualTab(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.cellDoubleClicked.connect(self._abrir_detalle)
 
         main_layout.addWidget(self.table)
 
@@ -141,7 +142,10 @@ class CajaActualTab(QWidget):
                     saldo_parcial -= mov.monto
 
             hora_str = mov.fecha.strftime("%H:%M:%S")
-            self.table.setItem(row, 0, QTableWidgetItem(hora_str))
+            item_hora = QTableWidgetItem(hora_str)
+            if getattr(mov, 'venta_id', None):
+                item_hora.setData(Qt.ItemDataRole.UserRole, mov.venta_id)
+            self.table.setItem(row, 0, item_hora)
             self.table.setItem(row, 1, QTableWidgetItem(mov.tipo))
             self.table.setItem(row, 2, QTableWidgetItem(mov.concepto))
             self.table.setItem(row, 3, QTableWidgetItem(mov.metodo))
@@ -156,6 +160,16 @@ class CajaActualTab(QWidget):
             self.table.setItem(row, 6, QTableWidgetItem(f"${saldo_parcial:.2f}"))
 
         self.table.scrollToBottom()
+
+    def _abrir_detalle(self, row, col):
+        item_hora = self.table.item(row, 0)
+        if not item_hora: return
+        venta_id = item_hora.data(Qt.ItemDataRole.UserRole)
+        if not venta_id: return
+
+        from ui.components.dialogs import DetalleVentaDialog
+        dlg = DetalleVentaDialog(venta_id, self)
+        dlg.exec()
 
     def abrir_caja(self):
         monto, ok = QInputDialog.getDouble(
