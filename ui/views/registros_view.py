@@ -93,38 +93,6 @@ class RegistroVentasTab(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, "Error Fatal", str(e))
 
-    def _mostrar_detalle_movimiento(self, row, col):
-        item_fecha = self.table.item(row, 0)
-        if not item_fecha: return
-        venta_id = item_fecha.data(Qt.ItemDataRole.UserRole)
-        if not venta_id: return
-
-        from PyQt6.QtWidgets import QDialog, QTableWidget, QTableWidgetItem, QVBoxLayout, QHeaderView
-        from database.conexion import get_session
-        from database.models.venta import DetalleVenta
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle(f"Detalle de Venta #{venta_id}")
-        dlg.resize(600, 400)
-        dlg_layout = QVBoxLayout(dlg)
-
-        tabla_detalle = QTableWidget()
-        tabla_detalle.setColumnCount(4)
-        tabla_detalle.setHorizontalHeaderLabels(["Producto", "Cantidad", "Precio Unitario", "Subtotal"])
-        tabla_detalle.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        dlg_layout.addWidget(tabla_detalle)
-
-        with get_session() as session:
-            detalles = session.query(DetalleVenta).filter(DetalleVenta.venta_id == venta_id).all()
-            tabla_detalle.setRowCount(len(detalles))
-            for i, det in enumerate(detalles):
-                tabla_detalle.setItem(i, 0, QTableWidgetItem(det.descripcion))
-                tabla_detalle.setItem(i, 1, QTableWidgetItem(f"{det.cantidad:.2f}"))
-                tabla_detalle.setItem(i, 2, QTableWidgetItem(f"$ {det.precio_unitario:.2f}"))
-                tabla_detalle.setItem(i, 3, QTableWidgetItem(f"$ {det.subtotal:.2f}"))
-
-        dlg.exec()
-
     def cargar_datos(self):
         d_desde = self.date_desde.date().toPyDate()
         d_hasta = self.date_hasta.date().toPyDate()
@@ -350,38 +318,6 @@ class ContabilidadTab(QWidget):
 
         layout.addWidget(splitter)
 
-    def _mostrar_detalle_movimiento(self, row, col):
-        item_fecha = self.table.item(row, 0)
-        if not item_fecha: return
-        venta_id = item_fecha.data(Qt.ItemDataRole.UserRole)
-        if not venta_id: return
-
-        from PyQt6.QtWidgets import QDialog, QTableWidget, QTableWidgetItem, QVBoxLayout, QHeaderView
-        from database.conexion import get_session
-        from database.models.venta import DetalleVenta
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle(f"Detalle de Venta #{venta_id}")
-        dlg.resize(600, 400)
-        dlg_layout = QVBoxLayout(dlg)
-
-        tabla_detalle = QTableWidget()
-        tabla_detalle.setColumnCount(4)
-        tabla_detalle.setHorizontalHeaderLabels(["Producto", "Cantidad", "Precio Unitario", "Subtotal"])
-        tabla_detalle.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        dlg_layout.addWidget(tabla_detalle)
-
-        with get_session() as session:
-            detalles = session.query(DetalleVenta).filter(DetalleVenta.venta_id == venta_id).all()
-            tabla_detalle.setRowCount(len(detalles))
-            for i, det in enumerate(detalles):
-                tabla_detalle.setItem(i, 0, QTableWidgetItem(det.descripcion))
-                tabla_detalle.setItem(i, 1, QTableWidgetItem(f"{det.cantidad:.2f}"))
-                tabla_detalle.setItem(i, 2, QTableWidgetItem(f"$ {det.precio_unitario:.2f}"))
-                tabla_detalle.setItem(i, 3, QTableWidgetItem(f"$ {det.subtotal:.2f}"))
-
-        dlg.exec()
-
     def cargar_datos(self):
         d_desde = self.date_desde.date().toPyDate()
         d_hasta = self.date_hasta.date().toPyDate()
@@ -476,38 +412,6 @@ class LiquidezBancosTab(QWidget):
         btn_refresh = QPushButton("Actualizar Liquidez")
         btn_refresh.clicked.connect(self.cargar_datos)
         layout.addWidget(btn_refresh)
-
-    def _mostrar_detalle_movimiento(self, row, col):
-        item_fecha = self.table.item(row, 0)
-        if not item_fecha: return
-        venta_id = item_fecha.data(Qt.ItemDataRole.UserRole)
-        if not venta_id: return
-
-        from PyQt6.QtWidgets import QDialog, QTableWidget, QTableWidgetItem, QVBoxLayout, QHeaderView
-        from database.conexion import get_session
-        from database.models.venta import DetalleVenta
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle(f"Detalle de Venta #{venta_id}")
-        dlg.resize(600, 400)
-        dlg_layout = QVBoxLayout(dlg)
-
-        tabla_detalle = QTableWidget()
-        tabla_detalle.setColumnCount(4)
-        tabla_detalle.setHorizontalHeaderLabels(["Producto", "Cantidad", "Precio Unitario", "Subtotal"])
-        tabla_detalle.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        dlg_layout.addWidget(tabla_detalle)
-
-        with get_session() as session:
-            detalles = session.query(DetalleVenta).filter(DetalleVenta.venta_id == venta_id).all()
-            tabla_detalle.setRowCount(len(detalles))
-            for i, det in enumerate(detalles):
-                tabla_detalle.setItem(i, 0, QTableWidgetItem(det.descripcion))
-                tabla_detalle.setItem(i, 1, QTableWidgetItem(f"{det.cantidad:.2f}"))
-                tabla_detalle.setItem(i, 2, QTableWidgetItem(f"$ {det.precio_unitario:.2f}"))
-                tabla_detalle.setItem(i, 3, QTableWidgetItem(f"$ {det.subtotal:.2f}"))
-
-        dlg.exec()
 
     def cargar_datos(self):
         # 1. Resumen de Liquidez
