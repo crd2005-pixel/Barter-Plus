@@ -9,4 +9,4 @@ from .contabilidad import AsientoDiario, LibroIVA, PedidoManual, GastoOperativo,
 from .taller import Vehiculo, GarantiaBateria, CambioAceite
 from .configuracion_tarjetas import ConfiguracionTarjeta
 
-from .presupuesto import Presupuesto, DetallePresupuesto
+from .presupuestos import Presupuesto, DetallePresupuesto

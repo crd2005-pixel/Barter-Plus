@@ -1,5 +1,5 @@
 from database.conexion import get_session
-from database.models.presupuesto import Presupuesto, DetallePresupuesto
+from database.models.presupuestos import Presupuesto, DetallePresupuesto
 from database.models.producto import Producto
 from typing import List, Dict, Optional
 import datetime as dt
