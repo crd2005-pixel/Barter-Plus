@@ -50,7 +50,8 @@ class VentasTab(QWidget):
         self.combo_pago.addItems(["Efectivo", "Transferencia", "Débito", "Tarjeta", "Cuenta Corriente", "Combinada"])
 
         self.combo_comprobante = QComboBox()
-        self.combo_comprobante.addItems(["Remito", "Factura A", "Factura B"])
+        self.combo_comprobante.addItems(["Remito", "Factura A", "Factura B", "Presupuesto"])
+        self.combo_comprobante.currentTextChanged.connect(self._actualizar_estado_boton_cobrar)
 
         self.form_pago.addRow("Comprobante:", self.combo_comprobante)
         self.form_pago.addRow("Método Pago:", self.combo_pago)
@@ -627,10 +628,10 @@ class VentasTab(QWidget):
 
     def _actualizar_estado_boton_cobrar(self, text):
         if text == "Presupuesto":
-            self.btn_cobrar.setText("F12 - Guardar Presupuesto")
+            self.btn_cobrar.setText("CERRAR PRESUPUESTO")
             self.btn_cobrar.setStyleSheet("background-color: #f39c12; color: white; font-size: 20px; font-weight: bold; padding: 15px;")
         else:
-            self.btn_cobrar.setText("F12 - COBRAR / FINALIZAR")
+            self.btn_cobrar.setText(f"COBRAR {text.upper()}")
             self.btn_cobrar.setStyleSheet("background-color: #27ae60; color: white; font-size: 20px; font-weight: bold; padding: 15px;")
 
     def _abrir_recuperar_dialog(self):
