@@ -6,6 +6,26 @@ import datetime as dt
 
 class PresupuestoService:
     @staticmethod
+    def obtener_pendientes_activos(dias_limite: int = 15) -> List[dict]:
+        from sqlalchemy import select
+        with get_session() as session:
+            limite_fecha = dt.datetime.utcnow() - dt.timedelta(days=dias_limite)
+            presupuestos = session.scalars(
+                select(Presupuesto)
+                .where(Presupuesto.estado == "Pendiente")
+                .where(Presupuesto.fecha >= limite_fecha)
+                .order_by(Presupuesto.fecha.desc())
+            ).all()
+
+            return [{
+                "id": p.id,
+                "fecha": p.fecha,
+                "cliente_id": p.cliente_id,
+                "total": p.total,
+                "estado": p.estado
+            } for p in presupuestos]
+
+    @staticmethod
     def obtener_por_fecha(fecha_desde: dt.date, fecha_hasta: dt.date) -> List[Presupuesto]:
         from sqlalchemy.orm import joinedload
         from sqlalchemy import select, and_

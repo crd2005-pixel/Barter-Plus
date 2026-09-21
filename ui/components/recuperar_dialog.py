@@ -11,6 +11,7 @@ class RecuperarComprobanteDialog(QDialog):
         self.resize(700, 500)
         self.detalles_recuperados = [] # Aquí dejaremos los items
         self.cliente_id_seleccionado = None
+        self.presupuesto_origen_id = None
         self.setup_ui()
         self.cargar_datos()
 
@@ -56,7 +57,7 @@ class RecuperarComprobanteDialog(QDialog):
 
     def cargar_datos(self):
         # Cargar Presupuestos
-        presupuestos = PresupuestoService.obtener_recientes(50)
+        presupuestos = PresupuestoService.obtener_pendientes_activos(15)
         self.tbl_pres.setRowCount(len(presupuestos))
         for r, p in enumerate(presupuestos):
             self.tbl_pres.setItem(r, 0, QTableWidgetItem(str(p['id'])))
@@ -93,6 +94,7 @@ class RecuperarComprobanteDialog(QDialog):
             item_cliente = self.tbl_pres.item(row, 2)
             if item_cliente: self.cliente_id_seleccionado = item_cliente.data(Qt.ItemDataRole.UserRole)
 
+            self.presupuesto_origen_id = p_id
             self.detalles_recuperados = PresupuestoService.obtener_detalle(p_id)
             self.accept()
         else:

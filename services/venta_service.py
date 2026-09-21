@@ -25,7 +25,8 @@ class VentaService:
     def procesar_venta(detalles: List[Dict], cliente_id: Optional[int] = None,
                        metodo_pago: str = "Efectivo", monto_abonado: float = 0.0,
                        descuento_global: float = 0.0, recargo_global: float = 0.0,
-                       tipo_comprobante: str = "Remito", datos_tarjeta: Optional[Dict] = None) -> Venta:
+                       tipo_comprobante: str = "Remito", datos_tarjeta: Optional[Dict] = None,
+                       presupuesto_id: Optional[int] = None) -> Venta:
         """
         Procesa una venta completa.
         `detalles` es una lista de diccionarios: {'producto_id': int, 'cantidad': float, 'precio_unitario': float, 'descuento_unitario': float}
@@ -238,6 +239,13 @@ class VentaService:
                 )
                 session.add(mov_caja)
                 # -----------------------------------------------
+
+                # Cerrar Presupuesto si se originó de uno
+                if presupuesto_id:
+                    from database.models.presupuestos import Presupuesto
+                    pres = session.get(Presupuesto, presupuesto_id)
+                    if pres:
+                        pres.estado = "Cerrado"
 
                 session.commit()
                 session.refresh(nueva_venta)

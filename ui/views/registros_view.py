@@ -227,9 +227,22 @@ class RegistroPresupuestosTab(QWidget):
             self.table.setItem(row, 2, QTableWidgetItem(c_nom))
             self.table.setItem(row, 3, QTableWidgetItem(f"${p.total:.2f}"))
 
-            item_est = QTableWidgetItem(p.estado)
-            if p.estado == "Pendiente":
+            import datetime as dt
+            estado_calc = p.estado
+            # Dynamic calculation for expiration
+            if estado_calc == "Pendiente":
+                dias_transcurridos = (dt.datetime.utcnow() - p.fecha).days
+                if dias_transcurridos > 15:
+                    estado_calc = "Vencido"
+
+            item_est = QTableWidgetItem(estado_calc)
+            if estado_calc == "Pendiente":
                 item_est.setForeground(Qt.GlobalColor.darkYellow)
+            elif estado_calc == "Vencido":
+                item_est.setForeground(Qt.GlobalColor.darkRed)
+            elif estado_calc == "Cerrado":
+                item_est.setForeground(Qt.GlobalColor.darkGreen)
+
             self.table.setItem(row, 4, item_est)
 
 

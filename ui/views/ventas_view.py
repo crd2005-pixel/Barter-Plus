@@ -650,6 +650,7 @@ class VentasTab(QWidget):
                         'descuento_unit': item.get('descuento_unit', 0.0)
                     })
 
+                self.presupuesto_activo_id = getattr(dlg, 'presupuesto_origen_id', None)
                 # Retrieve client ID if possible
                 cliente_id = dlg.cliente_id_seleccionado
                 if cliente_id:
@@ -750,7 +751,8 @@ class VentasTab(QWidget):
                         monto_abonado=monto_abonado,
                         descuento_global=self.descuento_global,
                         tipo_comprobante=tipo_comprobante,
-                        datos_tarjeta=datos_tarjeta
+                        datos_tarjeta=datos_tarjeta,
+                        presupuesto_id=self.presupuesto_activo_id
                     )
 
                 vuelto = venta.vuelto
@@ -778,6 +780,7 @@ class VentasTab(QWidget):
                 self.carrito = []
                 self.descuento_global = 0.0
                 self.cliente_vip = False
+                self.presupuesto_activo_id = None
                 self.txt_codigo.clear()
                 if hasattr(self, 'txt_lote'): self.txt_lote.clear()
                 if hasattr(self, 'txt_cupon'): self.txt_cupon.clear()
