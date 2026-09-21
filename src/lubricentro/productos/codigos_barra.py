@@ -179,6 +179,12 @@ class EtiquetasPreviewDialog(QDialog):
         self.chk_sku.setChecked(self.settings.value("show_sku", False, type=bool))
         self.chk_precio.setChecked(self.settings.value("show_precio", False, type=bool))
 
+        saved_printer = self.settings.value("printer_name", "")
+        if saved_printer:
+            idx = self.cmb_printer.findText(saved_printer)
+            if idx >= 0:
+                self.cmb_printer.setCurrentIndex(idx)
+
     def _save_settings(self):
         self.settings.setValue("printer_name", self.cmb_printer.currentText())
         self.settings.setValue("mode", self.cmb_mode.currentText())
@@ -504,7 +510,7 @@ class EtiquetasPreviewDialog(QDialog):
         print_job = QPrinter(QPrinter.PrinterMode.HighResolution)
         print_job.setOutputFormat(QPrinter.OutputFormat.NativeFormat)
         dlg = QPrintDialog(print_job, self)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
+        if dlg.exec() == int(QDialog.DialogCode.Accepted):
             self._apply_printer_config(print_job)
             painter = QPainter(print_job)
             if painter.isActive():
