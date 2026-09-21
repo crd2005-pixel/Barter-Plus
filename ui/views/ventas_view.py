@@ -32,13 +32,13 @@ class VentasTab(QWidget):
         self.combo_clientes = QComboBox()
         self.combo_clientes.setEditable(True)
         self.combo_clientes.setPlaceholderText("Buscar o seleccionar cliente...")
-        self.combo_clientes.setMinimumWidth(300)
+        self.combo_clientes.setMinimumWidth(350)
         from PyQt6.QtWidgets import QSizePolicy
         self.combo_clientes.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         self.btn_nuevo_cliente = QPushButton("+")
         self.btn_nuevo_cliente.setToolTip("Agregar Nuevo Cliente")
-        self.btn_nuevo_cliente.setFixedWidth(30)
+        self.btn_nuevo_cliente.setFixedSize(40, 40)
 
         box_cli = QHBoxLayout()
         box_cli.addWidget(self.combo_clientes)
@@ -84,7 +84,7 @@ class VentasTab(QWidget):
 
         self.combo_pago.currentTextChanged.connect(self.toggle_fecha_acreditacion)
 
-        self.box_opciones.addLayout(self.form_cliente)
+        self.box_opciones.addLayout(self.form_cliente, stretch=1)
         self.box_opciones.addLayout(self.form_pago)
         self.box_opciones.addStretch()
 
