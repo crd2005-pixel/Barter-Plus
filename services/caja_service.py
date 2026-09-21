@@ -107,7 +107,7 @@ class CajaService:
             return saldo
 
     @staticmethod
-    def cerrar_caja(caja_id: int, saldo_real: float) -> Caja:
+    def cerrar_caja(caja_id: int, saldo_real: float, observaciones: str = "") -> Caja:
         with get_session() as session:
             try:
                 caja = session.get(Caja, caja_id)
