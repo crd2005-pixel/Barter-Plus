@@ -88,12 +88,17 @@ class VentasTab(QWidget):
         self.btn_consulta_rapida = QPushButton("Consultar Precio (F2)")
         self.btn_consulta_rapida.setStyleSheet("padding: 10px; font-weight: bold; background-color: #f39c12; color: white;")
 
+        self.btn_buscar_presupuesto = QPushButton("Buscar Presupuesto")
+        self.btn_buscar_presupuesto.setStyleSheet("padding: 10px; font-weight: bold; background-color: #3498db; color: white;")
+
+
         self.btn_sugerir_pedido = QPushButton("Anotar Pedido Manual")
         self.btn_sugerir_pedido.setStyleSheet("padding: 10px; font-weight: bold; background-color: #8e44ad; color: white;")
 
         self.btn_cobrar_cc = QPushButton("Cobrar Cuenta Corriente")
         self.btn_cobrar_cc.setStyleSheet("padding: 10px; font-weight: bold; background-color: #d35400; color: white;")
 
+        self.box_opciones.addWidget(self.btn_buscar_presupuesto)
         self.box_opciones.addWidget(self.btn_cobrar_cc)
         self.box_opciones.addWidget(self.btn_sugerir_pedido)
         self.box_opciones.addWidget(self.btn_consulta_rapida)
@@ -211,6 +216,7 @@ class VentasTab(QWidget):
         self.btn_sugerir_pedido.clicked.connect(self.sugerir_pedido)
         self.btn_nuevo_cliente.clicked.connect(self.crear_cliente_rapido)
         self.btn_cobrar_cc.clicked.connect(self.abrir_cobro_cc)
+        self.btn_buscar_presupuesto.clicked.connect(self._abrir_recuperar_dialog)
 
         # --- ATAJOS DE TECLADO ---
         shortcut_f12 = QShortcut(QKeySequence("F12"), self)
