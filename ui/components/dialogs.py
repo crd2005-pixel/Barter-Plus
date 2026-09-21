@@ -474,6 +474,18 @@ class DetalleVentaDialog(QDialog):
         from database.conexion import get_session
 
         layout = QVBoxLayout(self)
+
+        from PyQt6.QtWidgets import QHBoxLayout, QLabel
+        # 2. Creación e Inyección Física de la Cabecera
+        layout_cabecera = QHBoxLayout()
+        self.lbl_cliente = QLabel("Cliente: Cargando...")
+        self.lbl_metodo_pago = QLabel("Pago: Cargando...")
+        self.lbl_fecha = QLabel("Fecha: Cargando...")
+        layout_cabecera.addWidget(self.lbl_cliente)
+        layout_cabecera.addWidget(self.lbl_metodo_pago)
+        layout_cabecera.addWidget(self.lbl_fecha)
+        layout.addLayout(layout_cabecera)
+
         self.tabla = QTableWidget()
         self.tabla.setColumnCount(4)
         self.tabla.setHorizontalHeaderLabels(["Producto", "Cantidad", "Precio Unitario", "Subtotal"])
@@ -484,11 +496,25 @@ class DetalleVentaDialog(QDialog):
 
         with get_session() as session:
             if es_presupuesto:
-                from database.models.presupuestos import DetallePresupuesto
+                from database.models.presupuestos import DetallePresupuesto, Presupuesto
+                from sqlalchemy.orm import joinedload
+                doc = session.query(Presupuesto).options(joinedload(Presupuesto.cliente)).filter(Presupuesto.id == venta_id).first()
                 detalles = session.query(DetallePresupuesto).filter(DetallePresupuesto.presupuesto_id == venta_id).all()
+                if doc:
+                    c_nom = doc.cliente.nombre if doc.cliente else "Consumidor Final / Genérico"
+                    self.lbl_cliente.setText(f"<b>Cliente:</b> {c_nom}")
+                    self.lbl_metodo_pago.setText(f"<b>Pago:</b> N/A")
+                    self.lbl_fecha.setText(f"<b>Fecha:</b> {doc.fecha.strftime('%Y-%m-%d %H:%M:%S')}")
             else:
-                from database.models.venta import DetalleVenta
+                from database.models.venta import DetalleVenta, Venta
+                from sqlalchemy.orm import joinedload
+                doc = session.query(Venta).options(joinedload(Venta.cliente)).filter(Venta.id == venta_id).first()
                 detalles = session.query(DetalleVenta).filter(DetalleVenta.venta_id == venta_id).all()
+                if doc:
+                    c_nom = doc.cliente.nombre if doc.cliente else "Consumidor Final"
+                    self.lbl_cliente.setText(f"<b>Cliente:</b> {c_nom}")
+                    self.lbl_metodo_pago.setText(f"<b>Pago:</b> {doc.metodo_pago}")
+                    self.lbl_fecha.setText(f"<b>Fecha:</b> {doc.fecha.strftime('%Y-%m-%d %H:%M:%S')}")
 
             self.tabla.setRowCount(len(detalles))
             for i, det in enumerate(detalles):
