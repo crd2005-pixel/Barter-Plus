@@ -26,7 +26,7 @@ class VentaService:
                        metodo_pago: str = "Efectivo", monto_abonado: float = 0.0,
                        descuento_global: float = 0.0, recargo_global: float = 0.0,
                        tipo_comprobante: str = "Remito", datos_tarjeta: Optional[Dict] = None,
-                       presupuesto_id: Optional[int] = None) -> Venta:
+                       presupuesto_id: Optional[int] = None, datos_cheque: Optional[Dict] = None) -> Venta:
         """
         Procesa una venta completa.
         `detalles` es una lista de diccionarios: {'producto_id': int, 'cantidad': float, 'precio_unitario': float, 'descuento_unitario': float}
@@ -221,6 +221,25 @@ class VentaService:
                         venta_id=nueva_venta.id
                     )
                     session.add(asiento_banco)
+                elif metodo_pago == "Cheque":
+                    if not datos_cheque:
+                        raise ValueError("Los datos del cheque son obligatorios si el método de pago es 'Cheque'.")
+
+                    from database.models.cheques import Cheque
+                    nuevo_cheque = Cheque(
+                        venta_id=nueva_venta.id,
+                        banco=datos_cheque.get('banco', ''),
+                        numero_cheque=datos_cheque.get('numero_cheque', ''),
+                        fecha_conformacion=datos_cheque.get('fecha_conformacion'),
+                        fecha_vencimiento=datos_cheque.get('fecha_vencimiento'),
+                        tipo_cheque=datos_cheque.get('tipo_cheque', ''),
+                        nombre_emisor=datos_cheque.get('nombre_emisor', ''),
+                        cuit=datos_cheque.get('cuit', ''),
+                        endoso=datos_cheque.get('endoso', ''),
+                        monto=datos_cheque.get('monto', total_final)
+                    )
+                    session.add(nuevo_cheque)
+
 
                 # REGLA: Toda venta genera un movimiento de caja (sea efectivo, tarjeta o cuenta corriente)
                 # Transferencias bancarias podrían exclurse de la caja física, pero la regla solicitada:

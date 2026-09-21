@@ -53,7 +53,7 @@ class VentasTab(QWidget):
         self.fila_controles_layout = QHBoxLayout()
 
         self.combo_pago = QComboBox()
-        self.combo_pago.addItems(["Efectivo", "Transferencia", "Débito", "Tarjeta", "Cuenta Corriente", "Combinada"])
+        self.combo_pago.addItems(["Efectivo", "Transferencia", "Débito", "Tarjeta", "Cuenta Corriente", "Cheque", "Combinada"])
 
         self.combo_comprobante = QComboBox()
         self.combo_comprobante.addItems(["Remito", "Factura A", "Factura B", "Presupuesto"])
@@ -690,6 +690,15 @@ class VentasTab(QWidget):
             QMessageBox.warning(self, "Error", "Debe seleccionar un Cliente válido para pagos en Cuenta Corriente.")
             return
 
+        datos_cheque_extra = None
+        if metodo == "Cheque":
+            from ui.components.dialogs import CargarChequeDialog
+            from PyQt6.QtWidgets import QDialog
+            dlg_cheque = CargarChequeDialog(total_float, self)
+            if dlg_cheque.exec() != QDialog.DialogCode.Accepted:
+                return # Aborta si cancela el cheque
+            datos_cheque_extra = dlg_cheque.get_data()
+
         # Modal rápido de pago efectivo
         monto_abonado = total_float
         if metodo == "Efectivo":
@@ -765,7 +774,8 @@ class VentasTab(QWidget):
                         descuento_global=self.descuento_global,
                         tipo_comprobante=tipo_comprobante,
                         datos_tarjeta=datos_tarjeta,
-                        presupuesto_id=getattr(self, 'presupuesto_activo_id', None)
+                        presupuesto_id=getattr(self, 'presupuesto_activo_id', None),
+                        datos_cheque=datos_cheque_extra
                     )
 
                 vuelto = venta.vuelto

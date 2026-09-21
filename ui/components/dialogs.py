@@ -883,3 +883,81 @@ class PanelArqueoCajaDialog(QDialog):
             self.accept()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Fallo al cerrar caja:\n{str(e)}")
+
+class CargarChequeDialog(QDialog):
+    def __init__(self, monto_sugerido, parent=None):
+        super().__init__(parent)
+        self.monto_sugerido = monto_sugerido
+        self.setWindowTitle("Registrar Cheque")
+        self.resize(450, 450)
+        self.setup_ui()
+
+    def setup_ui(self):
+        from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit, QComboBox, QDoubleSpinBox, QPushButton, QDateEdit
+        from PyQt6.QtCore import QDate
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.txt_banco = QLineEdit()
+        self.txt_numero = QLineEdit()
+
+        self.date_conformacion = QDateEdit()
+        self.date_conformacion.setCalendarPopup(True)
+        self.date_conformacion.setDate(QDate.currentDate())
+
+        self.date_vencimiento = QDateEdit()
+        self.date_vencimiento.setCalendarPopup(True)
+        self.date_vencimiento.setDate(QDate.currentDate().addDays(30))
+
+        self.combo_tipo = QComboBox()
+        self.combo_tipo.addItems(["Diferido", "Al Día"])
+
+        self.txt_nombre = QLineEdit()
+        self.txt_cuit = QLineEdit()
+        self.txt_endoso = QLineEdit()
+        self.txt_endoso.setPlaceholderText("Opcional")
+
+        self.spin_monto = QDoubleSpinBox()
+        self.spin_monto.setRange(0, 100000000)
+        self.spin_monto.setDecimals(2)
+        self.spin_monto.setPrefix("$ ")
+        self.spin_monto.setValue(self.monto_sugerido)
+        # Assuming we can allow partials for mixed payments, we'll leave it editable
+
+        form.addRow("Banco:", self.txt_banco)
+        form.addRow("Número:", self.txt_numero)
+        form.addRow("F. Conformación:", self.date_conformacion)
+        form.addRow("F. Vencimiento:", self.date_vencimiento)
+        form.addRow("Tipo:", self.combo_tipo)
+        form.addRow("Emisor:", self.txt_nombre)
+        form.addRow("CUIT:", self.txt_cuit)
+        form.addRow("Endoso:", self.txt_endoso)
+        form.addRow("Monto:", self.spin_monto)
+
+        layout.addLayout(form)
+
+        btn_box = QHBoxLayout()
+        btn_ok = QPushButton("Registrar")
+        btn_ok.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; height: 35px;")
+        btn_ok.clicked.connect(self.accept)
+        btn_cancel = QPushButton("Cancelar")
+        btn_cancel.clicked.connect(self.reject)
+
+        btn_box.addStretch()
+        btn_box.addWidget(btn_cancel)
+        btn_box.addWidget(btn_ok)
+        layout.addLayout(btn_box)
+
+    def get_data(self):
+        return {
+            "banco": self.txt_banco.text().strip(),
+            "numero_cheque": self.txt_numero.text().strip(),
+            "fecha_conformacion": self.date_conformacion.date().toPyDate(),
+            "fecha_vencimiento": self.date_vencimiento.date().toPyDate(),
+            "tipo_cheque": self.combo_tipo.currentText(),
+            "nombre_emisor": self.txt_nombre.text().strip(),
+            "cuit": self.txt_cuit.text().strip(),
+            "endoso": self.txt_endoso.text().strip(),
+            "monto": self.spin_monto.value()
+        }
