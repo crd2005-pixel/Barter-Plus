@@ -248,10 +248,15 @@ class VentaService:
                 if not caja_activa:
                     raise ValueError("No hay una caja abierta. Debe abrir la caja antes de procesar ventas.")
 
+
+                concepto_caja = f"Venta #{nueva_venta.id} - {tipo_comprobante}"
+                if metodo_pago == "Cheque" and datos_cheque:
+                    concepto_caja += f" (Cheque {datos_cheque.get('numero_cheque', '')})"
+
                 mov_caja = MovimientoCaja(
                     caja_id=caja_activa.id,
                     tipo="Ingreso",
-                    concepto=f"Venta #{nueva_venta.id} - {tipo_comprobante}",
+                    concepto=concepto_caja,
                     monto=total_final,
                     metodo=metodo_pago,
                     venta_id=nueva_venta.id
