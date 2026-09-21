@@ -617,3 +617,112 @@ class DetalleCajaDialog(QDialog):
 
         dlg = DetalleVentaDialog(venta_id, self)
         dlg.exec()
+
+class CierreCajaDialog(QDialog):
+    def __init__(self, caja_id, parent=None):
+        super().__init__(parent)
+        self.caja_id = caja_id
+        self.setWindowTitle(f"Arqueo y Cierre de Caja #{caja_id}")
+        self.resize(800, 700)
+        self.saldo_esperado = 0.0
+        self.setup_ui()
+
+    def setup_ui(self):
+        from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QDoubleSpinBox, QTableWidget, QTableWidgetItem, QHeaderView, QTextEdit, QPushButton
+        from PyQt6.QtCore import Qt
+        from database.conexion import get_session
+        from database.models.caja import Caja
+        from services.caja_service import CajaService
+
+        layout = QVBoxLayout(self)
+
+        self.saldo_esperado = CajaService.calcular_saldo_efectivo(self.caja_id)
+
+        # 1. Sección Superior (Cálculo)
+        form = QFormLayout()
+        lbl_esperado = QLabel(f"${self.saldo_esperado:.2f}")
+        lbl_esperado.setStyleSheet("font-size: 20px; font-weight: bold; color: #2980b9;")
+        form.addRow("Monto Esperado (Efectivo):", lbl_esperado)
+
+        self.spin_real = QDoubleSpinBox()
+        self.spin_real.setRange(0, 100000000)
+        self.spin_real.setDecimals(2)
+        self.spin_real.setPrefix("$ ")
+        self.spin_real.setStyleSheet("font-size: 20px; padding: 5px;")
+        self.spin_real.valueChanged.connect(self._actualizar_diferencia)
+        form.addRow("Monto Físico Declarado:", self.spin_real)
+
+        self.lbl_dif = QLabel("$0.00")
+        self.lbl_dif.setStyleSheet("font-size: 20px; font-weight: bold;")
+        form.addRow("Diferencia:", self.lbl_dif)
+        layout.addLayout(form)
+
+        # 2. Sección Central (Auditoría Activa)
+        layout.addWidget(QLabel("Movimientos de este Turno:"))
+        self.tabla_movimientos = QTableWidget(0, 5)
+        self.tabla_movimientos.setHorizontalHeaderLabels(["Hora", "Tipo", "Concepto", "Método", "Monto"])
+        self.tabla_movimientos.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tabla_movimientos.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.tabla_movimientos.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.tabla_movimientos.cellDoubleClicked.connect(self._abrir_detalle_venta)
+        layout.addWidget(self.tabla_movimientos)
+
+        # Cargar Movimientos
+        with get_session() as session:
+            from sqlalchemy.orm import joinedload
+            caja = session.query(Caja).options(joinedload(Caja.movimientos)).filter(Caja.id == self.caja_id).first()
+            if caja:
+                movs = sorted(caja.movimientos, key=lambda m: m.fecha)
+                self.tabla_movimientos.setRowCount(len(movs))
+                for i, mov in enumerate(movs):
+                    item_hora = QTableWidgetItem(mov.fecha.strftime("%H:%M:%S"))
+                    if getattr(mov, 'venta_id', None):
+                        item_hora.setData(Qt.ItemDataRole.UserRole, mov.venta_id)
+                    self.tabla_movimientos.setItem(i, 0, item_hora)
+                    self.tabla_movimientos.setItem(i, 1, QTableWidgetItem(mov.tipo))
+                    self.tabla_movimientos.setItem(i, 2, QTableWidgetItem(mov.concepto))
+                    self.tabla_movimientos.setItem(i, 3, QTableWidgetItem(mov.metodo))
+                    self.tabla_movimientos.setItem(i, 4, QTableWidgetItem(f"${mov.monto:.2f}"))
+
+        # 3. Sección Inferior (Justificación y Guardado)
+        layout.addWidget(QLabel("Observaciones (Justificar faltantes o sobrantes):"))
+        self.txt_obs = QTextEdit()
+        self.txt_obs.setMaximumHeight(80)
+        layout.addWidget(self.txt_obs)
+
+        btn_box = QHBoxLayout()
+        btn_cerrar = QPushButton("Confirmar y Cerrar Caja")
+        btn_cerrar.setStyleSheet("background-color: #d35400; color: white; font-weight: bold; height: 40px; font-size: 16px;")
+        btn_cerrar.clicked.connect(self.accept)
+        btn_cancelar = QPushButton("Cancelar")
+        btn_cancelar.clicked.connect(self.reject)
+
+        btn_box.addStretch()
+        btn_box.addWidget(btn_cancelar)
+        btn_box.addWidget(btn_cerrar)
+        layout.addLayout(btn_box)
+
+        self._actualizar_diferencia()
+
+    def _actualizar_diferencia(self):
+        dif = self.spin_real.value() - self.saldo_esperado
+        self.lbl_dif.setText(f"${dif:.2f}")
+        if dif < 0:
+            self.lbl_dif.setStyleSheet("font-size: 20px; font-weight: bold; color: red;")
+        elif dif > 0:
+            self.lbl_dif.setStyleSheet("font-size: 20px; font-weight: bold; color: green;")
+        else:
+            self.lbl_dif.setStyleSheet("font-size: 20px; font-weight: bold; color: black;")
+
+    def _abrir_detalle_venta(self, row, col):
+        from PyQt6.QtCore import Qt
+        item_hora = self.tabla_movimientos.item(row, 0)
+        if not item_hora: return
+        venta_id = item_hora.data(Qt.ItemDataRole.UserRole)
+        if not venta_id: return
+
+        dlg = DetalleVentaDialog(venta_id, self)
+        dlg.exec()
+
+    def get_data(self):
+        return self.spin_real.value(), self.txt_obs.toPlainText().strip()
