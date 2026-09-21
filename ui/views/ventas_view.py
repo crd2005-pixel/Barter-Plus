@@ -26,14 +26,15 @@ class VentasTab(QWidget):
         self.top_layout.setContentsMargins(0,0,0,0)
 
         # --- ZONA CLIENTE Y OPCIONES ---
-        self.box_opciones = QHBoxLayout()
+        self.layout_cabecera = QVBoxLayout()
 
-        self.form_cliente = QFormLayout()
+        # Fila 1 - Exclusiva para el Cliente
+        self.fila_cliente_layout = QHBoxLayout()
+
+        from PyQt6.QtWidgets import QSizePolicy
         self.combo_clientes = QComboBox()
         self.combo_clientes.setEditable(True)
         self.combo_clientes.setPlaceholderText("Buscar o seleccionar cliente...")
-        self.combo_clientes.setMinimumWidth(350)
-        from PyQt6.QtWidgets import QSizePolicy
         self.combo_clientes.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.combo_clientes.setStyleSheet("margin: 0px; padding: 5px;")
 
@@ -42,17 +43,14 @@ class VentasTab(QWidget):
         self.btn_nuevo_cliente.setFixedSize(40, 40)
         self.btn_nuevo_cliente.setStyleSheet("margin: 0px; padding: 0px;")
 
-        box_cli = QHBoxLayout()
-        box_cli.setSpacing(10)
-        box_cli.setContentsMargins(0, 0, 0, 0)
-        box_cli.addWidget(self.combo_clientes)
-        box_cli.addWidget(self.btn_nuevo_cliente)
+        self.fila_cliente_layout.addWidget(QLabel("Cliente:"))
+        self.fila_cliente_layout.addWidget(self.combo_clientes)
+        self.fila_cliente_layout.addWidget(self.btn_nuevo_cliente)
+        self.fila_cliente_layout.addStretch()
 
-        self.form_cliente.addRow("Cliente:", box_cli)
+        # Fila 2 - Controles y Acciones
+        self.fila_controles_layout = QHBoxLayout()
 
-        # Eliminar QComboBox de "Tipo", la lectura será directamente del modelo Cliente
-
-        self.form_pago = QFormLayout()
         self.combo_pago = QComboBox()
         self.combo_pago.addItems(["Efectivo", "Transferencia", "Débito", "Tarjeta", "Cuenta Corriente", "Combinada"])
 
@@ -60,10 +58,7 @@ class VentasTab(QWidget):
         self.combo_comprobante.addItems(["Remito", "Factura A", "Factura B", "Presupuesto"])
         self.combo_comprobante.currentTextChanged.connect(self._actualizar_estado_boton_cobrar)
 
-        self.form_pago.addRow("Comprobante:", self.combo_comprobante)
-        self.form_pago.addRow("Método Pago:", self.combo_pago)
-
-
+        # Componentes ocultos para Tarjeta
         self.form_tarjeta = QFormLayout()
         self.combo_tarjeta = QComboBox()
         self.combo_plan_tarjeta = QComboBox()
@@ -71,26 +66,25 @@ class VentasTab(QWidget):
         self.txt_lote.setPlaceholderText("Ej: 12345")
         self.txt_cupon = QLineEdit()
         self.txt_cupon.setPlaceholderText("Ej: 67890")
-
         self.combo_tarjeta.currentIndexChanged.connect(self.cargar_planes_tarjeta)
         self.combo_plan_tarjeta.currentIndexChanged.connect(self.actualizar_ui)
-
         self.form_tarjeta.addRow("Tarjeta:", self.combo_tarjeta)
-        self.form_tarjeta.addRow("Plan de Tarjeta:", self.combo_plan_tarjeta)
+        self.form_tarjeta.addRow("Plan:", self.combo_plan_tarjeta)
         self.form_tarjeta.addRow("Nº Lote:", self.txt_lote)
         self.form_tarjeta.addRow("Nº Cupón:", self.txt_cupon)
-
-        # Ocultar por defecto
         self.widget_tarjeta = QWidget()
         self.widget_tarjeta.setLayout(self.form_tarjeta)
         self.widget_tarjeta.setVisible(False)
-        self.form_pago.addRow(self.widget_tarjeta)
-
         self.combo_pago.currentTextChanged.connect(self.toggle_fecha_acreditacion)
 
-        self.box_opciones.addLayout(self.form_cliente)
-        self.box_opciones.addStretch() # Empuja el form_cliente a la izq y form_pago a la der
-        self.box_opciones.addLayout(self.form_pago)
+        # Contenedor de Comprobante y Pago para la fila 2
+        form_pago_simple = QFormLayout()
+        form_pago_simple.addRow("Comprobante:", self.combo_comprobante)
+        form_pago_simple.addRow("Método Pago:", self.combo_pago)
+        form_pago_simple.addRow(self.widget_tarjeta)
+
+        self.fila_controles_layout.addLayout(form_pago_simple)
+        self.fila_controles_layout.addStretch()
 
         self.btn_consulta_rapida = QPushButton("Consultar Precio (F2)")
         self.btn_consulta_rapida.setStyleSheet("padding: 10px; font-weight: bold; background-color: #f39c12; color: white;")
@@ -98,14 +92,18 @@ class VentasTab(QWidget):
         self.btn_sugerir_pedido = QPushButton("Anotar Pedido Manual")
         self.btn_sugerir_pedido.setStyleSheet("padding: 10px; font-weight: bold; background-color: #8e44ad; color: white;")
 
-        self.btn_cobrar_cc = QPushButton("Cobrar Cuenta Corriente")
+        self.btn_cobrar_cc = QPushButton("Cobrar Cta. Cte.")
         self.btn_cobrar_cc.setStyleSheet("padding: 10px; font-weight: bold; background-color: #d35400; color: white;")
 
-        self.box_opciones.addWidget(self.btn_cobrar_cc)
-        self.box_opciones.addWidget(self.btn_sugerir_pedido)
-        self.box_opciones.addWidget(self.btn_consulta_rapida)
+        self.fila_controles_layout.addWidget(self.btn_cobrar_cc)
+        self.fila_controles_layout.addWidget(self.btn_sugerir_pedido)
+        self.fila_controles_layout.addWidget(self.btn_consulta_rapida)
 
-        self.top_layout.addLayout(self.box_opciones)
+        # Ensamblaje
+        self.layout_cabecera.addLayout(self.fila_cliente_layout)
+        self.layout_cabecera.addLayout(self.fila_controles_layout)
+
+        self.top_layout.addLayout(self.layout_cabecera)
 
         # --- ZONA DE INGRESO (Escáner) ---
         self.box_ingreso = QHBoxLayout()
