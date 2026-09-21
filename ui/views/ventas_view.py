@@ -18,6 +18,7 @@ class VentasTab(QWidget):
         super().__init__()
         self.layout = QVBoxLayout(self)
         self.carrito = []
+        self.presupuesto_activo_id = None
 
         self.splitter = QSplitter(Qt.Orientation.Vertical)
 
@@ -764,7 +765,7 @@ class VentasTab(QWidget):
                         descuento_global=self.descuento_global,
                         tipo_comprobante=tipo_comprobante,
                         datos_tarjeta=datos_tarjeta,
-                        presupuesto_id=self.presupuesto_activo_id
+                        presupuesto_id=getattr(self, 'presupuesto_activo_id', None)
                     )
 
                 vuelto = venta.vuelto
