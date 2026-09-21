@@ -35,12 +35,16 @@ class VentasTab(QWidget):
         self.combo_clientes.setMinimumWidth(350)
         from PyQt6.QtWidgets import QSizePolicy
         self.combo_clientes.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.combo_clientes.setStyleSheet("margin: 0px; padding: 5px;")
 
         self.btn_nuevo_cliente = QPushButton("+")
         self.btn_nuevo_cliente.setToolTip("Agregar Nuevo Cliente")
         self.btn_nuevo_cliente.setFixedSize(40, 40)
+        self.btn_nuevo_cliente.setStyleSheet("margin: 0px; padding: 0px;")
 
         box_cli = QHBoxLayout()
+        box_cli.setSpacing(10)
+        box_cli.setContentsMargins(0, 0, 0, 0)
         box_cli.addWidget(self.combo_clientes)
         box_cli.addWidget(self.btn_nuevo_cliente)
 
@@ -84,9 +88,9 @@ class VentasTab(QWidget):
 
         self.combo_pago.currentTextChanged.connect(self.toggle_fecha_acreditacion)
 
-        self.box_opciones.addLayout(self.form_cliente, stretch=1)
+        self.box_opciones.addLayout(self.form_cliente)
+        self.box_opciones.addStretch() # Empuja el form_cliente a la izq y form_pago a la der
         self.box_opciones.addLayout(self.form_pago)
-        self.box_opciones.addStretch()
 
         self.btn_consulta_rapida = QPushButton("Consultar Precio (F2)")
         self.btn_consulta_rapida.setStyleSheet("padding: 10px; font-weight: bold; background-color: #f39c12; color: white;")
