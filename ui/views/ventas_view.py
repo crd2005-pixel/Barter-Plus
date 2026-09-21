@@ -681,7 +681,8 @@ class VentasTab(QWidget):
         total_txt = self.lbl_total_valor.text().replace('$ ', '').replace(',', '.')
         total_float = float(total_txt)
 
-        metodo = self.combo_pago.currentText()
+        metodo_pago_texto = self.combo_pago.currentText().strip()
+        metodo = metodo_pago_texto
         tipo_comprobante = self.combo_comprobante.currentText()
         cliente_id = self.combo_clientes.currentData()
 
@@ -691,13 +692,14 @@ class VentasTab(QWidget):
             return
 
         datos_cheque_extra = None
-        if metodo == "Cheque":
+        if metodo_pago_texto.lower() == "cheque":
             from ui.components.dialogs import CargarChequeDialog
             from PyQt6.QtWidgets import QDialog
-            dlg_cheque = CargarChequeDialog(total_float, self)
-            if dlg_cheque.exec() != QDialog.DialogCode.Accepted:
-                return # Aborta si cancela el cheque
-            datos_cheque_extra = dlg_cheque.get_data()
+            dialog_cheque = CargarChequeDialog(total_float, self)
+            if dialog_cheque.exec() == QDialog.DialogCode.Accepted:
+                datos_cheque_extra = dialog_cheque.get_data()
+            else:
+                return # Aborta la venta si el cajero cancela la carga del cheque
 
         # Modal rápido de pago efectivo
         monto_abonado = total_float
