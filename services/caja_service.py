@@ -153,6 +153,7 @@ class CajaService:
                 caja.diferencia = diferencia
                 caja.estado = "Cerrada"
                 caja.fecha_cierre = dt.datetime.utcnow()
+                caja.notas = observaciones
 
                 session.commit()
                 session.refresh(caja)

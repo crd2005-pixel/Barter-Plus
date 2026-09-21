@@ -597,7 +597,7 @@ class DetalleCajaDialog(QDialog):
             layout.addWidget(QLabel("Observaciones de Cierre:"))
             txt_obs = QTextEdit()
             txt_obs.setReadOnly(True)
-            txt_obs.setPlainText(caja.notas or "Sin observaciones registradas.")
+            txt_obs.setPlainText(caja.notas if caja.notas else "Sin observaciones registradas.")
             txt_obs.setMaximumHeight(80)
             layout.addWidget(txt_obs)
 
