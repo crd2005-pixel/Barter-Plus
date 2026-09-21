@@ -681,9 +681,8 @@ class VentasTab(QWidget):
         total_txt = self.lbl_total_valor.text().replace('$ ', '').replace(',', '.')
         total_float = float(total_txt)
 
-        metodo_pago_texto = self.combo_pago.currentText().strip()
-        metodo = metodo_pago_texto
-        tipo_comprobante = self.combo_comprobante.currentText()
+        metodo = self.combo_pago.currentText().strip()
+        tipo_comprobante = self.combo_comprobante.currentText().strip()
         cliente_id = self.combo_clientes.currentData()
 
         # Validar si es Cta Cte
@@ -692,12 +691,12 @@ class VentasTab(QWidget):
             return
 
         datos_cheque_extra = None
-        if metodo_pago_texto.lower() == "cheque":
+        if metodo.lower() == "cheque":
             from ui.components.dialogs import CargarChequeDialog
             from PyQt6.QtWidgets import QDialog
-            dialog_cheque = CargarChequeDialog(total_float, self)
-            if dialog_cheque.exec() == QDialog.DialogCode.Accepted:
-                datos_cheque_extra = dialog_cheque.get_data()
+            dlg_cheque = CargarChequeDialog(total_float, self)
+            if dlg_cheque.exec() == QDialog.DialogCode.Accepted:
+                datos_cheque_extra = dlg_cheque.get_data()
             else:
                 return # Aborta la venta si el cajero cancela la carga del cheque
 
