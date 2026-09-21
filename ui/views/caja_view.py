@@ -187,31 +187,10 @@ class CajaActualTab(QWidget):
         if not self.caja_activa:
             return
 
-        monto_real, ok = QInputDialog.getDouble(
-            self, "Cerrar Caja (Auditoría)",
-            "Atención: Ingrese el MONTO FÍSICO REAL en efectivo que tiene en sus manos.\n\n"
-            "Monto Físico Declarado ($):", 0, 0, 100000000, 2
-        )
-        if ok:
-            try:
-                caja_cerrada = CajaService.cerrar_caja(self.caja_activa.id, monto_real)
-
-                if caja_cerrada.diferencia < 0:
-                    QMessageBox.warning(self, "Auditoría de Caja",
-                                      f"Caja cerrada.\n¡ATENCIÓN! Se ha detectado un FALTANTE de ${abs(caja_cerrada.diferencia):.2f}.\n"
-                                      f"El sistema esperaba ${caja_cerrada.saldo_final_esperado:.2f} pero se declararon ${monto_real:.2f}.\n\n"
-                                      "Este movimiento ha quedado registrado de manera inalterable.")
-                elif caja_cerrada.diferencia > 0:
-                    QMessageBox.information(self, "Auditoría de Caja",
-                                      f"Caja cerrada.\nSe ha detectado un SOBRANTE de ${caja_cerrada.diferencia:.2f}.\n"
-                                      f"El sistema esperaba ${caja_cerrada.saldo_final_esperado:.2f} pero se declararon ${monto_real:.2f}.\n\n"
-                                      "Este movimiento ha quedado registrado de manera inalterable.")
-                else:
-                    QMessageBox.information(self, "Caja", "Caja cerrada correctamente. Cuadre exacto.")
-
-                self.parent_view.refresh_all()
-            except Exception as e:
-                QMessageBox.critical(self, "Error", str(e))
+        from ui.components.dialogs import PanelArqueoCajaDialog
+        dialog = PanelArqueoCajaDialog(self.caja_activa.id, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.parent_view.refresh_all()
 
     def registrar_ingreso(self):
         dialog = MovimientoDialog("Ingreso", self)
