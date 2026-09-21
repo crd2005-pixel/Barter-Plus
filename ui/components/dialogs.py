@@ -544,18 +544,50 @@ class DetalleCajaDialog(QDialog):
             layout.addWidget(QLabel("Movimientos de Turno:"))
 
             # Grid
-            tabla = QTableWidget(0, 5)
+            self.tabla_movimientos = QTableWidget(0, 5)
+            tabla = self.tabla_movimientos
             tabla.setHorizontalHeaderLabels(["Hora", "Tipo", "Concepto", "Método", "Monto"])
             tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
             tabla.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            tabla.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+            tabla.cellDoubleClicked.connect(self._abrir_detalle_venta)
             layout.addWidget(tabla)
 
             # Insert data
             movimientos = sorted(caja.movimientos, key=lambda m: m.fecha)
             tabla.setRowCount(len(movimientos))
             for i, mov in enumerate(movimientos):
-                tabla.setItem(i, 0, QTableWidgetItem(mov.fecha.strftime("%H:%M:%S")))
+                from PyQt6.QtCore import Qt
+                item_hora = QTableWidgetItem(mov.fecha.strftime("%H:%M:%S"))
+                if getattr(mov, 'venta_id', None):
+                    item_hora.setData(Qt.ItemDataRole.UserRole, mov.venta_id)
+                tabla.setItem(i, 0, item_hora)
                 tabla.setItem(i, 1, QTableWidgetItem(mov.tipo))
                 tabla.setItem(i, 2, QTableWidgetItem(mov.concepto))
                 tabla.setItem(i, 3, QTableWidgetItem(mov.metodo))
                 tabla.setItem(i, 4, QTableWidgetItem(f"${mov.monto:.2f}"))
+
+            from PyQt6.QtWidgets import QPushButton
+            btn_box = QHBoxLayout()
+            btn_export = QPushButton("Exportar Movimientos")
+            btn_export.clicked.connect(self._exportar_movimientos)
+            btn_cerrar = QPushButton("Cerrar")
+            btn_cerrar.clicked.connect(self.accept)
+            btn_box.addWidget(btn_export)
+            btn_box.addStretch()
+            btn_box.addWidget(btn_cerrar)
+            layout.addLayout(btn_box)
+
+    def _exportar_movimientos(self):
+        from utils.export_utils import ExportUtils
+        ExportUtils.exportar_tabla_csv(self.tabla_movimientos, self, f"Caja_Turno_{self.caja_id}")
+
+    def _abrir_detalle_venta(self, row, col):
+        from PyQt6.QtCore import Qt
+        item_hora = self.tabla_movimientos.item(row, 0)
+        if not item_hora: return
+        venta_id = item_hora.data(Qt.ItemDataRole.UserRole)
+        if not venta_id: return
+
+        dlg = DetalleVentaDialog(venta_id, self)
+        dlg.exec()
