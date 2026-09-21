@@ -1,3 +1,7 @@
+from PyQt6.QtWidgets import (
+    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QCheckBox, QPushButton, QMessageBox, QHBoxLayout, QLabel, QDoubleSpinBox
+)
+from services.cliente_service import ClienteService
 
 class DeclaracionCiegaDialog(QDialog):
     def __init__(self, parent=None):
@@ -32,10 +36,6 @@ class DeclaracionCiegaDialog(QDialog):
     def get_monto(self):
         return self.spin_monto.value()
 
-from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QCheckBox, QPushButton, QMessageBox, QHBoxLayout, QLabel, QDoubleSpinBox
-)
-from services.cliente_service import ClienteService
 
 class FastClientDialog(QDialog):
     def __init__(self, parent=None):
