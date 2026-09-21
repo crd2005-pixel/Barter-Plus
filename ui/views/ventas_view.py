@@ -655,6 +655,7 @@ class VentasTab(QWidget):
                     self.carrito.append({
                         'id': item.get('id', item.get('producto_id')),
                         'codigo': item.get('codigo', ''),
+                        'marca': item.get('marca', ''), # <-- FIX KEYERROR
                         'nombre': item.get('nombre', ''),
                         'precio_base': item.get('precio_base', 0.0),
                         'cantidad': item.get('cantidad', 1.0),

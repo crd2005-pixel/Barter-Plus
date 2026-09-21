@@ -109,11 +109,13 @@ class RecuperarComprobanteDialog(QDialog):
             # Rehydrate from DetalleVenta
             from database.conexion import get_session
             from database.models.venta import DetalleVenta
+            from sqlalchemy.orm import joinedload
             with get_session() as session:
-                detalles = session.query(DetalleVenta).filter(DetalleVenta.venta_id == v_id).all()
+                detalles = session.query(DetalleVenta).options(joinedload(DetalleVenta.producto)).filter(DetalleVenta.venta_id == v_id).all()
                 self.detalles_recuperados = [{
                     "id": d.producto_id,
                     "codigo": d.codigo_barras or "",
+                    "marca": d.producto.marca.nombre if (d.producto and d.producto.marca) else "",
                     "nombre": d.descripcion,
                     "cantidad": d.cantidad,
                     "precio_base": d.precio_unitario,

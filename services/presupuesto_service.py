@@ -132,12 +132,19 @@ class PresupuestoService:
                 select(DetallePresupuesto)
                 .where(DetallePresupuesto.presupuesto_id == presupuesto_id)
             ).all()
+            from sqlalchemy.orm import joinedload
+            detalles_joined = session.scalars(
+                select(DetallePresupuesto).options(joinedload(DetallePresupuesto.producto))
+                .where(DetallePresupuesto.presupuesto_id == presupuesto_id)
+            ).all()
+
             return [{
                 "producto_id": d.producto_id,
                 "codigo": d.codigo_barras or "",
+                "marca": d.producto.marca.nombre if (d.producto and d.producto.marca) else "",
                 "nombre": d.descripcion,
                 "cantidad": d.cantidad,
                 "precio_base": d.precio_unitario,
                 "descuento_unit": d.descuento_unitario,
                 "subtotal": d.subtotal
-            } for d in detalles]
+            } for d in detalles_joined]
