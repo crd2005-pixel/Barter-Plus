@@ -259,15 +259,28 @@ class HistorialCajaTab(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.cellDoubleClicked.connect(self._abrir_detalle_caja)
 
         layout.addWidget(self.table)
+
+    def _abrir_detalle_caja(self, row, col):
+        item_id = self.table.item(row, 0)
+        if not item_id: return
+        caja_id = item_id.data(Qt.ItemDataRole.UserRole)
+        if not caja_id: return
+
+        from ui.components.dialogs import DetalleCajaDialog
+        dlg = DetalleCajaDialog(caja_id, self)
+        dlg.exec()
 
     def cargar_historial(self):
         cajas = CajaService.obtener_historial_cajas()
         self.table.setRowCount(len(cajas))
 
         for row, caja in enumerate(cajas):
-            self.table.setItem(row, 0, QTableWidgetItem(str(caja.id)))
+            item_id = QTableWidgetItem(str(caja.id))
+            item_id.setData(Qt.ItemDataRole.UserRole, caja.id)
+            self.table.setItem(row, 0, item_id)
 
             apertura_str = caja.fecha_apertura.strftime("%Y-%m-%d %H:%M:%S")
             self.table.setItem(row, 1, QTableWidgetItem(apertura_str))
@@ -342,6 +355,7 @@ class ConfiguracionTarjetasTab(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.cellDoubleClicked.connect(self._abrir_detalle_caja)
 
         layout.addWidget(self.table)
 

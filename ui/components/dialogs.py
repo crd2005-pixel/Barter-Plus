@@ -496,3 +496,66 @@ class DetalleVentaDialog(QDialog):
                 self.tabla.setItem(i, 1, QTableWidgetItem(f"{det.cantidad:.2f}"))
                 self.tabla.setItem(i, 2, QTableWidgetItem(f"$ {det.precio_unitario:.2f}"))
                 self.tabla.setItem(i, 3, QTableWidgetItem(f"$ {det.subtotal:.2f}"))
+
+class DetalleCajaDialog(QDialog):
+    def __init__(self, caja_id, parent=None):
+        super().__init__(parent)
+        self.caja_id = caja_id
+        self.setWindowTitle(f"Auditoría de Caja #{caja_id}")
+        self.resize(800, 600)
+        self.setup_ui()
+
+    def setup_ui(self):
+        from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QTableWidget, QTableWidgetItem, QHeaderView, QTextEdit
+        from database.conexion import get_session
+        from database.models.caja import Caja, MovimientoCaja
+
+        layout = QVBoxLayout(self)
+
+        with get_session() as session:
+            from sqlalchemy.orm import joinedload
+            caja = session.query(Caja).options(joinedload(Caja.movimientos)).filter(Caja.id == self.caja_id).first()
+            if not caja:
+                layout.addWidget(QLabel("Error: Caja no encontrada."))
+                return
+
+            # Header Details
+            form = QFormLayout()
+            form.addRow("Fecha Apertura:", QLabel(caja.fecha_apertura.strftime("%Y-%m-%d %H:%M:%S")))
+            form.addRow("Fecha Cierre:", QLabel(caja.fecha_cierre.strftime("%Y-%m-%d %H:%M:%S") if caja.fecha_cierre else "Pendiente"))
+            form.addRow("Monto Inicial:", QLabel(f"${caja.saldo_inicial:.2f}"))
+            form.addRow("Monto Esperado (Sistema):", QLabel(f"${caja.saldo_final_esperado:.2f}"))
+            form.addRow("Monto Real (Físico):", QLabel(f"${caja.saldo_final_real:.2f}"))
+
+            lbl_dif = QLabel(f"${caja.diferencia:.2f}")
+            if caja.diferencia < 0: lbl_dif.setStyleSheet("color: red; font-weight: bold;")
+            elif caja.diferencia > 0: lbl_dif.setStyleSheet("color: green; font-weight: bold;")
+            form.addRow("Diferencia:", lbl_dif)
+
+            layout.addLayout(form)
+
+            layout.addWidget(QLabel("Observaciones de Cierre:"))
+            txt_obs = QTextEdit()
+            txt_obs.setReadOnly(True)
+            txt_obs.setPlainText(caja.notas or "Sin observaciones registradas.")
+            txt_obs.setMaximumHeight(80)
+            layout.addWidget(txt_obs)
+
+            layout.addWidget(QLabel("Movimientos de Turno:"))
+
+            # Grid
+            tabla = QTableWidget(0, 5)
+            tabla.setHorizontalHeaderLabels(["Hora", "Tipo", "Concepto", "Método", "Monto"])
+            tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            tabla.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            layout.addWidget(tabla)
+
+            # Insert data
+            movimientos = sorted(caja.movimientos, key=lambda m: m.fecha)
+            tabla.setRowCount(len(movimientos))
+            for i, mov in enumerate(movimientos):
+                tabla.setItem(i, 0, QTableWidgetItem(mov.fecha.strftime("%H:%M:%S")))
+                tabla.setItem(i, 1, QTableWidgetItem(mov.tipo))
+                tabla.setItem(i, 2, QTableWidgetItem(mov.concepto))
+                tabla.setItem(i, 3, QTableWidgetItem(mov.metodo))
+                tabla.setItem(i, 4, QTableWidgetItem(f"${mov.monto:.2f}"))
