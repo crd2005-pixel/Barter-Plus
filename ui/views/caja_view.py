@@ -187,8 +187,18 @@ class CajaActualTab(QWidget):
         if not self.caja_activa:
             return
 
-        from ui.components.dialogs import PanelArqueoCajaDialog
-        dialog = PanelArqueoCajaDialog(self.caja_activa.id, self)
+        from ui.components.dialogs import DeclaracionCiegaDialog, PanelArqueoCajaDialog
+        from PyQt6.QtWidgets import QDialog
+
+        # Etapa 1: Declaracion Ciega
+        dlg_ciega = DeclaracionCiegaDialog(self)
+        if dlg_ciega.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        monto_declarado = dlg_ciega.get_monto()
+
+        # Etapa 2: Auditoria y Cierre (Bloqueado)
+        dialog = PanelArqueoCajaDialog(self.caja_activa.id, monto_declarado, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.parent_view.refresh_all()
 

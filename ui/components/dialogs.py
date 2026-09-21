@@ -1,3 +1,37 @@
+
+class DeclaracionCiegaDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Declaración Ciega de Caja")
+        self.setFixedSize(400, 150)
+        from PyQt6.QtWidgets import QVBoxLayout, QLabel, QDoubleSpinBox, QHBoxLayout, QPushButton
+        layout = QVBoxLayout(self)
+
+        lbl = QLabel("Ingrese el dinero físico total contado en caja:")
+        lbl.setStyleSheet("font-size: 16px; font-weight: bold;")
+        layout.addWidget(lbl)
+
+        self.spin_monto = QDoubleSpinBox()
+        self.spin_monto.setRange(0, 100000000)
+        self.spin_monto.setDecimals(2)
+        self.spin_monto.setPrefix("$ ")
+        self.spin_monto.setStyleSheet("font-size: 24px; padding: 5px;")
+        layout.addWidget(self.spin_monto)
+
+        btn_box = QHBoxLayout()
+        btn_ok = QPushButton("Aceptar")
+        btn_ok.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; height: 35px;")
+        btn_ok.clicked.connect(self.accept)
+        btn_cancel = QPushButton("Cancelar")
+        btn_cancel.clicked.connect(self.reject)
+        btn_box.addStretch()
+        btn_box.addWidget(btn_cancel)
+        btn_box.addWidget(btn_ok)
+        layout.addLayout(btn_box)
+
+    def get_monto(self):
+        return self.spin_monto.value()
+
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QLineEdit, QCheckBox, QPushButton, QMessageBox, QHBoxLayout, QLabel, QDoubleSpinBox
 )
@@ -705,7 +739,7 @@ class CierreCajaDialog(QDialog):
         self._actualizar_diferencia()
 
     def _actualizar_diferencia(self):
-        dif = self.spin_real.value() - self.saldo_esperado
+        dif = self.monto_declarado - self.saldo_esperado
         self.lbl_dif.setText(f"${dif:.2f}")
         if dif < 0:
             self.lbl_dif.setStyleSheet("font-size: 20px; font-weight: bold; color: red;")
@@ -728,9 +762,10 @@ class CierreCajaDialog(QDialog):
         return self.spin_real.value(), self.txt_obs.toPlainText().strip()
 
 class PanelArqueoCajaDialog(QDialog):
-    def __init__(self, caja_id, parent=None):
+    def __init__(self, caja_id, monto_declarado, parent=None):
         super().__init__(parent)
         self.caja_id = caja_id
+        self.monto_declarado = monto_declarado
         self.setWindowTitle(f"Arqueo y Cierre de Caja #{caja_id}")
         self.resize(800, 700)
         self.saldo_esperado = 0.0
@@ -753,13 +788,9 @@ class PanelArqueoCajaDialog(QDialog):
         lbl_esperado.setStyleSheet("font-size: 20px; font-weight: bold; color: #2980b9;")
         form.addRow("Monto Esperado (Sistema):", lbl_esperado)
 
-        self.spin_real = QDoubleSpinBox()
-        self.spin_real.setRange(0, 100000000)
-        self.spin_real.setDecimals(2)
-        self.spin_real.setPrefix("$ ")
-        self.spin_real.setStyleSheet("font-size: 20px; padding: 5px;")
-        self.spin_real.valueChanged.connect(self._actualizar_diferencia)
-        form.addRow("Monto Físico (Efectivo):", self.spin_real)
+        lbl_declarado = QLabel(f"${self.monto_declarado:.2f}")
+        lbl_declarado.setStyleSheet("font-size: 20px; font-weight: bold; color: #f39c12;")
+        form.addRow("Monto Declarado (Físico):", lbl_declarado)
 
         self.lbl_dif = QLabel("$0.00")
         self.lbl_dif.setStyleSheet("font-size: 20px; font-weight: bold;")
@@ -814,7 +845,7 @@ class PanelArqueoCajaDialog(QDialog):
         self._actualizar_diferencia()
 
     def _actualizar_diferencia(self):
-        dif = self.spin_real.value() - self.saldo_esperado
+        dif = self.monto_declarado - self.saldo_esperado
         self.lbl_dif.setText(f"${dif:.2f}")
         if dif < 0:
             self.lbl_dif.setStyleSheet("font-size: 20px; font-weight: bold; color: red;")
@@ -837,8 +868,14 @@ class PanelArqueoCajaDialog(QDialog):
         from services.caja_service import CajaService
         from PyQt6.QtWidgets import QMessageBox
 
-        monto_real = self.spin_real.value()
+        monto_real = self.monto_declarado
+        dif = monto_real - self.saldo_esperado
         observaciones = self.txt_obs.toPlainText().strip()
+
+        if abs(dif) > 0.01 and not observaciones:
+            QMessageBox.warning(self, "Auditoría Fallida", "Existe una diferencia en caja. DEBE ingresar una justificación en las observaciones antes de poder cerrar el turno.")
+            self.txt_obs.setFocus()
+            return
 
         try:
             CajaService.cerrar_caja(self.caja_id, monto_real, observaciones)
