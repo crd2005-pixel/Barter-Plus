@@ -32,6 +32,9 @@ class VentasTab(QWidget):
         self.combo_clientes = QComboBox()
         self.combo_clientes.setEditable(True)
         self.combo_clientes.setPlaceholderText("Buscar o seleccionar cliente...")
+        self.combo_clientes.setMinimumWidth(300)
+        from PyQt6.QtWidgets import QSizePolicy
+        self.combo_clientes.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         self.btn_nuevo_cliente = QPushButton("+")
         self.btn_nuevo_cliente.setToolTip("Agregar Nuevo Cliente")
@@ -88,17 +91,12 @@ class VentasTab(QWidget):
         self.btn_consulta_rapida = QPushButton("Consultar Precio (F2)")
         self.btn_consulta_rapida.setStyleSheet("padding: 10px; font-weight: bold; background-color: #f39c12; color: white;")
 
-        self.btn_buscar_presupuesto = QPushButton("Buscar Presupuesto")
-        self.btn_buscar_presupuesto.setStyleSheet("padding: 10px; font-weight: bold; background-color: #3498db; color: white;")
-
-
         self.btn_sugerir_pedido = QPushButton("Anotar Pedido Manual")
         self.btn_sugerir_pedido.setStyleSheet("padding: 10px; font-weight: bold; background-color: #8e44ad; color: white;")
 
         self.btn_cobrar_cc = QPushButton("Cobrar Cuenta Corriente")
         self.btn_cobrar_cc.setStyleSheet("padding: 10px; font-weight: bold; background-color: #d35400; color: white;")
 
-        self.box_opciones.addWidget(self.btn_buscar_presupuesto)
         self.box_opciones.addWidget(self.btn_cobrar_cc)
         self.box_opciones.addWidget(self.btn_sugerir_pedido)
         self.box_opciones.addWidget(self.btn_consulta_rapida)
@@ -163,6 +161,10 @@ class VentasTab(QWidget):
 
         self.btn_descuento = QPushButton("Aplicar Desc. Global")
         self.btn_descuento.setStyleSheet("padding: 10px; font-weight: bold;")
+
+        self.btn_buscar_presupuesto = QPushButton("Buscar Presupuesto")
+        self.btn_buscar_presupuesto.setStyleSheet("padding: 10px; font-weight: bold; background-color: #3498db; color: white;")
+
         self.descuento_global = 0.0
         self.cliente_vip = False
 
@@ -182,6 +184,7 @@ class VentasTab(QWidget):
         self.btn_cobrar.setEnabled(False)
 
         self.box_inferior.addWidget(self.btn_descuento)
+        self.box_inferior.addWidget(self.btn_buscar_presupuesto)
         self.box_inferior.addStretch()
         self.box_inferior.addWidget(self.lbl_total_texto)
         self.box_inferior.addWidget(self.lbl_total_valor)

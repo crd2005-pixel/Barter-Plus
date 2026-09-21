@@ -62,7 +62,8 @@ class RecuperarComprobanteDialog(QDialog):
         for r, p in enumerate(presupuestos):
             self.tbl_pres.setItem(r, 0, QTableWidgetItem(str(p['id'])))
             self.tbl_pres.setItem(r, 1, QTableWidgetItem(p['fecha'].strftime("%Y-%m-%d %H:%M")))
-            item_cliente = QTableWidgetItem(f"Cliente ID: {p['cliente_id']}" if p['cliente_id'] else "Genérico")
+            c_nom = p.get('cliente_nombre') or (f"Cliente ID: {p['cliente_id']}" if p.get('cliente_id') else "Genérico")
+            item_cliente = QTableWidgetItem(c_nom)
             if p['cliente_id']: item_cliente.setData(Qt.ItemDataRole.UserRole, p['cliente_id'])
             self.tbl_pres.setItem(r, 2, item_cliente)
             self.tbl_pres.setItem(r, 3, QTableWidgetItem(f"${p['total']:.2f}"))

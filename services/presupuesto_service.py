@@ -8,10 +8,12 @@ class PresupuestoService:
     @staticmethod
     def obtener_pendientes_activos(dias_limite: int = 15) -> List[dict]:
         from sqlalchemy import select
+        from sqlalchemy.orm import joinedload
         with get_session() as session:
             limite_fecha = dt.datetime.utcnow() - dt.timedelta(days=dias_limite)
             presupuestos = session.scalars(
                 select(Presupuesto)
+                .options(joinedload(Presupuesto.cliente))
                 .where(Presupuesto.estado == "Pendiente")
                 .where(Presupuesto.fecha >= limite_fecha)
                 .order_by(Presupuesto.fecha.desc())
@@ -21,6 +23,7 @@ class PresupuestoService:
                 "id": p.id,
                 "fecha": p.fecha,
                 "cliente_id": p.cliente_id,
+                "cliente_nombre": p.cliente.nombre if p.cliente else None,
                 "total": p.total,
                 "estado": p.estado
             } for p in presupuestos]
