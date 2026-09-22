@@ -252,12 +252,19 @@ class VentaService:
                 concepto_caja = f"Venta #{nueva_venta.id} - {tipo_comprobante}"
 
                 if desglose_pagos:
+                    # Extraer metadata anidada si existe
+                    datos_cheque_comb = desglose_pagos.pop('datos_cheque', datos_cheque)
+                    datos_tarjeta_comb = desglose_pagos.pop('datos_tarjeta', None)
+
                     # Desglose transaccional
                     for metodo, monto in desglose_pagos.items():
                         if monto > 0:
                             concepto_extra = concepto_caja
-                            if metodo == "Cheque" and datos_cheque:
-                                concepto_extra += f" (Cheque {datos_cheque.get('numero_cheque', '')})"
+                            if metodo == "Cheque" and datos_cheque_comb:
+                                concepto_extra += f" (Cheque {datos_cheque_comb.get('numero_cheque', '')})"
+
+                            if metodo == "Tarjeta de Crédito" and datos_tarjeta_comb:
+                                concepto_extra += f" ({datos_tarjeta_comb.get('tarjeta', '')} - {datos_tarjeta_comb.get('plan', '')})"
 
                             # Si es CC combinada, generar la deuda para esa parte
                             if metodo == "Cuenta Corriente":

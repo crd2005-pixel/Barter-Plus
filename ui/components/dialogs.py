@@ -968,9 +968,9 @@ class CobroCombinadoDialog(QDialog):
         super().__init__(parent)
         self.total_venta = total_venta
         self.setWindowTitle("Cobro Combinado")
-        self.resize(400, 350)
+        self.resize(450, 450)
 
-        from PyQt6.QtWidgets import QVBoxLayout, QFormLayout, QDoubleSpinBox, QLabel, QPushButton, QHBoxLayout, QMessageBox
+        from PyQt6.QtWidgets import QVBoxLayout, QFormLayout, QDoubleSpinBox, QLabel, QPushButton, QHBoxLayout, QMessageBox, QComboBox
         from PyQt6.QtCore import Qt
 
         self.layout = QVBoxLayout(self)
@@ -978,19 +978,33 @@ class CobroCombinadoDialog(QDialog):
 
         self.spin_efectivo = QDoubleSpinBox()
         self.spin_transferencia = QDoubleSpinBox()
-        self.spin_tarjeta = QDoubleSpinBox()
+        self.spin_debito = QDoubleSpinBox()
+        self.spin_credito = QDoubleSpinBox()
         self.spin_cta_cte = QDoubleSpinBox()
         self.spin_cheque = QDoubleSpinBox()
 
-        for spin in [self.spin_efectivo, self.spin_transferencia, self.spin_tarjeta, self.spin_cta_cte, self.spin_cheque]:
+        for spin in [self.spin_efectivo, self.spin_transferencia, self.spin_debito, self.spin_credito, self.spin_cta_cte, self.spin_cheque]:
             spin.setRange(0.0, 9999999.0)
             spin.setDecimals(2)
             spin.setPrefix("$ ")
             spin.valueChanged.connect(self._calcular_totales)
 
+        self.combo_tarjeta = QComboBox()
+        self.combo_tarjeta.addItems(["Visa", "Mastercard", "American Express", "Naranja", "Cabal", "Otro"])
+        self.combo_tarjeta.setEnabled(False)
+
+        self.combo_plan = QComboBox()
+        self.combo_plan.addItems(["1 Pago", "3 Cuotas", "6 Cuotas", "12 Cuotas"])
+        self.combo_plan.setEnabled(False)
+
+        self.spin_credito.valueChanged.connect(self._toggle_credito)
+
         self.form.addRow("Efectivo:", self.spin_efectivo)
         self.form.addRow("Transferencia:", self.spin_transferencia)
-        self.form.addRow("Tarjeta/Débito:", self.spin_tarjeta)
+        self.form.addRow("Débito:", self.spin_debito)
+        self.form.addRow("Tarjeta de Crédito:", self.spin_credito)
+        self.form.addRow("  - Tarjeta:", self.combo_tarjeta)
+        self.form.addRow("  - Plan:", self.combo_plan)
         self.form.addRow("Cuenta Corriente:", self.spin_cta_cte)
         self.form.addRow("Cheque:", self.spin_cheque)
 
@@ -1022,9 +1036,15 @@ class CobroCombinadoDialog(QDialog):
         self.datos_cheque = None
         self._calcular_totales()
 
+    def _toggle_credito(self):
+        val = self.spin_credito.value() > 0
+        self.combo_tarjeta.setEnabled(val)
+        self.combo_plan.setEnabled(val)
+
     def _calcular_totales(self):
         suma = (self.spin_efectivo.value() + self.spin_transferencia.value() +
-                self.spin_tarjeta.value() + self.spin_cta_cte.value() + self.spin_cheque.value())
+                self.spin_debito.value() + self.spin_credito.value() +
+                self.spin_cta_cte.value() + self.spin_cheque.value())
 
         diff = self.total_venta - suma
         self.lbl_diferencia.setText(f"Diferencia: $ {diff:.2f}")
@@ -1049,11 +1069,20 @@ class CobroCombinadoDialog(QDialog):
         self.accept()
 
     def get_datos(self):
-        return {
+        datos = {
             "Efectivo": self.spin_efectivo.value(),
             "Transferencia": self.spin_transferencia.value(),
-            "Tarjeta": self.spin_tarjeta.value(),
+            "Débito": self.spin_debito.value(),
+            "Tarjeta de Crédito": self.spin_credito.value(),
             "Cuenta Corriente": self.spin_cta_cte.value(),
             "Cheque": self.spin_cheque.value(),
             "datos_cheque": self.datos_cheque
         }
+
+        if self.spin_credito.value() > 0:
+            datos["datos_tarjeta"] = {
+                "tarjeta": self.combo_tarjeta.currentText(),
+                "plan": self.combo_plan.currentText()
+            }
+
+        return datos
