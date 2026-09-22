@@ -18,6 +18,7 @@ class Cheque(Base):
     cuit: Mapped[str] = mapped_column(String, nullable=False)
     endoso: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     monto: Mapped[float] = mapped_column(nullable=False)
+    estado: Mapped[str] = mapped_column(String, default="Pendiente")
 
     # Relaciones
     venta: Mapped['Venta'] = relationship()
