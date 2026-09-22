@@ -91,9 +91,12 @@ class RegistrosService:
             else:
                 efectivo_fuerte = 0.0
 
-            # 2. Valores a Cobrar (Tarjetas Pendientes)
+            # 2. Valores a Cobrar (Tarjetas Pendientes + Cheques Netos)
+            from database.models.cheques import Cheque
             pendientes = session.scalars(select(IngresoDiferido).where(IngresoDiferido.estado == "Pendiente")).all()
-            total_tarjetas = sum(p.monto_acreditar for p in pendientes)
+            cheques = session.scalars(select(Cheque).where(Cheque.estado.notin_(["Cobrado", "Rechazado"]))).all()
+
+            total_tarjetas = sum(p.monto_original for p in pendientes) + sum(c.monto for c in cheques)
 
             # 3. Bancos (Calculado desde Asientos Diarios)
             # Todo el debe a "Cuenta Bancaria" - Todo el haber de "Cuenta Bancaria"

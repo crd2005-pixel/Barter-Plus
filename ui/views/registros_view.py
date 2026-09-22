@@ -56,7 +56,7 @@ class RegistroVentasTab(QWidget):
         layout.addLayout(filtros_lay)
 
         # Grilla
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(["Fecha", "Comprobante", "Cliente", "Total", "Método Pago", "Estado"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -487,7 +487,7 @@ class LiquidezBancosTab(QWidget):
         self.lbl_bancos.setStyleSheet("font-size: 20px; font-weight: bold; color: #2980b9; background: #eaf2f8; padding: 15px; border-radius: 5px;")
         self.lbl_bancos.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.lbl_tarjetas = QLabel("Valores a Cobrar (Tarjetas):\n$ 0.00")
+        self.lbl_tarjetas = QLabel("Valores a Cobrar (Tarjetas y Cheques):\n$ 0.00")
         self.lbl_tarjetas.setStyleSheet("font-size: 20px; font-weight: bold; color: #f39c12; background: #fef5e7; padding: 15px; border-radius: 5px;")
         self.lbl_tarjetas.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -498,12 +498,12 @@ class LiquidezBancosTab(QWidget):
         layout.addWidget(panel_resumen)
 
         # Grilla de Acreditaciones Próximas
-        lbl_grilla = QLabel("Próximas Acreditaciones (Tarjetas y Diferidos)")
+        lbl_grilla = QLabel("Próximas Acreditaciones (Tarjetas y Cheques)")
         lbl_grilla.setStyleSheet("font-size: 16px; font-weight: bold; margin-top: 20px;")
         layout.addWidget(lbl_grilla)
 
-        self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(["Acreditación", "Origen/Banco", "Cuotas", "Monto a Ingresar", "Destino Estimado", "Estado"])
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["Fecha Acreditación/Venc.", "Origen (Banco/Tarjeta)", "Cuotas/Tipo", "Monto Neto a Ingresar", "Estado"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -522,14 +522,14 @@ class LiquidezBancosTab(QWidget):
         self.lbl_tarjetas.setText(f"Valores a Cobrar (Tarjetas):\n$ {liquidez['tarjetas']:.2f}")
 
         # 2. Grilla
-        pendientes = RegistrosService.obtener_ingresos_diferidos_pendientes()
+        pendientes = RegistrosService.obtener_proximas_acreditaciones()
         self.table.setRowCount(len(pendientes))
 
         hoy = dt.date.today()
         from PyQt6.QtGui import QBrush, QColor
 
         for row, p in enumerate(pendientes):
-            fecha_acred = p['fecha_acreditacion']
+            fecha_acred = p['fecha']
 
             i_fec = QTableWidgetItem(fecha_acred.strftime("%Y-%m-%d"))
             if fecha_acred <= hoy:
@@ -537,15 +537,14 @@ class LiquidezBancosTab(QWidget):
                 i_fec.setToolTip("Debería estar acreditado hoy o está atrasado.")
 
             self.table.setItem(row, 0, i_fec)
-            self.table.setItem(row, 1, QTableWidgetItem(p['banco']))
-            self.table.setItem(row, 2, QTableWidgetItem(str(p['cuotas'])))
+            self.table.setItem(row, 1, QTableWidgetItem(p['origen']))
+            self.table.setItem(row, 2, QTableWidgetItem(p['tipo']))
 
-            i_monto = QTableWidgetItem(f"${p['monto']:.2f}")
-            i_monto.setStyleSheet("font-weight: bold;")
+            i_monto = QTableWidgetItem(f"${p['monto_neto']:.2f}")
+            i_monto.setStyleSheet("font-weight: bold; color: green;")
             self.table.setItem(row, 3, i_monto)
 
-            self.table.setItem(row, 4, QTableWidgetItem(p['destino']))
-            self.table.setItem(row, 5, QTableWidgetItem("Pendiente"))
+            self.table.setItem(row, 4, QTableWidgetItem(p['estado']))
 
 
 class RegistrosView(QWidget):
