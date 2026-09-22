@@ -515,20 +515,22 @@ class LiquidezBancosTab(QWidget):
         layout.addWidget(btn_refresh)
 
     def cargar_datos(self):
-        # 1. Resumen de Liquidez
+        # 1. Resumen de Liquidez (Fetch for Box & Banks)
         liquidez = RegistrosService.obtener_liquidez_actual()
         self.lbl_efectivo.setText(f"Caja Fuerte (Efectivo):\n$ {liquidez['efectivo']:.2f}")
         self.lbl_bancos.setText(f"Cuentas Bancarias:\n$ {liquidez['bancos']:.2f}")
-        self.lbl_tarjetas.setText(f"Valores a Cobrar (Tarjetas):\n$ {liquidez['tarjetas']:.2f}")
 
-        # 2. Grilla
+        # 2. Grilla (Fetch details)
+        self.table.setRowCount(0)
         pendientes = RegistrosService.obtener_proximas_acreditaciones()
-        self.table.setRowCount(len(pendientes))
+
+        total_neto = 0.0
 
         hoy = dt.date.today()
         from PyQt6.QtGui import QBrush, QColor
 
         for row, p in enumerate(pendientes):
+            self.table.insertRow(row)
             fecha_acred = p['fecha']
 
             i_fec = QTableWidgetItem(fecha_acred.strftime("%Y-%m-%d"))
@@ -537,14 +539,27 @@ class LiquidezBancosTab(QWidget):
                 i_fec.setToolTip("Debería estar acreditado hoy o está atrasado.")
 
             self.table.setItem(row, 0, i_fec)
-            self.table.setItem(row, 1, QTableWidgetItem(p['origen']))
-            self.table.setItem(row, 2, QTableWidgetItem(p['tipo']))
+            self.table.setItem(row, 1, QTableWidgetItem(str(p['origen'])))
+            self.table.setItem(row, 2, QTableWidgetItem(str(p['tipo'])))
 
-            i_monto = QTableWidgetItem(f"${p['monto_neto']:.2f}")
-            i_monto.setStyleSheet("font-weight: bold; color: green;")
+            monto = float(p.get('monto_neto', 0.0))
+            total_neto += monto
+
+            i_monto = QTableWidgetItem(f"${monto:.2f}")
+            i_monto.setForeground(Qt.GlobalColor.darkGreen)
+
+            # Note: setStyleSheet does not work on QTableWidgetItem directly in pyqt6,
+            # we use setForeground and font manipulation if needed, but since user requested specific format,
+            # I will just set foreground and avoid crash.
+            from PyQt6.QtGui import QFont
+            fnt = QFont()
+            fnt.setBold(True)
+            i_monto.setFont(fnt)
+
             self.table.setItem(row, 3, i_monto)
+            self.table.setItem(row, 4, QTableWidgetItem(str(p['estado'])))
 
-            self.table.setItem(row, 4, QTableWidgetItem(p['estado']))
+        self.lbl_tarjetas.setText(f"Valores a Cobrar (Tarjetas y Cheques):\n$ {total_neto:.2f}")
 
 
 class RegistrosView(QWidget):
