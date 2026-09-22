@@ -273,7 +273,6 @@ class VentasTab(QWidget):
         dialog = FastClientDialog(self)
         if dialog.exec():
             self.cargar_clientes()
-        self.cargar_tarjetas()
             if dialog.nuevo_cliente_id:
                 index = self.combo_clientes.findData(dialog.nuevo_cliente_id)
                 if index >= 0:
