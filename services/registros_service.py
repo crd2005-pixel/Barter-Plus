@@ -109,26 +109,46 @@ class RegistrosService:
                 "bancos": total_bancos
             }
 
+
     @staticmethod
-    def obtener_ingresos_diferidos_pendientes() -> List[dict]:
+    def obtener_proximas_acreditaciones() -> list[dict]:
         from database.models.contabilidad import IngresoDiferido
+        from database.models.cheques import Cheque
+        import datetime as dt
+        from sqlalchemy import select
         with get_session() as session:
-            ingresos = session.scalars(
+            # 1. Tarjetas (Neto)
+            tarjetas = session.scalars(
                 select(IngresoDiferido)
                 .where(IngresoDiferido.estado == "Pendiente")
-                .order_by(IngresoDiferido.fecha_acreditacion.asc())
             ).all()
 
-            # Convert to dict to avoid detached instance issues since we don't strictly need relationships here
+            # 2. Cheques en cartera
+            cheques = session.scalars(
+                select(Cheque)
+                .where(Cheque.estado.notin_(["Cobrado", "Rechazado"]))
+            ).all()
+
             resultado = []
-            for i in ingresos:
+
+            for t in tarjetas:
                 resultado.append({
-                    "id": i.id,
-                    "fecha_venta": i.fecha_venta,
-                    "fecha_acreditacion": i.fecha_acreditacion,
-                    "banco": i.banco_tarjeta,
-                    "cuotas": i.cuotas,
-                    "monto": i.monto_acreditar,
-                    "destino": i.cuenta_destino
+                    "fecha": t.fecha_acreditacion,
+                    "origen": f"{t.banco_tarjeta} (Lote: {t.lote})",
+                    "tipo": f"{t.cuotas} Cuotas",
+                    "monto_neto": t.monto_original, # The base capital without financial interest
+                    "estado": t.estado
                 })
+
+            for c in cheques:
+                resultado.append({
+                    "fecha": c.fecha_vencimiento if c.fecha_vencimiento else (c.fecha_conformacion or dt.date.today()),
+                    "origen": f"{c.banco} (Cheque #{c.numero_cheque})",
+                    "tipo": "Cheque",
+                    "monto_neto": c.monto,
+                    "estado": c.estado
+                })
+
+            # Sort by ascending date
+            resultado.sort(key=lambda x: x["fecha"])
             return resultado
