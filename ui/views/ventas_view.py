@@ -54,7 +54,7 @@ class VentasTab(QWidget):
         self.fila_controles_layout = QHBoxLayout()
 
         self.combo_pago = QComboBox()
-        self.combo_pago.addItems(["Efectivo", "Transferencia", "Débito", "Tarjeta", "Cuenta Corriente", "Cheque", "Combinada"])
+        self.combo_pago.addItems(["Efectivo", "Transferencia", "Débito", "Tarjeta", "Cuenta Corriente", "Cheque", "Combinado"])
 
         self.combo_comprobante = QComboBox()
         self.combo_comprobante.addItems(["Remito", "Factura A", "Factura B", "Presupuesto"])
