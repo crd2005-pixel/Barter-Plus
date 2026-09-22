@@ -9,6 +9,7 @@ from PyQt6.QtGui import QFont, QColor, QBrush, QShortcut, QKeySequence
 from PyQt6.QtWidgets import QCompleter
 from services.producto_service import ProductoService
 from services.cliente_service import ClienteService
+from services.cuenta_corriente_service import CuentaCorrienteService
 from services.venta_service import VentaService
 
 
@@ -332,6 +333,7 @@ class VentasTab(QWidget):
             QMessageBox.warning(self, "Atención", "Debe seleccionar un cliente primero.")
             return
 
+        # Fetch using standard service (assuming this exists, or use the exact code that was working)
         saldo_deuda = ClienteService.obtener_deuda(cliente_id)
         if saldo_deuda <= 0:
             QMessageBox.information(self, "Cuenta Corriente", "El cliente no registra deuda actual.")
@@ -352,7 +354,7 @@ class VentasTab(QWidget):
         txt_monto.setText(f"{saldo_deuda:.2f}")
 
         combo_metodo = QComboBox()
-        combo_metodo.addItems(["Efectivo", "Transferencia", "Tarjeta"])
+        combo_metodo.addItems(["Efectivo", "Transferencia", "Tarjeta", "Cheque"])
 
         form.addRow("Deuda Total Actual:", lbl_deuda)
         form.addRow("Monto a Pagar ($):", txt_monto)
@@ -370,14 +372,26 @@ class VentasTab(QWidget):
         btn_ok.clicked.connect(dialog.accept)
         btn_cancel.clicked.connect(dialog.reject)
 
-        if dialog.exec() == QDialog.DialogCode.Accepted:
+        if dialog.exec() == int(QDialog.DialogCode.Accepted):
             try:
                 monto = float(txt_monto.text().replace(',', '.'))
                 if monto <= 0 or monto > saldo_deuda:
                     QMessageBox.warning(self, "Error", "Monto inválido.")
                     return
 
-                ClienteService.registrar_pago_cc(cliente_id, monto, combo_metodo.currentText()) # El servicio ya lo inyecta en Caja si está abierta
+                metodo_cc = combo_metodo.currentText()
+                datos_cheque = None
+
+                if metodo_cc.lower() == "cheque":
+                    from ui.components.dialogs import CargarChequeDialog
+                    dlg_cheque = CargarChequeDialog(monto, self)
+                    if dlg_cheque.exec() == int(QDialog.DialogCode.Accepted):
+                        datos_cheque = dlg_cheque.get_data()
+                    else:
+                        return  # User cancelled cheque entry
+
+                ClienteService.registrar_pago_cc(cliente_id, monto, metodo_cc)
+
                 QMessageBox.information(self, "Éxito", f"Se registró el pago por $ {monto:.2f}.")
             except ValueError:
                 QMessageBox.warning(self, "Error", "Debe ingresar un número válido.")
@@ -695,7 +709,7 @@ class VentasTab(QWidget):
             from ui.components.dialogs import CargarChequeDialog
             from PyQt6.QtWidgets import QDialog
             dlg_cheque = CargarChequeDialog(total_float, self)
-            if dlg_cheque.exec() == QDialog.DialogCode.Accepted:
+            if dlg_cheque.exec() == int(QDialog.DialogCode.Accepted):
                 datos_cheque_extra = dlg_cheque.get_data()
             else:
                 return # Aborta la venta si el cajero cancela la carga del cheque
