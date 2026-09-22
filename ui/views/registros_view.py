@@ -523,6 +523,7 @@ class LiquidezBancosTab(QWidget):
         # 2. Grilla (Fetch details)
         self.table.setRowCount(0)
         pendientes = RegistrosService.obtener_proximas_acreditaciones()
+        print(f"[DEBUG LIQUIDEZ] Datos recuperados: {pendientes}")
 
         total_neto = 0.0
 

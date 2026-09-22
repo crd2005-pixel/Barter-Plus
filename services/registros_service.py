@@ -134,7 +134,7 @@ class RegistrosService:
             for t in tarjetas:
                 resultado.append({
                     "fecha": t.fecha_acreditacion,
-                    "origen": f"{t.banco_tarjeta} (Lote: {t.lote})",
+                    "origen": "Bancario - Tarjeta",
                     "tipo": f"{t.cuotas} Cuotas",
                     "monto_neto": t.monto_original, # The base capital without financial interest
                     "estado": t.estado
@@ -143,7 +143,7 @@ class RegistrosService:
             for c in cheques:
                 resultado.append({
                     "fecha": c.fecha_vencimiento if c.fecha_vencimiento else (c.fecha_conformacion or dt.date.today()),
-                    "origen": f"{c.banco} (Cheque #{c.numero_cheque})",
+                    "origen": "Físico - Cheque Circulante",
                     "tipo": "Cheque",
                     "monto_neto": c.monto,
                     "estado": c.estado

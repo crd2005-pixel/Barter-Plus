@@ -233,6 +233,7 @@ class VentasTab(QWidget):
         shortcut_f2.activated.connect(self.consultar_precio_rapido)
 
         self.cargar_clientes()
+        self.cargar_tarjetas()
 
 
 
@@ -272,6 +273,7 @@ class VentasTab(QWidget):
         dialog = FastClientDialog(self)
         if dialog.exec():
             self.cargar_clientes()
+        self.cargar_tarjetas()
             if dialog.nuevo_cliente_id:
                 index = self.combo_clientes.findData(dialog.nuevo_cliente_id)
                 if index >= 0:
@@ -521,7 +523,7 @@ class VentasTab(QWidget):
             pass
         finally:
             self.combo_tarjeta.blockSignals(False)
-            self.cargar_tarjetas()
+            self.cargar_planes_tarjeta()
 
     def cargar_planes_tarjeta(self):
         from database.conexion import get_session

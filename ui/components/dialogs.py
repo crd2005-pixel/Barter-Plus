@@ -990,11 +990,9 @@ class CobroCombinadoDialog(QDialog):
             spin.valueChanged.connect(self._calcular_totales)
 
         self.combo_tarjeta = QComboBox()
-        self.combo_tarjeta.addItems(["Visa", "Mastercard", "American Express", "Naranja", "Cabal", "Otro"])
         self.combo_tarjeta.setEnabled(False)
 
         self.combo_plan = QComboBox()
-        self.combo_plan.addItems(["1 Pago", "3 Cuotas", "6 Cuotas", "12 Cuotas"])
         self.combo_plan.setEnabled(False)
 
         self.lbl_detalle_cuotas = QLabel("")
@@ -1041,7 +1039,57 @@ class CobroCombinadoDialog(QDialog):
         self.layout.addLayout(btn_box)
 
         self.datos_cheque = None
+        self._cargar_tarjetas()
+        self.combo_tarjeta.currentTextChanged.connect(self._actualizar_planes_tarjeta)
         self._calcular_totales()
+
+    def _cargar_tarjetas(self):
+        from database.conexion import get_session
+        from database.models import ConfiguracionTarjeta
+
+        self.combo_tarjeta.blockSignals(True)
+        self.combo_tarjeta.clear()
+        try:
+            with get_session() as session:
+                bancos = session.query(ConfiguracionTarjeta.banco_tarjeta).distinct().all()
+                if bancos:
+                    for b in bancos:
+                        self.combo_tarjeta.addItem(b[0])
+                else:
+                    self.combo_tarjeta.addItem("Sin Configurar")
+        except Exception:
+            pass
+        finally:
+            self.combo_tarjeta.blockSignals(False)
+            self._actualizar_planes_tarjeta()
+
+    def _actualizar_planes_tarjeta(self):
+        from database.conexion import get_session
+        from database.models import ConfiguracionTarjeta
+
+        self.combo_plan.blockSignals(True)
+        self.combo_plan.clear()
+
+        tarjeta_sel = self.combo_tarjeta.currentText()
+        if not tarjeta_sel or tarjeta_sel == "Sin Configurar":
+            self.combo_plan.addItem("Sin Configurar")
+            self.combo_plan.blockSignals(False)
+            self._actualizar_detalle_cuotas()
+            return
+
+        try:
+            with get_session() as session:
+                planes = session.query(ConfiguracionTarjeta).where(ConfiguracionTarjeta.banco_tarjeta == tarjeta_sel).all()
+                if planes:
+                    for p in planes:
+                        self.combo_plan.addItem(f"{p.cuotas} Cuotas")
+                else:
+                    self.combo_plan.addItem("Sin Configurar")
+        except Exception:
+            pass
+        finally:
+            self.combo_plan.blockSignals(False)
+            self._actualizar_detalle_cuotas()
 
     def _toggle_credito(self):
         val = self.spin_credito.value() > 0
