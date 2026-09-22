@@ -961,3 +961,99 @@ class CargarChequeDialog(QDialog):
             "endoso": self.txt_endoso.text().strip(),
             "monto": self.spin_monto.value()
         }
+
+
+class CobroCombinadoDialog(QDialog):
+    def __init__(self, total_venta, parent=None):
+        super().__init__(parent)
+        self.total_venta = total_venta
+        self.setWindowTitle("Cobro Combinado")
+        self.resize(400, 350)
+
+        from PyQt6.QtWidgets import QVBoxLayout, QFormLayout, QDoubleSpinBox, QLabel, QPushButton, QHBoxLayout, QMessageBox
+        from PyQt6.QtCore import Qt
+
+        self.layout = QVBoxLayout(self)
+        self.form = QFormLayout()
+
+        self.spin_efectivo = QDoubleSpinBox()
+        self.spin_transferencia = QDoubleSpinBox()
+        self.spin_tarjeta = QDoubleSpinBox()
+        self.spin_cta_cte = QDoubleSpinBox()
+        self.spin_cheque = QDoubleSpinBox()
+
+        for spin in [self.spin_efectivo, self.spin_transferencia, self.spin_tarjeta, self.spin_cta_cte, self.spin_cheque]:
+            spin.setRange(0.0, 9999999.0)
+            spin.setDecimals(2)
+            spin.setPrefix("$ ")
+            spin.valueChanged.connect(self._calcular_totales)
+
+        self.form.addRow("Efectivo:", self.spin_efectivo)
+        self.form.addRow("Transferencia:", self.spin_transferencia)
+        self.form.addRow("Tarjeta/Débito:", self.spin_tarjeta)
+        self.form.addRow("Cuenta Corriente:", self.spin_cta_cte)
+        self.form.addRow("Cheque:", self.spin_cheque)
+
+        self.layout.addLayout(self.form)
+
+        self.lbl_total = QLabel(f"Total a Pagar: $ {self.total_venta:.2f}")
+        self.lbl_total.setStyleSheet("font-weight: bold; font-size: 16px;")
+
+        self.lbl_diferencia = QLabel("Diferencia: $ 0.00")
+        self.lbl_diferencia.setStyleSheet("font-weight: bold; font-size: 16px; color: red;")
+
+        self.layout.addWidget(self.lbl_total)
+        self.layout.addWidget(self.lbl_diferencia)
+
+        btn_box = QHBoxLayout()
+        self.btn_confirmar = QPushButton("Confirmar Cobro")
+        self.btn_confirmar.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold;")
+        self.btn_confirmar.setEnabled(False)
+        self.btn_confirmar.clicked.connect(self._intentar_confirmar)
+
+        self.btn_cancelar = QPushButton("Cancelar")
+        self.btn_cancelar.clicked.connect(self.reject)
+
+        btn_box.addWidget(self.btn_confirmar)
+        btn_box.addWidget(self.btn_cancelar)
+
+        self.layout.addLayout(btn_box)
+
+        self.datos_cheque = None
+        self._calcular_totales()
+
+    def _calcular_totales(self):
+        suma = (self.spin_efectivo.value() + self.spin_transferencia.value() +
+                self.spin_tarjeta.value() + self.spin_cta_cte.value() + self.spin_cheque.value())
+
+        diff = self.total_venta - suma
+        self.lbl_diferencia.setText(f"Diferencia: $ {diff:.2f}")
+
+        if abs(diff) < 0.01:
+            self.lbl_diferencia.setStyleSheet("font-weight: bold; font-size: 16px; color: green;")
+            self.btn_confirmar.setEnabled(True)
+        else:
+            self.lbl_diferencia.setStyleSheet("font-weight: bold; font-size: 16px; color: red;")
+            self.btn_confirmar.setEnabled(False)
+
+    def _intentar_confirmar(self):
+        if self.spin_cheque.value() > 0:
+            from ui.components.dialogs import CargarChequeDialog
+            from PyQt6.QtWidgets import QDialog
+            dlg = CargarChequeDialog(self.spin_cheque.value(), self)
+            if dlg.exec() == int(QDialog.DialogCode.Accepted):
+                self.datos_cheque = dlg.get_data()
+            else:
+                return # Abort
+
+        self.accept()
+
+    def get_datos(self):
+        return {
+            "Efectivo": self.spin_efectivo.value(),
+            "Transferencia": self.spin_transferencia.value(),
+            "Tarjeta": self.spin_tarjeta.value(),
+            "Cuenta Corriente": self.spin_cta_cte.value(),
+            "Cheque": self.spin_cheque.value(),
+            "datos_cheque": self.datos_cheque
+        }

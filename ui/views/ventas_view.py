@@ -699,12 +699,25 @@ class VentasTab(QWidget):
         tipo_comprobante = self.combo_comprobante.currentText().strip()
         cliente_id = self.combo_clientes.currentData()
 
+        desglose_pagos = None
+        datos_cheque_extra = None
+
+        if metodo.lower() == "combinado":
+            from ui.components.dialogs import CobroCombinadoDialog
+            from PyQt6.QtWidgets import QDialog
+            dialogo = CobroCombinadoDialog(total_float, self)
+            if dialogo.exec() == int(QDialog.DialogCode.Accepted):
+                desglose_pagos = dialogo.get_datos()
+                datos_cheque_extra = desglose_pagos.pop("datos_cheque", None)
+            else:
+                return # Aborta la venta
+
+
         # Validar si es Cta Cte
         if metodo == "Cuenta Corriente" and not cliente_id:
             QMessageBox.warning(self, "Error", "Debe seleccionar un Cliente válido para pagos en Cuenta Corriente.")
             return
 
-        datos_cheque_extra = None
         if metodo.lower() == "cheque":
             from ui.components.dialogs import CargarChequeDialog
             from PyQt6.QtWidgets import QDialog
@@ -790,7 +803,8 @@ class VentasTab(QWidget):
                         tipo_comprobante=tipo_comprobante,
                         datos_tarjeta=datos_tarjeta,
                         presupuesto_id=getattr(self, 'presupuesto_activo_id', None),
-                        datos_cheque=datos_cheque_extra
+                        datos_cheque=datos_cheque_extra,
+                        desglose_pagos=desglose_pagos
                     )
 
                 vuelto = venta.vuelto

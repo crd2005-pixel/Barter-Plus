@@ -26,7 +26,8 @@ class VentaService:
                        metodo_pago: str = "Efectivo", monto_abonado: float = 0.0,
                        descuento_global: float = 0.0, recargo_global: float = 0.0,
                        tipo_comprobante: str = "Remito", datos_tarjeta: Optional[Dict] = None,
-                       presupuesto_id: Optional[int] = None, datos_cheque: Optional[Dict] = None) -> Venta:
+                       presupuesto_id: Optional[int] = None, datos_cheque: Optional[Dict] = None,
+                       desglose_pagos: Optional[Dict] = None) -> Venta:
         """
         Procesa una venta completa.
         `detalles` es una lista de diccionarios: {'producto_id': int, 'cantidad': float, 'precio_unitario': float, 'descuento_unitario': float}
@@ -166,7 +167,9 @@ class VentaService:
                     session.add(libro_iva)
 
 # --- INTEGRACIÓN CON CUENTA CORRIENTE Y CAJA ---
-                if metodo_pago == "Cuenta Corriente":
+                if metodo_pago == "Combinado":
+                    pass # Handled below in the desglose loop
+                elif metodo_pago == "Cuenta Corriente":
                     if not cliente_id:
                         raise ValueError("Debe especificar un cliente para ventas en Cuenta Corriente.")
 
@@ -221,7 +224,7 @@ class VentaService:
                         venta_id=nueva_venta.id
                     )
                     session.add(asiento_banco)
-                elif metodo_pago == "Cheque":
+                elif metodo_pago == "Cheque" or (metodo_pago == "Combinado" and datos_cheque):
                     if not datos_cheque:
                         raise ValueError("Los datos del cheque son obligatorios si el método de pago es 'Cheque'.")
 
@@ -236,32 +239,62 @@ class VentaService:
                         nombre_emisor=datos_cheque.get('nombre_emisor', ''),
                         cuit=datos_cheque.get('cuit', ''),
                         endoso=datos_cheque.get('endoso', ''),
-                        monto=datos_cheque.get('monto', total_final)
+                        monto=datos_cheque.get('monto', total_final) if metodo_pago == "Cheque" else desglose_pagos.get("Cheque", 0.0)
                     )
                     session.add(nuevo_cheque)
 
 
                 # REGLA: Toda venta genera un movimiento de caja (sea efectivo, tarjeta o cuenta corriente)
-                # Transferencias bancarias podrían exclurse de la caja física, pero la regla solicitada:
-                # "TODA venta, sin importar el método de pago, DEBE generar un registro en movimientos_caja."
                 caja_activa = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
                 if not caja_activa:
                     raise ValueError("No hay una caja abierta. Debe abrir la caja antes de procesar ventas.")
 
-
                 concepto_caja = f"Venta #{nueva_venta.id} - {tipo_comprobante}"
-                if metodo_pago == "Cheque" and datos_cheque:
-                    concepto_caja += f" (Cheque {datos_cheque.get('numero_cheque', '')})"
 
-                mov_caja = MovimientoCaja(
-                    caja_id=caja_activa.id,
-                    tipo="Ingreso",
-                    concepto=concepto_caja,
-                    monto=total_final,
-                    metodo=metodo_pago,
-                    venta_id=nueva_venta.id
-                )
-                session.add(mov_caja)
+                if desglose_pagos:
+                    # Desglose transaccional
+                    for metodo, monto in desglose_pagos.items():
+                        if monto > 0:
+                            concepto_extra = concepto_caja
+                            if metodo == "Cheque" and datos_cheque:
+                                concepto_extra += f" (Cheque {datos_cheque.get('numero_cheque', '')})"
+
+                            # Si es CC combinada, generar la deuda para esa parte
+                            if metodo == "Cuenta Corriente":
+                                if not cliente_id:
+                                    raise ValueError("Debe especificar un cliente para cobrar con Cuenta Corriente.")
+                                ultimo_mov = session.query(ClienteCuentaCorriente).filter_by(cliente_id=cliente_id).order_by(ClienteCuentaCorriente.id.desc()).first()
+                                saldo_anterior = ultimo_mov.saldo if ultimo_mov else 0.0
+                                nuevo_saldo = saldo_anterior + monto
+                                mov_cc = ClienteCuentaCorriente(
+                                    cliente_id=cliente_id, concepto=f"Venta #{nueva_venta.id} (Combinado)",
+                                    debe=monto, haber=0.0, saldo=nuevo_saldo, venta_id=nueva_venta.id
+                                )
+                                session.add(mov_cc)
+
+                            mov_caja = MovimientoCaja(
+                                caja_id=caja_activa.id,
+                                tipo="Ingreso",
+                                concepto=concepto_extra,
+                                monto=monto,
+                                metodo=metodo,
+                                venta_id=nueva_venta.id
+                            )
+                            session.add(mov_caja)
+                else:
+                    # Flujo estándar único
+                    if metodo_pago == "Cheque" and datos_cheque:
+                        concepto_caja += f" (Cheque {datos_cheque.get('numero_cheque', '')})"
+
+                    mov_caja = MovimientoCaja(
+                        caja_id=caja_activa.id,
+                        tipo="Ingreso",
+                        concepto=concepto_caja,
+                        monto=total_final,
+                        metodo=metodo_pago,
+                        venta_id=nueva_venta.id
+                    )
+                    session.add(mov_caja)
                 # -----------------------------------------------
 
                 # Cerrar Presupuesto si se originó de uno
