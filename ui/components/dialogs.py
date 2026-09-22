@@ -997,7 +997,13 @@ class CobroCombinadoDialog(QDialog):
         self.combo_plan.addItems(["1 Pago", "3 Cuotas", "6 Cuotas", "12 Cuotas"])
         self.combo_plan.setEnabled(False)
 
+        self.lbl_detalle_cuotas = QLabel("")
+        self.lbl_detalle_cuotas.setStyleSheet("color: #7f8c8d; font-style: italic; font-weight: bold;")
+        self.lbl_detalle_cuotas.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
         self.spin_credito.valueChanged.connect(self._toggle_credito)
+        self.spin_credito.valueChanged.connect(self._actualizar_detalle_cuotas)
+        self.combo_plan.currentTextChanged.connect(self._actualizar_detalle_cuotas)
 
         self.form.addRow("Efectivo:", self.spin_efectivo)
         self.form.addRow("Transferencia:", self.spin_transferencia)
@@ -1005,6 +1011,7 @@ class CobroCombinadoDialog(QDialog):
         self.form.addRow("Tarjeta de Crédito:", self.spin_credito)
         self.form.addRow("  - Tarjeta:", self.combo_tarjeta)
         self.form.addRow("  - Plan:", self.combo_plan)
+        self.form.addRow("", self.lbl_detalle_cuotas)
         self.form.addRow("Cuenta Corriente:", self.spin_cta_cte)
         self.form.addRow("Cheque:", self.spin_cheque)
 
@@ -1040,6 +1047,28 @@ class CobroCombinadoDialog(QDialog):
         val = self.spin_credito.value() > 0
         self.combo_tarjeta.setEnabled(val)
         self.combo_plan.setEnabled(val)
+
+    def _actualizar_detalle_cuotas(self):
+        monto = self.spin_credito.value()
+        plan_str = self.combo_plan.currentText()
+
+        if monto <= 0 or not plan_str:
+            self.lbl_detalle_cuotas.setText("")
+            return
+
+        try:
+            if "Pago" in plan_str:
+                cuotas = 1
+            else:
+                cuotas = int(plan_str.split()[0])
+
+            if cuotas > 1:
+                valor_cuota = monto / cuotas
+                self.lbl_detalle_cuotas.setText(f"({cuotas} cuotas de ${valor_cuota:.2f})")
+            else:
+                self.lbl_detalle_cuotas.setText("")
+        except (ValueError, ZeroDivisionError):
+            self.lbl_detalle_cuotas.setText("")
 
     def _calcular_totales(self):
         suma = (self.spin_efectivo.value() + self.spin_transferencia.value() +
