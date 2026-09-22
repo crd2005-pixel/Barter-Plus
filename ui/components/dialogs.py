@@ -1163,3 +1163,60 @@ class CobroCombinadoDialog(QDialog):
             }
 
         return datos
+
+class ConfirmacionPosnetDialog(QDialog):
+    def __init__(self, monto_financiar, parent=None):
+        super().__init__(parent)
+        self.monto_financiar = monto_financiar
+        self.setWindowTitle("Intercepción Posnet")
+        self.resize(350, 200)
+        self.setup_ui()
+
+    def setup_ui(self):
+        from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit, QPushButton, QLabel, QMessageBox
+
+        layout = QVBoxLayout(self)
+
+        lbl_instruccion = QLabel(f"1. Pase la tarjeta por el terminal físico por el monto exacto de:\n\n$ {self.monto_financiar:.2f}")
+        lbl_instruccion.setStyleSheet("font-size: 16px; font-weight: bold; color: #d35400; margin-bottom: 10px;")
+        lbl_instruccion.setWordWrap(True)
+        layout.addWidget(lbl_instruccion)
+
+        lbl_instruccion2 = QLabel("2. Una vez aprobado, ingrese los datos del comprobante impreso:")
+        layout.addWidget(lbl_instruccion2)
+
+        form = QFormLayout()
+        self.txt_lote = QLineEdit()
+        self.txt_lote.setPlaceholderText("Ej: 123")
+        self.txt_cupon = QLineEdit()
+        self.txt_cupon.setPlaceholderText("Ej: 4567")
+
+        form.addRow("Nº Lote:", self.txt_lote)
+        form.addRow("Nº Cupón:", self.txt_cupon)
+        layout.addLayout(form)
+
+        btn_box = QHBoxLayout()
+        btn_confirmar = QPushButton("Confirmar Cobro Aprobado")
+        btn_confirmar.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; padding: 8px;")
+        btn_confirmar.clicked.connect(self._validar)
+
+        btn_cancelar = QPushButton("Tarjeta Rechazada / Cancelar")
+        btn_cancelar.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold; padding: 8px;")
+        btn_cancelar.clicked.connect(self.reject)
+
+        btn_box.addWidget(btn_confirmar)
+        btn_box.addWidget(btn_cancelar)
+        layout.addLayout(btn_box)
+
+    def _validar(self):
+        from PyQt6.QtWidgets import QMessageBox
+        if not self.txt_lote.text().strip() or not self.txt_cupon.text().strip():
+            QMessageBox.warning(self, "Datos Incompletos", "Debe ingresar el Lote y el Cupón del Posnet para continuar.")
+            return
+        self.accept()
+
+    def get_datos(self):
+        return {
+            "lote": self.txt_lote.text().strip(),
+            "cupon": self.txt_cupon.text().strip()
+        }

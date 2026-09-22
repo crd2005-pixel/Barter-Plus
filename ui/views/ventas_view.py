@@ -64,16 +64,15 @@ class VentasTab(QWidget):
         self.form_tarjeta = QFormLayout()
         self.combo_tarjeta = QComboBox()
         self.combo_plan_tarjeta = QComboBox()
-        self.txt_lote = QLineEdit()
-        self.txt_lote.setPlaceholderText("Ej: 12345")
-        self.txt_cupon = QLineEdit()
-        self.txt_cupon.setPlaceholderText("Ej: 67890")
+
+        self.lbl_detalle_financiacion = QLabel()
+        self.lbl_detalle_financiacion.setStyleSheet("color: #e67e22; font-weight: bold; font-style: italic;")
+
         self.combo_tarjeta.currentIndexChanged.connect(self.cargar_planes_tarjeta)
         self.combo_plan_tarjeta.currentIndexChanged.connect(self.actualizar_ui)
         self.form_tarjeta.addRow("Tarjeta:", self.combo_tarjeta)
         self.form_tarjeta.addRow("Plan:", self.combo_plan_tarjeta)
-        self.form_tarjeta.addRow("Nº Lote:", self.txt_lote)
-        self.form_tarjeta.addRow("Nº Cupón:", self.txt_cupon)
+        self.form_tarjeta.addRow("", self.lbl_detalle_financiacion)
         self.widget_tarjeta = QWidget()
         self.widget_tarjeta.setLayout(self.form_tarjeta)
         self.widget_tarjeta.setVisible(False)
@@ -623,7 +622,44 @@ class VentasTab(QWidget):
         self.lbl_total_valor.setText(f"$ {total_final:.2f}")
         self.btn_cobrar.setEnabled(len(self.carrito) > 0)
 
+        self._actualizar_calculo_tarjeta()
+
         self.tabla.itemChanged.connect(self.modificar_cantidad_grid)
+
+    def _actualizar_calculo_tarjeta(self):
+        metodo = self.combo_pago.currentText().strip()
+        if metodo not in ['Tarjeta', 'Débito']:
+            self.lbl_detalle_financiacion.setText("")
+            return
+
+        total_base = 0.0
+        for item in self.carrito:
+            precio_unitario = item['precio_base'] * 0.9 if self.cliente_vip else item['precio_base']
+            precio_neto = precio_unitario - item['descuento_unit']
+            if precio_neto < 0: precio_neto = 0.0
+            total_base += item['cantidad'] * precio_neto
+
+        total_base -= self.descuento_global
+
+        if total_base <= 0:
+            self.lbl_detalle_financiacion.setText("")
+            return
+
+        plan_id = self.combo_plan_tarjeta.currentData()
+        if plan_id and hasattr(self, 'planes_data') and plan_id in self.planes_data:
+            p = self.planes_data[plan_id]
+            tasa = p['interes']
+            cuotas = p['cuotas']
+
+            total_financiado = total_base * (1 + (tasa / 100))
+
+            if cuotas > 1:
+                valor_cuota = total_financiado / cuotas
+                self.lbl_detalle_financiacion.setText(f"Total a pasar por Posnet: ${total_financiado:.2f} ({cuotas} cuotas de ${valor_cuota:.2f})")
+            else:
+                self.lbl_detalle_financiacion.setText(f"Total a pasar por Posnet: ${total_financiado:.2f}")
+        else:
+            self.lbl_detalle_financiacion.setText("")
 
     def modificar_cantidad_grid(self, item):
         col = item.column()
@@ -762,24 +798,29 @@ class VentasTab(QWidget):
                 # Pass extra data for deferred income
                 datos_tarjeta = None
                 if metodo in ['Tarjeta', 'Débito']:
-                    lote = self.txt_lote.text().strip()
-                    cupon = self.txt_cupon.text().strip()
-
-                    if not lote or not cupon:
-                        QMessageBox.warning(self, "Error", "El número de Lote y Cupón son obligatorios para pagos con Tarjeta.")
-                        return
-
                     plan_id = self.combo_plan_tarjeta.currentData()
                     if plan_id and hasattr(self, 'planes_data') and plan_id in self.planes_data:
                         p = self.planes_data[plan_id]
-                        datos_tarjeta = {
-                            'banco': p['banco'],
-                            'cuotas': p['cuotas'],
-                            'interes': p['interes'],
-                            'plazo_dias': p['dias'],
-                            'lote': lote,
-                            'cupon': cupon
-                        }
+
+                        # 1. Calcular el total real con recargo para esta venta
+                        tasa = p['interes']
+                        total_financiado = total_float * (1 + (tasa / 100))
+
+                        # 2. Invocar la intercepción
+                        from ui.components.dialogs import ConfirmacionPosnetDialog
+                        dialog = ConfirmacionPosnetDialog(total_financiado, self)
+                        if dialog.exec() == int(QDialog.DialogCode.Accepted):
+                            datos_posnet = dialog.get_datos() # {lote, cupon}
+                            datos_tarjeta = {
+                                'banco': p['banco'],
+                                'cuotas': p['cuotas'],
+                                'interes': tasa,
+                                'plazo_dias': p['dias'],
+                                'lote': datos_posnet['lote'],
+                                'cupon': datos_posnet['cupon']
+                            }
+                        else:
+                            return # Aborta si la tarjeta fue rechazada en el aparato físico
                     else:
                         QMessageBox.warning(self, "Error", "Seleccione un plan de tarjeta válido.")
                         return
@@ -835,8 +876,6 @@ class VentasTab(QWidget):
                 self.cliente_vip = False
                 self.presupuesto_activo_id = None
                 self.txt_codigo.clear()
-                if hasattr(self, 'txt_lote'): self.txt_lote.clear()
-                if hasattr(self, 'txt_cupon'): self.txt_cupon.clear()
                 self.combo_clientes.setCurrentIndex(0)
                 self.actualizar_ui()
                 self.txt_codigo.setFocus()
