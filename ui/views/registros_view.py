@@ -526,57 +526,53 @@ class LiquidezBancosTab(QWidget):
     def cargar_datos(self):
         # 1. Resumen de Liquidez (Fetch for Box & Banks)
         liquidez = RegistrosService.obtener_liquidez_actual()
-        self.lbl_efectivo.setText(f"Caja Fuerte (Efectivo):\n$ {liquidez['efectivo']:.2f}")
-        self.lbl_bancos.setText(f"Cuentas Bancarias:\n$ {liquidez['bancos']:.2f}")
+        self.lbl_efectivo.setText(f"Caja Fuerte (Efectivo):\n$ {liquidez.get('efectivo', 0):.2f}")
+        self.lbl_bancos.setText(f"Cuentas Bancarias:\n$ {liquidez.get('bancos', 0):.2f}")
 
         # 2. Grilla (Fetch details)
         self.table.setRowCount(0)
         pendientes = RegistrosService.obtener_proximas_acreditaciones()
-        print(f"[DEBUG LIQUIDEZ] Datos recuperados: {pendientes}")
 
         total_cheques = 0.0
         total_tarjetas = 0.0
 
         hoy = dt.date.today()
-        from PyQt6.QtGui import QBrush, QColor
+        from PyQt6.QtGui import QBrush, QColor, QFont
 
         for row, p in enumerate(pendientes):
             self.table.insertRow(row)
-            fecha_acred = p['fecha']
+            fecha_acred = p.get('fecha')
+            f_str = fecha_acred.strftime("%Y-%m-%d") if fecha_acred else ""
 
-            i_fec = QTableWidgetItem(fecha_acred.strftime("%Y-%m-%d"))
-            if fecha_acred <= hoy:
+            i_fec = QTableWidgetItem(f_str)
+            if fecha_acred and fecha_acred <= hoy:
                 i_fec.setForeground(Qt.GlobalColor.red)
                 i_fec.setToolTip("Debería estar acreditado hoy o está atrasado.")
 
             self.table.setItem(row, 0, i_fec)
 
-            origen = str(p['origen'])
-            if "Cheque" in origen:
-                origen_str = f"[FÍSICO] {origen}"
-                monto = float(p.get('monto_neto', 0.0))
-                total_cheques += monto
-            else:
-                origen_str = f"[BANCARIO] {origen}"
-                monto = float(p.get('monto_neto', 0.0))
-                total_tarjetas += monto
+            origen = str(p.get('origen', ''))
+            self.table.setItem(row, 1, QTableWidgetItem(origen))
+            self.table.setItem(row, 2, QTableWidgetItem(str(p.get('tipo', ''))))
 
-            self.table.setItem(row, 1, QTableWidgetItem(origen_str))
-            self.table.setItem(row, 2, QTableWidgetItem(str(p['tipo'])))
-
+            monto = float(p.get('monto_neto', 0.0))
             i_monto = QTableWidgetItem(f"${monto:.2f}")
             i_monto.setForeground(Qt.GlobalColor.darkGreen)
-
-            from PyQt6.QtGui import QFont
             fnt = QFont()
             fnt.setBold(True)
             i_monto.setFont(fnt)
-
             self.table.setItem(row, 3, i_monto)
-            self.table.setItem(row, 4, QTableWidgetItem(str(p['estado'])))
 
-        self.lbl_cheques.setText(f"Cheques en Cartera (Físico):\n$ {liquidez['cheques']:.2f}")
-        self.lbl_tarjetas.setText(f"Acreditaciones Pendientes (Tarjetas):\n$ {liquidez['tarjetas']:.2f}")
+            self.table.setItem(row, 4, QTableWidgetItem(str(p.get('estado', ''))))
+
+            # Sumarización segura basada en el origen
+            if "[FÍSICO]" in origen.upper() or "CHEQUE" in origen.upper():
+                total_cheques += monto
+            elif "[BANCARIO]" in origen.upper() or "TARJETA" in origen.upper():
+                total_tarjetas += monto
+
+        self.lbl_cheques.setText(f"Cheques en Cartera (Físico):\n$ {total_cheques:.2f}")
+        self.lbl_tarjetas.setText(f"Acreditaciones Pendientes (Tarjetas):\n$ {total_tarjetas:.2f}")
 
 
 class RegistrosView(QWidget):
