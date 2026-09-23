@@ -230,7 +230,7 @@ class VentaService:
                         venta_id=nueva_venta.id
                     )
                     session.add(asiento_banco)
-                elif metodo_pago == "Cheque" or (metodo_pago == "Combinado" and datos_cheque):
+                elif metodo_pago == "Cheque":
                     if not datos_cheque:
                         raise ValueError("Los datos del cheque son obligatorios si el método de pago es 'Cheque'.")
 
@@ -245,7 +245,8 @@ class VentaService:
                         nombre_emisor=datos_cheque.get('nombre_emisor', ''),
                         cuit=datos_cheque.get('cuit', ''),
                         endoso=datos_cheque.get('endoso', ''),
-                        monto=datos_cheque.get('monto', total_final) if metodo_pago == "Cheque" else desglose_pagos.get("Cheque", 0.0)
+                        monto=datos_cheque.get('monto', total_final),
+                        estado="Pendiente"
                     )
                     session.add(nuevo_cheque)
 
@@ -262,7 +263,24 @@ class VentaService:
                     datos_cheque_comb = desglose_pagos.pop('datos_cheque', datos_cheque)
                     datos_tarjeta_comb = desglose_pagos.pop('datos_tarjeta', None)
 
-                    # Desglose transaccional
+                    # PERSISTENCIA DEL CHEQUE FÍSICO EN COMBINADO (CRÍTICO)
+                    if datos_cheque_comb:
+                        from database.models.cheques import Cheque
+                        nuevo_cheque_comb = Cheque(
+                            venta_id=nueva_venta.id,
+                            banco=datos_cheque_comb.get("banco", ""),
+                            numero_cheque=datos_cheque_comb.get("numero_cheque", ""),
+                            fecha_conformacion=datos_cheque_comb.get("fecha_conformacion"),
+                            fecha_vencimiento=datos_cheque_comb.get("fecha_vencimiento"),
+                            tipo_cheque=datos_cheque_comb.get("tipo_cheque", ""),
+                            nombre_emisor=datos_cheque_comb.get("nombre_emisor", ""),
+                            cuit=datos_cheque_comb.get("cuit", ""),
+                            endoso=datos_cheque_comb.get("endoso", ""),
+                            monto=datos_cheque_comb.get("monto", desglose_pagos.get("Cheque", 0.0)),
+                            estado="Pendiente"
+                        )
+                        session.add(nuevo_cheque_comb)
+
                     for metodo, monto in desglose_pagos.items():
                         if isinstance(monto, (int, float)) and monto > 0:
                             concepto_extra = concepto_caja
