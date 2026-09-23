@@ -264,9 +264,9 @@ class VentaService:
 
                     # Desglose transaccional
                     for metodo, monto in desglose_pagos.items():
-                        if monto > 0:
+                        if isinstance(monto, (int, float)) and monto > 0:
                             concepto_extra = concepto_caja
-                            metodo_final = metodo
+                            metodo_final = "Tarjeta" if metodo == "Tarjeta de Crédito" else metodo
 
                             if metodo == "Cheque" and datos_cheque_comb:
                                 concepto_extra += f" (Cheque {datos_cheque_comb.get('numero_cheque', '')})"

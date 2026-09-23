@@ -480,22 +480,26 @@ class LiquidezBancosTab(QWidget):
         resumen_lay = QHBoxLayout(panel_resumen)
 
         self.lbl_efectivo = QLabel("Caja Fuerte (Efectivo):\n$ 0.00")
-        self.lbl_efectivo.setStyleSheet("font-size: 13px; font-weight: bold; color: #27ae60; background: #eaeee8; padding: 10px; border-radius: 5px;")
+        self.lbl_efectivo.setStyleSheet("font-size: 12px; font-weight: bold; color: #27ae60; background: #eaeee8; padding: 8px; border-radius: 5px;")
+        self.lbl_efectivo.setWordWrap(True)
         self.lbl_efectivo.setWordWrap(True)
         self.lbl_efectivo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.lbl_bancos = QLabel("Cuentas Bancarias:\n$ 0.00")
-        self.lbl_bancos.setStyleSheet("font-size: 13px; font-weight: bold; color: #2980b9; background: #eaf2f8; padding: 10px; border-radius: 5px;")
+        self.lbl_bancos.setStyleSheet("font-size: 12px; font-weight: bold; color: #2980b9; background: #eaf2f8; padding: 8px; border-radius: 5px;")
+        self.lbl_bancos.setWordWrap(True)
         self.lbl_bancos.setWordWrap(True)
         self.lbl_bancos.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.lbl_cheques = QLabel("Cheques en Cartera (Físico):\n$ 0.00")
-        self.lbl_cheques.setStyleSheet("font-size: 13px; font-weight: bold; color: #8e44ad; background: #f5eef8; padding: 10px; border-radius: 5px;")
+        self.lbl_cheques.setStyleSheet("font-size: 12px; font-weight: bold; color: #8e44ad; background: #f5eef8; padding: 8px; border-radius: 5px;")
+        self.lbl_cheques.setWordWrap(True)
         self.lbl_cheques.setWordWrap(True)
         self.lbl_cheques.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.lbl_tarjetas = QLabel("Acreditaciones Pendientes (Tarjetas):\n$ 0.00")
-        self.lbl_tarjetas.setStyleSheet("font-size: 13px; font-weight: bold; color: #f39c12; background: #fef5e7; padding: 10px; border-radius: 5px;")
+        self.lbl_tarjetas.setStyleSheet("font-size: 12px; font-weight: bold; color: #f39c12; background: #fef5e7; padding: 8px; border-radius: 5px;")
+        self.lbl_tarjetas.setWordWrap(True)
         self.lbl_tarjetas.setWordWrap(True)
         self.lbl_tarjetas.setAlignment(Qt.AlignmentFlag.AlignCenter)
 

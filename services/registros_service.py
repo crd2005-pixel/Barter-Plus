@@ -112,15 +112,25 @@ class RegistrosService:
 
     @staticmethod
     def obtener_proximas_acreditaciones() -> list[dict]:
-        from database.models.contabilidad import IngresoDiferido
+        from database.models.caja import MovimientoCaja
+        from database.models.venta import Venta
         from database.models.cheques import Cheque
         import datetime as dt
-        from sqlalchemy import select
+        from sqlalchemy import select, or_
+        from datetime import timedelta
+
         with get_session() as session:
-            # 1. Tarjetas (Neto)
-            tarjetas = session.scalars(
-                select(IngresoDiferido)
-                .where(IngresoDiferido.estado == "Pendiente")
+            # 1. Tarjetas (Neto extraido de MovimientoCaja directo)
+            movimientos_tarjeta = session.scalars(
+                select(MovimientoCaja)
+                .join(Venta, MovimientoCaja.venta_id == Venta.id)
+                .where(
+                    MovimientoCaja.tipo == "Ingreso",
+                    or_(
+                        MovimientoCaja.metodo.ilike('%Tarjeta%'),
+                        MovimientoCaja.metodo.ilike('%Crédito%')
+                    )
+                )
             ).all()
 
             # 2. Cheques en cartera
@@ -131,13 +141,19 @@ class RegistrosService:
 
             resultado = []
 
-            for t in tarjetas:
+            for mov in movimientos_tarjeta:
+                venta_asociada = session.get(Venta, mov.venta_id) if mov.venta_id else None
+                fecha_base = venta_asociada.fecha if venta_asociada else mov.fecha
+                fecha_acreditacion = fecha_base + timedelta(days=14)
+
+                concepto = mov.concepto or ""
+
                 resultado.append({
-                    "fecha": t.fecha_acreditacion,
-                    "origen": "Bancario - Tarjeta",
-                    "tipo": f"{t.cuotas} Cuotas",
-                    "monto_neto": t.monto_original, # The base capital without financial interest
-                    "estado": t.estado
+                    "fecha": fecha_acreditacion.date() if isinstance(fecha_acreditacion, dt.datetime) else fecha_acreditacion,
+                    "origen": "[BANCARIO] Tarjeta",
+                    "cuotas": concepto,
+                    "monto_neto": mov.monto,
+                    "estado": "Pendiente"
                 })
 
             for c in cheques:
