@@ -2,7 +2,10 @@ from ui.components.dialogs import FastClientDialog, ItemManualDialog, TicketPrev
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit,
     QTableWidget, QTableWidgetItem, QHeaderView, QDateEdit, QLabel, QMessageBox,
-    QComboBox, QFormLayout, QGroupBox, QInputDialog, QSplitter, QSpinBox, QDoubleSpinBox, QDialog
+    QComboBox, QFormLayout, QGroupBox, QInputDialog, QSplitter, QSpinBox, QDoubleSpinBox
+)
+from PyQt6.QtWidgets import QDialog
+
 )
 from PyQt6.QtCore import Qt, QDate, QStringListModel
 from PyQt6.QtGui import QFont, QColor, QBrush, QShortcut, QKeySequence
@@ -282,7 +285,7 @@ class VentasTab(QWidget):
         if ok and query.strip():
             prod = ProductoService.buscar_por_query_flexible(query.strip())
             if prod:
-                from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel
+                , QVBoxLayout, QLabel
                 dialog = QDialog(self)
                 dialog.setWindowTitle("Consulta de Precio Público")
                 dialog.resize(500, 300)
@@ -339,7 +342,7 @@ class VentasTab(QWidget):
             QMessageBox.information(self, "Cuenta Corriente", "El cliente no registra deuda actual.")
             return
 
-        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QFormLayout, QPushButton, QHBoxLayout
+        , QVBoxLayout, QFormLayout, QPushButton, QHBoxLayout
         dialog = QDialog(self)
         dialog.setWindowTitle("Cobro Cuenta Corriente")
         dialog.resize(350, 200)
@@ -741,7 +744,7 @@ class VentasTab(QWidget):
 
         if metodo.lower() == "combinado":
             from ui.components.dialogs import CobroCombinadoDialog
-            from PyQt6.QtWidgets import QDialog
+
             dialogo = CobroCombinadoDialog(total_float, self)
             if dialogo.exec() == int(QDialog.DialogCode.Accepted):
                 desglose_pagos = dialogo.get_datos()
@@ -757,7 +760,7 @@ class VentasTab(QWidget):
 
         if metodo.lower() == "cheque":
             from ui.components.dialogs import CargarChequeDialog
-            from PyQt6.QtWidgets import QDialog
+
             dlg_cheque = CargarChequeDialog(total_float, self)
             if dlg_cheque.exec() == int(QDialog.DialogCode.Accepted):
                 datos_cheque_extra = dlg_cheque.get_data()
