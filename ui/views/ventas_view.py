@@ -748,6 +748,21 @@ class VentasTab(QWidget):
             if dialogo.exec() == int(QDialog.DialogCode.Accepted):
                 desglose_pagos = dialogo.get_datos()
                 datos_cheque_extra = desglose_pagos.pop("datos_cheque", None)
+
+                monto_credito = desglose_pagos.get("Tarjeta de Crédito", 0)
+                if monto_credito > 0 and "datos_tarjeta" in desglose_pagos:
+                    # In order to calculate the surcharge, we parse the text from the dialog's combo box inside `datos_tarjeta`
+                    # The dialog returns: "tarjeta" and "plan". However, we need the exact `tasa` from the DB.
+                    # The prompt says: # Calcular recargo de esa porción si es necesario, o usar el monto base
+                    # If we don't have the explicit tasa here easily, we pass the base monto_credito.
+                    from ui.components.dialogs import ConfirmacionPosnetDialog
+                    dialog_posnet = ConfirmacionPosnetDialog(monto_credito, self)
+                    if dialog_posnet.exec() == int(QDialog.DialogCode.Accepted):
+                        datos_posnet = dialog_posnet.get_datos()
+                        desglose_pagos["datos_tarjeta"]["lote"] = datos_posnet["lote"]
+                        desglose_pagos["datos_tarjeta"]["cupon"] = datos_posnet["cupon"]
+                    else:
+                        return # Aborta toda la venta combinada si falla el posnet
             else:
                 return # Aborta la venta
 

@@ -487,12 +487,17 @@ class LiquidezBancosTab(QWidget):
         self.lbl_bancos.setStyleSheet("font-size: 20px; font-weight: bold; color: #2980b9; background: #eaf2f8; padding: 15px; border-radius: 5px;")
         self.lbl_bancos.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.lbl_tarjetas = QLabel("Valores a Cobrar (Tarjetas y Cheques):\n$ 0.00")
+        self.lbl_cheques = QLabel("Cheques en Cartera (Físico):\n$ 0.00")
+        self.lbl_cheques.setStyleSheet("font-size: 20px; font-weight: bold; color: #8e44ad; background: #f5eef8; padding: 15px; border-radius: 5px;")
+        self.lbl_cheques.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.lbl_tarjetas = QLabel("Acreditaciones Pendientes (Tarjetas):\n$ 0.00")
         self.lbl_tarjetas.setStyleSheet("font-size: 20px; font-weight: bold; color: #f39c12; background: #fef5e7; padding: 15px; border-radius: 5px;")
         self.lbl_tarjetas.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         resumen_lay.addWidget(self.lbl_efectivo)
         resumen_lay.addWidget(self.lbl_bancos)
+        resumen_lay.addWidget(self.lbl_cheques)
         resumen_lay.addWidget(self.lbl_tarjetas)
 
         layout.addWidget(panel_resumen)
@@ -525,7 +530,8 @@ class LiquidezBancosTab(QWidget):
         pendientes = RegistrosService.obtener_proximas_acreditaciones()
         print(f"[DEBUG LIQUIDEZ] Datos recuperados: {pendientes}")
 
-        total_neto = 0.0
+        total_cheques = 0.0
+        total_tarjetas = 0.0
 
         hoy = dt.date.today()
         from PyQt6.QtGui import QBrush, QColor
@@ -540,18 +546,23 @@ class LiquidezBancosTab(QWidget):
                 i_fec.setToolTip("Debería estar acreditado hoy o está atrasado.")
 
             self.table.setItem(row, 0, i_fec)
-            self.table.setItem(row, 1, QTableWidgetItem(str(p['origen'])))
-            self.table.setItem(row, 2, QTableWidgetItem(str(p['tipo'])))
 
-            monto = float(p.get('monto_neto', 0.0))
-            total_neto += monto
+            origen = str(p['origen'])
+            if "Cheque" in origen:
+                origen_str = f"[FÍSICO] {origen}"
+                monto = float(p.get('monto_neto', 0.0))
+                total_cheques += monto
+            else:
+                origen_str = f"[BANCARIO] {origen}"
+                monto = float(p.get('monto_neto', 0.0))
+                total_tarjetas += monto
+
+            self.table.setItem(row, 1, QTableWidgetItem(origen_str))
+            self.table.setItem(row, 2, QTableWidgetItem(str(p['tipo'])))
 
             i_monto = QTableWidgetItem(f"${monto:.2f}")
             i_monto.setForeground(Qt.GlobalColor.darkGreen)
 
-            # Note: setStyleSheet does not work on QTableWidgetItem directly in pyqt6,
-            # we use setForeground and font manipulation if needed, but since user requested specific format,
-            # I will just set foreground and avoid crash.
             from PyQt6.QtGui import QFont
             fnt = QFont()
             fnt.setBold(True)
@@ -560,7 +571,8 @@ class LiquidezBancosTab(QWidget):
             self.table.setItem(row, 3, i_monto)
             self.table.setItem(row, 4, QTableWidgetItem(str(p['estado'])))
 
-        self.lbl_tarjetas.setText(f"Valores a Cobrar (Tarjetas y Cheques):\n$ {total_neto:.2f}")
+        self.lbl_cheques.setText(f"Cheques en Cartera (Físico):\n$ {total_cheques:.2f}")
+        self.lbl_tarjetas.setText(f"Acreditaciones Pendientes (Tarjetas):\n$ {total_tarjetas:.2f}")
 
 
 class RegistrosView(QWidget):
