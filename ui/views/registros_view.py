@@ -480,19 +480,23 @@ class LiquidezBancosTab(QWidget):
         resumen_lay = QHBoxLayout(panel_resumen)
 
         self.lbl_efectivo = QLabel("Caja Fuerte (Efectivo):\n$ 0.00")
-        self.lbl_efectivo.setStyleSheet("font-size: 20px; font-weight: bold; color: #27ae60; background: #eaeee8; padding: 15px; border-radius: 5px;")
+        self.lbl_efectivo.setStyleSheet("font-size: 13px; font-weight: bold; color: #27ae60; background: #eaeee8; padding: 10px; border-radius: 5px;")
+        self.lbl_efectivo.setWordWrap(True)
         self.lbl_efectivo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.lbl_bancos = QLabel("Cuentas Bancarias:\n$ 0.00")
-        self.lbl_bancos.setStyleSheet("font-size: 20px; font-weight: bold; color: #2980b9; background: #eaf2f8; padding: 15px; border-radius: 5px;")
+        self.lbl_bancos.setStyleSheet("font-size: 13px; font-weight: bold; color: #2980b9; background: #eaf2f8; padding: 10px; border-radius: 5px;")
+        self.lbl_bancos.setWordWrap(True)
         self.lbl_bancos.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.lbl_cheques = QLabel("Cheques en Cartera (Físico):\n$ 0.00")
-        self.lbl_cheques.setStyleSheet("font-size: 20px; font-weight: bold; color: #8e44ad; background: #f5eef8; padding: 15px; border-radius: 5px;")
+        self.lbl_cheques.setStyleSheet("font-size: 13px; font-weight: bold; color: #8e44ad; background: #f5eef8; padding: 10px; border-radius: 5px;")
+        self.lbl_cheques.setWordWrap(True)
         self.lbl_cheques.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.lbl_tarjetas = QLabel("Acreditaciones Pendientes (Tarjetas):\n$ 0.00")
-        self.lbl_tarjetas.setStyleSheet("font-size: 20px; font-weight: bold; color: #f39c12; background: #fef5e7; padding: 15px; border-radius: 5px;")
+        self.lbl_tarjetas.setStyleSheet("font-size: 13px; font-weight: bold; color: #f39c12; background: #fef5e7; padding: 10px; border-radius: 5px;")
+        self.lbl_tarjetas.setWordWrap(True)
         self.lbl_tarjetas.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         resumen_lay.addWidget(self.lbl_efectivo)
@@ -571,8 +575,8 @@ class LiquidezBancosTab(QWidget):
             self.table.setItem(row, 3, i_monto)
             self.table.setItem(row, 4, QTableWidgetItem(str(p['estado'])))
 
-        self.lbl_cheques.setText(f"Cheques en Cartera (Físico):\n$ {total_cheques:.2f}")
-        self.lbl_tarjetas.setText(f"Acreditaciones Pendientes (Tarjetas):\n$ {total_tarjetas:.2f}")
+        self.lbl_cheques.setText(f"Cheques en Cartera (Físico):\n$ {liquidez['cheques']:.2f}")
+        self.lbl_tarjetas.setText(f"Acreditaciones Pendientes (Tarjetas):\n$ {liquidez['tarjetas']:.2f}")
 
 
 class RegistrosView(QWidget):

@@ -190,25 +190,31 @@ class VentaService:
                         venta_id=nueva_venta.id
                     )
                     session.add(mov_cc)
-                elif metodo_pago in ["Tarjeta", "Débito"]:
-                    if not datos_tarjeta or not datos_tarjeta.get('lote') or not datos_tarjeta.get('cupon'):
+                elif metodo_pago in ["Tarjeta", "Débito"] or (metodo_pago == "Combinado" and desglose_pagos and desglose_pagos.get("Tarjeta de Crédito", 0) > 0):
+                    # We might have `datos_tarjeta` directly (normal flow) or inside the desglose.
+                    tarjeta_metadata = datos_tarjeta if metodo_pago != "Combinado" else desglose_pagos.get("datos_tarjeta")
+                    monto_cred_neto = total_final if metodo_pago != "Combinado" else desglose_pagos.get("Tarjeta de Crédito", 0)
+                    monto_cred_bruto = monto_cred_neto # By default
+
+                    if not tarjeta_metadata or not tarjeta_metadata.get('lote') or not tarjeta_metadata.get('cupon'):
                         raise ValueError("El número de Lote y Cupón son obligatorios para pagos con Tarjeta.")
 
-                    # Registramos el Ingreso Diferido, no toca caja física
-                    dias_habiles = datos_tarjeta.get('plazo_dias', 0)
+                    dias_habiles = tarjeta_metadata.get('plazo_dias', 0)
                     fecha_acred = VentaService._calcular_fecha_habil(dias_habiles)
+                    tasa = tarjeta_metadata.get('interes', 0.0)
+                    monto_cred_bruto = monto_cred_neto * (1 + (tasa/100))
 
                     ingreso_dif = IngresoDiferido(
                         venta_id=nueva_venta.id,
                         fecha_venta=nueva_venta.fecha,
                         fecha_acreditacion=fecha_acred,
-                        banco_tarjeta=datos_tarjeta.get('banco', 'No Especificado'),
-                        cuotas=datos_tarjeta.get('cuotas', 1),
-                        monto_original=subtotal_venta - descuento_global,
-                        interes_aplicado=datos_tarjeta.get('interes', 0.0),
-                        monto_acreditar=total_final,
-                        lote=datos_tarjeta.get('lote'),
-                        cupon=datos_tarjeta.get('cupon'),
+                        banco_tarjeta=tarjeta_metadata.get('banco', 'No Especificado'),
+                        cuotas=tarjeta_metadata.get('cuotas', 1),
+                        monto_original=monto_cred_neto,
+                        interes_aplicado=tasa,
+                        monto_acreditar=monto_cred_bruto,
+                        lote=tarjeta_metadata.get('lote'),
+                        cupon=tarjeta_metadata.get('cupon'),
                         cuenta_destino="Banco Central / Adquirente",
                         estado="Pendiente"
                     )
@@ -260,11 +266,15 @@ class VentaService:
                     for metodo, monto in desglose_pagos.items():
                         if monto > 0:
                             concepto_extra = concepto_caja
+                            metodo_final = metodo
+
                             if metodo == "Cheque" and datos_cheque_comb:
                                 concepto_extra += f" (Cheque {datos_cheque_comb.get('numero_cheque', '')})"
 
-                            if metodo == "Tarjeta de Crédito" and datos_tarjeta_comb:
-                                concepto_extra += f" ({datos_tarjeta_comb.get('tarjeta', '')} - {datos_tarjeta_comb.get('plan', '')})"
+                            if metodo == "Tarjeta de Crédito":
+                                metodo_final = "Tarjeta" # Normalizar para reportes
+                                if datos_tarjeta_comb:
+                                    concepto_extra += f" ({datos_tarjeta_comb.get('tarjeta', '')} - {datos_tarjeta_comb.get('plan', '')}) Lote: {datos_tarjeta_comb.get('lote', '')} Cupón: {datos_tarjeta_comb.get('cupon', '')}"
 
                             # Si es CC combinada, generar la deuda para esa parte
                             if metodo == "Cuenta Corriente":
@@ -284,7 +294,7 @@ class VentaService:
                                 tipo="Ingreso",
                                 concepto=concepto_extra,
                                 monto=monto,
-                                metodo=metodo,
+                                metodo=metodo_final,
                                 venta_id=nueva_venta.id
                             )
                             session.add(mov_caja)
