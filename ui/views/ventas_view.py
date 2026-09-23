@@ -6,7 +6,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtWidgets import QDialog
 
-)
 from PyQt6.QtCore import Qt, QDate, QStringListModel
 from PyQt6.QtGui import QFont, QColor, QBrush, QShortcut, QKeySequence
 from PyQt6.QtWidgets import QCompleter
@@ -285,7 +284,7 @@ class VentasTab(QWidget):
         if ok and query.strip():
             prod = ProductoService.buscar_por_query_flexible(query.strip())
             if prod:
-                , QVBoxLayout, QLabel
+                from PyQt6.QtWidgets import QVBoxLayout, QLabel
                 dialog = QDialog(self)
                 dialog.setWindowTitle("Consulta de Precio Público")
                 dialog.resize(500, 300)
@@ -342,7 +341,7 @@ class VentasTab(QWidget):
             QMessageBox.information(self, "Cuenta Corriente", "El cliente no registra deuda actual.")
             return
 
-        , QVBoxLayout, QFormLayout, QPushButton, QHBoxLayout
+        from PyQt6.QtWidgets import QVBoxLayout, QFormLayout, QPushButton, QHBoxLayout
         dialog = QDialog(self)
         dialog.setWindowTitle("Cobro Cuenta Corriente")
         dialog.resize(350, 200)
