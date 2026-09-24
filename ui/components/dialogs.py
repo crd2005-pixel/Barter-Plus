@@ -287,6 +287,15 @@ class TicketPreviewDialog(QDialog):
 
         self.printer = QPrinter(QPrinter.PrinterMode.ScreenResolution)
         self.preview = QPrintPreviewWidget(self.printer)
+
+        # Sobrescritura de QPalette estricta para ignorar Tema Oscuro
+        from PyQt6.QtGui import QPalette, QColor
+        paleta = self.preview.palette()
+        paleta.setColor(QPalette.ColorRole.Base, QColor("white"))
+        paleta.setColor(QPalette.ColorRole.Text, QColor("black"))
+        paleta.setColor(QPalette.ColorRole.WindowText, QColor("black"))
+        self.preview.setPalette(paleta)
+
         self.preview.paintRequested.connect(self.paint_preview)
 
         main_layout.addWidget(self.preview)
@@ -299,190 +308,116 @@ class TicketPreviewDialog(QDialog):
             self.preview.updatePreview()
 
     def paint_preview(self, printer):
-        from PyQt6.QtGui import QPainter, QFont, QFontMetricsF, QImage, QPen, QPageLayout, QPageSize
-        from PyQt6.QtCore import QSizeF, QRectF, Qt, QMarginsF
+        from PyQt6.QtGui import QPageSize, QPageLayout, QTextDocument
+        from PyQt6.QtCore import QSizeF, Qt, QMarginsF
         from PyQt6.QtPrintSupport import QPrinter
         import os
 
+        # Configuración básica
         w_mm = float(self.settings.value("width", 58.0))
-        margin_x_mm = float(self.settings.value("margin_x", 2.0))
-        margin_y_mm = float(self.settings.value("margin_y", 2.0))
-        fs_pt = int(self.settings.value("font_size", 8))
-        fs_title = int(fs_pt * 1.5)
+        margin_x = float(self.settings.value("margin_x", 2.0))
+        margin_y = float(self.settings.value("margin_y", 2.0))
+        font_size = int(self.settings.value("font_size", 12))
         logo_path = self.settings.value("logo_path", "")
-        logo_width_px = int(self.settings.value("logo_width", 150))
-        address = self.settings.value("address", "")
-        phone = self.settings.value("phone", "")
+        logo_width = int(self.settings.value("logo_width", 150))
+
+        # Extracción segura
+        address = str(self.settings.value("address", "Avenida Libertador Sur 415 - Gral. Alvear - Mza.")).strip()
+        phone = str(self.settings.value("phone", "2625-582956 // 2625-416889")).strip()
+        if not address: address = "Avenida Libertador Sur 415 - Gral. Alvear - Mza."
+        if not phone: phone = "2625-582956 // 2625-416889"
+
         leyenda = self.venta.tipo_comprobante if self.venta.tipo_comprobante else "Remito"
 
         cliente_nombre = getattr(self, 'cliente_nombre', "Consumidor Final")
         if not cliente_nombre: cliente_nombre = "Consumidor Final"
 
-        # ScreenResolution uses 96 DPI universally
-        dpi = 96.0
-        ppm = dpi / 25.4
+        margins = QMarginsF(margin_x, margin_y, margin_x, margin_y)
+        printer.setPageMargins(margins, QPageLayout.Unit.Millimeter)
 
-        # WE MUST USE w_mm FOR WIDTH, NOT THE DRIVER'S REPORTED WIDTH (to avoid A4 center-shifting)
-        w_px = w_mm * ppm
-        margin_x_px = margin_x_mm * ppm
-        margin_y_px = margin_y_mm * ppm
-        usable_w = w_px - (margin_x_px * 2)
-        if usable_w <= 0: usable_w = w_px
-
-        font_normal = QFont("Arial", fs_pt)
-        font_bold = QFont("Arial", fs_pt)
-        font_bold.setBold(True)
-        font_title = QFont("Arial", fs_title)
-        font_title.setBold(True)
-        font_small = QFont("Arial", int(fs_pt * 0.8))
-
-        # 1. DRY RUN MEASUREMENT
-        temp_img = QImage(int(w_px), 1000, QImage.Format.Format_RGB32)
-        p_measure = QPainter(temp_img)
-
-        y_cursor_px = margin_y_px
-
+        logo_html = ""
         if logo_path and os.path.exists(logo_path):
-            img = QImage(logo_path)
-            if not img.isNull():
-                scaled_h = int(img.height() * (logo_width_px / img.width()))
-                y_cursor_px += scaled_h + (5 * ppm)
+            logo_html = f'<div align="center"><img src="file:///{os.path.abspath(logo_path).replace(chr(92), "/")}" width="{logo_width}px"></div>'
 
-        p_measure.setFont(font_title)
-        y_cursor_px += p_measure.fontMetrics().height() + (5 * ppm)
-
-        p_measure.setFont(font_bold)
-        y_cursor_px += p_measure.fontMetrics().height() + (5 * ppm)
-
-        p_measure.setFont(font_normal)
-        line_height = p_measure.fontMetrics().height()
-        y_cursor_px += line_height * 4 + (10 * ppm)
-
+        items_html = ""
         for item in self.detalles_final:
             nombre = item.get('nombre', '')
-            texto_izq = f"{item['cantidad']}x {nombre}"
-            rect_item = p_measure.boundingRect(QRectF(0, 0, usable_w * 0.65, 1000.0), Qt.TextFlag.TextWordWrap, texto_izq)
-            y_cursor_px += rect_item.height() + (2 * ppm)
+            cant = item.get('cantidad', 1)
+            subt = item.get('subtotal', 0.0)
+            items_html += f"<tr><td align='left'>{cant}x {nombre}</td><td align='right'>${subt:.2f}</td></tr>"
 
-        y_cursor_px += line_height + (5 * ppm)
+        html_ticket = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <style>
+            * {{
+                box-sizing: border-box;
+                font-family: monospace, sans-serif;
+            }}
+            body {{
+                width: 100%;
+                margin: 0;
+                padding: 0 2px;
+                font-size: {font_size}px;
+                line-height: 1.4;
+                word-wrap: break-word;
+                overflow-wrap: break-word;
+                white-space: normal;
+            }}
+            table {{ width: 100%; border-collapse: collapse; margin: 5px 0; }}
+            th, td {{ padding: 2px 0; vertical-align: top; }}
+        </style>
+        </head>
+        <body>
+            <font color="black">
+                {logo_html}
+                <div align="center">
+                    <p><b>[{'X'}] {leyenda}</b></p>
+                    <p>Cliente: {cliente_nombre}</p>
+                </div>
+                <hr>
+                <p>Venta ID: {self.venta.id}<br>Fecha: {self.venta.fecha.strftime('%d/%m/%Y %H:%M')}</p>
+                <hr>
+                <table>
+                    {items_html}
+                </table>
+                <hr>
+                <div align="right" style="font-weight: bold; font-size: 1.1em; margin-top: 5px;">
+                    TOTAL: ${self.venta.total:.2f}
+                </div>
+                <p><b>Pago:</b> {self.venta.metodo_pago}</p>
+                <hr>
+                <div align="center">
+                    <p>{address}</p>
+                    <p>{phone}</p>
+                    <br>
+                    <p><b>¡Lo esperamos nuevamente!</b></p>
+                </div>
+            </font>
+        </body>
+        </html>
+        """
 
-        p_measure.setFont(font_title)
-        y_cursor_px += p_measure.fontMetrics().height() + (10 * ppm)
+        document = QTextDocument()
+        document.setDefaultStyleSheet("body { color: #000000; background-color: #ffffff; } p, table, th, td, div { color: #000000; }")
+        document.setHtml(html_ticket)
 
-        p_measure.setFont(font_small)
-        y_cursor_px += p_measure.fontMetrics().height() * 2 + (10 * ppm)
+        printer.setFullPage(True)
+        document.setTextWidth(printer.pageLayout().paintRectPixels(printer.resolution()).width())
 
-        if address or phone:
-            p_measure.setFont(font_normal)
-            if address: y_cursor_px += line_height
-            if phone: y_cursor_px += line_height
-            y_cursor_px += (5 * ppm)
+        doc_height_px = document.size().height()
+        dpi = printer.resolution()
+        alto_total_mm = (doc_height_px / dpi) * 25.4 + margin_y * 2
 
-        p_measure.setFont(font_normal)
-        y_cursor_px += line_height + (5 * ppm)
-
-        p_measure.end()
-
-        # 2. SET PAGE SIZE DYNAMICALLY (CRITICAL FOR AVOID INFINITE PAPER / 27cm A4 FALLBACK)
-        alto_total_mm = (y_cursor_px / ppm) + 10.0 # Add 10mm cutting margin at the bottom
-
-        # Enforce reasonable hardware limits
         if alto_total_mm < 50.0: alto_total_mm = 50.0
         if alto_total_mm > 1000.0: alto_total_mm = 1000.0
 
-        from PyQt6.QtGui import QPageSize, QPageLayout
-        from PyQt6.QtCore import QMarginsF, QSizeF
-
-        # We MUST explicitly set ExactMatch so the driver knows it's a variable-length roll
-        # Otherwise, the OS spools an A4 page, causing 27cm blank feeds and text shifting to the left!
         size = QPageSize(QSizeF(w_mm, alto_total_mm), QPageSize.Unit.Millimeter, "", QPageSize.SizeMatchPolicy.ExactMatch)
         printer.setPageSize(size)
-        printer.setPageMargins(QMarginsF(0.0, 0.0, 0.0, 0.0), QPageLayout.Unit.Millimeter)
-        printer.setFullPage(True)
+        printer.setPageMargins(margins, QPageLayout.Unit.Millimeter)
 
-        # 3. DRAW TO PRINTER
-        painter = QPainter()
-        if painter.begin(printer):
-            pen = QPen(Qt.GlobalColor.black)
-            pen.setWidth(1) # Normal width for ScreenResolution
-            pen.setStyle(Qt.PenStyle.SolidLine)
-            painter.setPen(pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-
-            # Start exactly at the requested margins
-            start_x = margin_x_px
-            y = margin_y_px
-
-            def draw_text_center(text, font, advance_padding_mm=2):
-                nonlocal y
-                painter.setFont(font)
-                fm = painter.fontMetrics()
-                rect = fm.boundingRect(int(start_x), int(y), int(usable_w), 5000, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, text)
-                painter.drawText(rect, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, text)
-                y += rect.height() + (advance_padding_mm * ppm)
-
-            def draw_text_left(text, font, advance_padding_mm=2):
-                nonlocal y
-                painter.setFont(font)
-                fm = painter.fontMetrics()
-                rect = fm.boundingRect(int(start_x), int(y), int(usable_w), 5000, Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, text)
-                painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, text)
-                y += rect.height() + (advance_padding_mm * ppm)
-
-            def draw_line(advance_padding_mm=4):
-                nonlocal y
-                y += (advance_padding_mm * ppm) / 2
-                painter.drawLine(int(start_x), int(y), int(start_x + usable_w), int(y))
-                y += (advance_padding_mm * ppm) / 2
-
-            if logo_path and os.path.exists(logo_path):
-                img = QImage(logo_path)
-                if not img.isNull():
-                    scaled_h = int(img.height() * (logo_width_px / img.width()))
-                    x_img = start_x + (usable_w - logo_width_px) / 2
-                    painter.drawImage(QRectF(x_img, y, logo_width_px, float(scaled_h)), img)
-                    y += scaled_h + (5 * ppm)
-
-            draw_text_center(f"[{'X'}] {leyenda}", font_title, 2)
-            draw_text_center(f"Cliente: {cliente_nombre}", font_bold, 2)
-            draw_line(4)
-            draw_text_left(f"Venta ID: {self.venta.id}", font_normal, 0)
-            draw_text_left(f"Fecha: {self.venta.fecha.strftime('%d/%m/%Y %H:%M')}", font_normal, 2)
-            draw_line(4)
-
-            painter.setFont(font_normal)
-            for item in self.detalles_final:
-                nombre = item.get('nombre', '')
-                texto_izq = f"{item['cantidad']}x {nombre}"
-                texto_der = f"${item['subtotal']:.2f}"
-
-                fm = painter.fontMetrics()
-                rect_der = QRectF(start_x + (usable_w * 0.7), y, usable_w * 0.3, float(fm.height()))
-                painter.drawText(rect_der, Qt.AlignmentFlag.AlignRight, texto_der)
-
-                rect_izq_bound = QRectF(start_x, y, usable_w * 0.65, 1000.0)
-                bounding = painter.boundingRect(rect_izq_bound, Qt.TextFlag.TextWordWrap, texto_izq)
-                painter.drawText(rect_izq_bound, Qt.TextFlag.TextWordWrap, texto_izq)
-
-                y += bounding.height() + (2 * ppm)
-
-            draw_line(4)
-
-            painter.setFont(font_title)
-            fm = painter.fontMetrics()
-            painter.drawText(QRectF(start_x, y, usable_w, float(fm.height())), Qt.AlignmentFlag.AlignRight, f"TOTAL: ${self.venta.total:.2f}")
-            y += fm.height() + (10 * ppm)
-
-            draw_text_center("ESTE COMPROBANTE NO ES VALIDO COMO FACTURA", font_small, 5)
-
-            if address or phone:
-                if address: draw_text_center(address, font_normal, 1)
-                if phone: draw_text_center(phone, font_normal, 1)
-                y += (5 * ppm)
-
-            draw_text_center("¡Lo esperamos nuevamente!", font_normal, 2)
-
-            painter.end()
+        document.print(printer)
 
     def imprimir(self):
         from PyQt6.QtPrintSupport import QPrinter
