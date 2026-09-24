@@ -287,7 +287,7 @@ class TicketPreviewDialog(QDialog):
         main_layout.addLayout(toolbar)
 
         self.visor_ticket = QTextBrowser()
-        self.visor_ticket.setStyleSheet("QTextBrowser { background-color: #ffffff; color: #000000; border: none; }")
+        self.visor_ticket.setStyleSheet("QTextBrowser { background-color: #f0f0f0; border: none; }")
         self.visor_ticket.setDocumentTitle("Ticket POS")
 
         main_layout.addWidget(self.visor_ticket)
@@ -323,7 +323,7 @@ class TicketPreviewDialog(QDialog):
 
         logo_html = ""
         if logo_path and os.path.exists(logo_path):
-            logo_html = f'<div align="center" style="text-align: center; width: 100%;"><img src="file:///{os.path.abspath(logo_path).replace(chr(92), "/")}" width="{logo_width}" style="max-width: 100%;" /></div>'
+            logo_html = f'<center><img src="file:///{os.path.abspath(logo_path).replace(chr(92), "/")}" width="{logo_width}" style="max-width: 100%;" /></center>'
 
         items_html = ""
         for item in self.detalles_final:
@@ -332,65 +332,51 @@ class TicketPreviewDialog(QDialog):
             subt = item.get('subtotal', 0.0)
             items_html += f"<tr><td align='left'>{cant}x {nombre}</td><td align='right'>${subt:.2f}</td></tr>"
 
-        html_ticket = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-        <style>
-            * {{
-                box-sizing: border-box;
-                font-family: monospace, sans-serif;
-            }}
-            body {{
-                width: 100%;
-                margin: 0;
-                padding: 0 2px;
-                font-size: {font_size}px;
-                line-height: 1.4;
-                word-wrap: break-word;
-                overflow-wrap: break-word;
-                white-space: normal;
-            }}
-            table {{ width: 100%; border-collapse: collapse; margin: 5px 0; }}
-            th, td {{ padding: 2px 0; vertical-align: top; }}
-        </style>
-        </head>
-        <body>
-            <font color="black">
-                {logo_html}
-                <div align="center" style="text-align: center;">
-                    <b>[{'X'}] {leyenda}</b><br>
-                    Cliente: {cliente_nombre}
-                </div>
-                <hr>
-                <p>Venta ID: {self.venta.id}<br>Fecha: {self.venta.fecha.strftime('%d/%m/%Y %H:%M')}</p>
-                <hr>
-                <table>
-                    {items_html}
-                </table>
-                <hr>
-                <div align="right" style="font-weight: bold; font-size: 1.1em; margin-top: 5px;">
-                    TOTAL: ${self.venta.total:.2f}
-                </div>
-                <p><b>Pago:</b> {self.venta.metodo_pago}</p>
-                <hr>
-                <div align="center">
-                    <p>{address}</p>
-                    <p>{phone}</p>
-                    <br>
-                    <p><b>¡Lo esperamos nuevamente!</b></p>
-                </div>
-            </font>
-        </body>
-        </html>
+        html_ticket_core = f"""
+        {logo_html}
+        <div align="center" style="text-align: center;">
+            <b>[{'X'}] {leyenda}</b><br>
+            Cliente: {cliente_nombre}
+        </div>
+        <hr>
+        <p>Venta ID: {self.venta.id}<br>Fecha: {self.venta.fecha.strftime('%d/%m/%Y %H:%M')}</p>
+        <hr>
+        <table style="width: 100%; border-collapse: collapse; margin: 5px 0;">
+            {items_html}
+        </table>
+        <hr>
+        <div align="right" style="font-weight: bold; font-size: 1.1em; margin-top: 5px;">
+            TOTAL: ${self.venta.total:.2f}
+        </div>
+        <p><b>Pago:</b> {self.venta.metodo_pago}</p>
+        <hr>
+        <div align="center">
+            <p>{address}</p>
+            <p>{phone}</p>
+            <br>
+            <p><b>¡Lo esperamos nuevamente!</b></p>
+        </div>
         """
 
-        self.html_ticket = html_ticket
+        # HTML Visor (con truco de contención 280px y layout centrado)
+        self.html_visual = f"""
+        <body style="background-color: #f0f0f0; margin: 0; padding: 10px; text-align: center;">
+            <div style="background-color: #ffffff; color: #000000; width: 280px; max-width: 280px; padding: 5px; margin: 0 auto; border: 1px dashed #ccc; font-family: monospace, sans-serif; font-size: {font_size}px; text-align: left; display: inline-block;">
+                {html_ticket_core}
+            </div>
+        </body>
+        """
+
+        # HTML Impresión Pura (sin bordes ni márgenes)
+        self.html_impresion = f"""
+        <body style="background-color: #ffffff; color: #000000; margin: 0; padding: 0; font-family: monospace, sans-serif; font-size: {font_size}px;">
+            {html_ticket_core}
+        </body>
+        """
 
         documento = self.visor_ticket.document()
         documento.setDocumentMargin(0)
-        documento.setDefaultStyleSheet("body { color: black; font-family: monospace; font-size: 12px; }")
-        self.visor_ticket.setHtml(self.html_ticket)
+        self.visor_ticket.setHtml(self.html_visual)
 
     def imprimir(self):
         self._ejecutar_impresion()
@@ -410,7 +396,7 @@ class TicketPreviewDialog(QDialog):
         doc = QTextDocument()
         doc.setDocumentMargin(0)
         doc.setDefaultStyleSheet("body { color: black; font-family: monospace; font-size: 12px; }")
-        doc.setHtml(self.html_ticket)
+        doc.setHtml(self.html_impresion)
 
         w_mm = float(self.settings.value("width", 58.0))
         doc.setTextWidth((w_mm / 25.4) * 96)
