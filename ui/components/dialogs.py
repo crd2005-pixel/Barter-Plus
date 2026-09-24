@@ -333,11 +333,11 @@ class TicketPreviewDialog(QDialog):
         if not cliente_nombre: cliente_nombre = "Consumidor Final"
 
         margins = QMarginsF(margin_x, margin_y, margin_x, margin_y)
-        printer.setPageMargins(margins, QPageLayout.Unit.Millimeter)
+        # We will override this margin at the end, but kept for context if needed
 
         logo_html = ""
         if logo_path and os.path.exists(logo_path):
-            logo_html = f'<div align="center"><img src="file:///{os.path.abspath(logo_path).replace(chr(92), "/")}" width="{logo_width}"></div>'
+            logo_html = f'<center><img src="file:///{os.path.abspath(logo_path).replace(chr(92), "/")}" width="{logo_width}"></center>'
 
         items_html = ""
         for item in self.detalles_final:
@@ -400,6 +400,7 @@ class TicketPreviewDialog(QDialog):
         """
 
         document = QTextDocument()
+        document.setDocumentMargin(0)
         document.setDefaultStyleSheet("body { color: #000000; background-color: #ffffff; } p, table, th, td, div { color: #000000; }")
 
         # 1. Asignar HTML
@@ -414,7 +415,7 @@ class TicketPreviewDialog(QDialog):
         alto_mm = (alto_puntos / 96) * 25.4
 
         # 4. Forzar el tamaño de hoja personalizado (Rollo Continuo)
-        tamanio_hoja = QPageSize(QSizeF(w_mm, alto_mm + 10.0), QPageSize.Unit.Millimeter)
+        tamanio_hoja = QPageSize(QSizeF(w_mm, alto_mm + 5.0), QPageSize.Unit.Millimeter)
         printer.setPageSize(tamanio_hoja)
 
         # Márgenes en cero físicos (ya manejados por el HTML)
