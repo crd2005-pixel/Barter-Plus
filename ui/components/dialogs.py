@@ -337,7 +337,7 @@ class TicketPreviewDialog(QDialog):
 
         logo_html = ""
         if logo_path and os.path.exists(logo_path):
-            logo_html = f'<div align="center"><img src="file:///{os.path.abspath(logo_path).replace(chr(92), "/")}" width="{logo_width}px"></div>'
+            logo_html = f'<div align="center"><img src="file:///{os.path.abspath(logo_path).replace(chr(92), "/")}" width="{logo_width}"></div>'
 
         items_html = ""
         for item in self.detalles_final:
@@ -401,21 +401,25 @@ class TicketPreviewDialog(QDialog):
 
         document = QTextDocument()
         document.setDefaultStyleSheet("body { color: #000000; background-color: #ffffff; } p, table, th, td, div { color: #000000; }")
+
+        # 1. Asignar HTML
         document.setHtml(html_ticket)
 
+        # 2. Calcular ancho en puntos (aprox) para forzar el flujo del texto
+        ancho_puntos = (w_mm / 25.4) * 96
+        document.setTextWidth(ancho_puntos)
+
+        # 3. Extraer el alto exacto que ocupó el texto
+        alto_puntos = document.size().height()
+        alto_mm = (alto_puntos / 96) * 25.4
+
+        # 4. Forzar el tamaño de hoja personalizado (Rollo Continuo)
+        tamanio_hoja = QPageSize(QSizeF(w_mm, alto_mm + 10.0), QPageSize.Unit.Millimeter)
+        printer.setPageSize(tamanio_hoja)
+
+        # Márgenes en cero físicos (ya manejados por el HTML)
         printer.setFullPage(True)
-        document.setTextWidth(printer.pageLayout().paintRectPixels(printer.resolution()).width())
-
-        doc_height_px = document.size().height()
-        dpi = printer.resolution()
-        alto_total_mm = (doc_height_px / dpi) * 25.4 + margin_y * 2
-
-        if alto_total_mm < 50.0: alto_total_mm = 50.0
-        if alto_total_mm > 1000.0: alto_total_mm = 1000.0
-
-        size = QPageSize(QSizeF(w_mm, alto_total_mm), QPageSize.Unit.Millimeter, "", QPageSize.SizeMatchPolicy.ExactMatch)
-        printer.setPageSize(size)
-        printer.setPageMargins(margins, QPageLayout.Unit.Millimeter)
+        printer.setPageMargins(QMarginsF(0.0, 0.0, 0.0, 0.0), QPageLayout.Unit.Millimeter)
 
         document.print(printer)
 
