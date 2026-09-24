@@ -417,15 +417,17 @@ class TicketPreviewDialog(QDialog):
                 nonlocal y
                 painter.setFont(font)
                 fm = painter.fontMetrics()
-                painter.drawText(QRectF(start_x, y, usable_w, float(fm.height())), Qt.AlignmentFlag.AlignCenter, text)
-                y += fm.height() + (advance_padding_mm * ppm)
+                rect = fm.boundingRect(int(start_x), int(y), int(usable_w), 5000, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, text)
+                painter.drawText(rect, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, text)
+                y += rect.height() + (advance_padding_mm * ppm)
 
             def draw_text_left(text, font, advance_padding_mm=2):
                 nonlocal y
                 painter.setFont(font)
                 fm = painter.fontMetrics()
-                painter.drawText(QRectF(start_x, y, usable_w, float(fm.height())), Qt.AlignmentFlag.AlignLeft, text)
-                y += fm.height() + (advance_padding_mm * ppm)
+                rect = fm.boundingRect(int(start_x), int(y), int(usable_w), 5000, Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, text)
+                painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, text)
+                y += rect.height() + (advance_padding_mm * ppm)
 
             def draw_line(advance_padding_mm=4):
                 nonlocal y
@@ -483,20 +485,23 @@ class TicketPreviewDialog(QDialog):
             painter.end()
 
     def imprimir(self):
-        from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
+        from PyQt6.QtPrintSupport import QPrinter
         from PyQt6.QtWidgets import QMessageBox
-        print_job = QPrinter(QPrinter.PrinterMode.ScreenResolution)
+
+        print_job = QPrinter(QPrinter.PrinterMode.HighResolution)
         print_job.setOutputFormat(QPrinter.OutputFormat.NativeFormat)
-        printer_name = self.settings.value("printer_name", "")
+
+        # Obtener y forzar nombre de impresora configurada directamente
+        printer_name = self.settings.value("printer_name", "POS-80")
         if printer_name:
             print_job.setPrinterName(printer_name)
 
-        dlg = QPrintDialog(print_job, self)
-        if dlg.exec() == int(QDialog.DialogCode.Accepted):
-            self.settings.setValue("printer_name", print_job.printerName())
-            self.paint_preview(print_job)
-            QMessageBox.information(self, "Impresión", "Ticket enviado a la impresora.")
-            self.accept()
+        # Imprimir de forma silenciosa
+        self.paint_preview(print_job)
+
+        # Enviar aviso temporal de finalización para la interfaz sin bloquear con prompts extras (sólo informativo)
+        QMessageBox.information(self, "Impresión", f"Enviando ticket a {printer_name}...")
+        self.accept()
 
 class DetalleVentaDialog(QDialog):
     def __init__(self, venta_id, parent=None, es_presupuesto=False):
