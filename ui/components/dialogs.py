@@ -323,7 +323,7 @@ class TicketPreviewDialog(QDialog):
 
         logo_html = ""
         if logo_path and os.path.exists(logo_path):
-            logo_html = f'<center><img src="file:///{os.path.abspath(logo_path).replace(chr(92), "/")}" width="{logo_width}" style="max-width: 100%;" /></center>'
+            logo_html = f'<center><img src="file:///{os.path.abspath(logo_path).replace(chr(92), "/")}" width="{logo_width}"></center>'
 
         items_html = ""
         for item in self.detalles_final:
@@ -334,10 +334,11 @@ class TicketPreviewDialog(QDialog):
 
         html_ticket_core = f"""
         {logo_html}
-        <div align="center" style="text-align: center;">
+        <br>
+        <center>
             <b>[{'X'}] {leyenda}</b><br>
             Cliente: {cliente_nombre}
-        </div>
+        </center>
         <hr>
         <p>Venta ID: {self.venta.id}<br>Fecha: {self.venta.fecha.strftime('%d/%m/%Y %H:%M')}</p>
         <hr>
@@ -350,28 +351,32 @@ class TicketPreviewDialog(QDialog):
         </div>
         <p><b>Pago:</b> {self.venta.metodo_pago}</p>
         <hr>
-        <div align="center">
+        <center>
             <p>{address}</p>
             <p>{phone}</p>
             <br>
-            <p><b>¡Lo esperamos nuevamente!</b></p>
-        </div>
+            <b>¡Lo esperamos nuevamente!</b>
+        </center>
         """
 
         # HTML Visor (con truco de contención 280px y layout centrado)
         self.html_visual = f"""
+        <html>
         <body style="background-color: #f0f0f0; margin: 0; padding: 10px; text-align: center;">
             <div style="background-color: #ffffff; color: #000000; width: 280px; max-width: 280px; padding: 5px; margin: 0 auto; border: 1px dashed #ccc; font-family: monospace, sans-serif; font-size: {font_size}px; text-align: left; display: inline-block;">
                 {html_ticket_core}
             </div>
         </body>
+        </html>
         """
 
-        # HTML Impresión Pura (sin bordes ni márgenes)
+        # HTML Impresión Pura (sin bordes ni flexbox)
         self.html_impresion = f"""
+        <html>
         <body style="background-color: #ffffff; color: #000000; margin: 0; padding: 0; font-family: monospace, sans-serif; font-size: {font_size}px;">
             {html_ticket_core}
         </body>
+        </html>
         """
 
         documento = self.visor_ticket.document()
@@ -385,8 +390,10 @@ class TicketPreviewDialog(QDialog):
         from PyQt6.QtPrintSupport import QPrinter
         from PyQt6.QtGui import QPageSize, QPageLayout, QTextDocument
         from PyQt6.QtCore import QSizeF, QMarginsF
+        from PyQt6.QtWidgets import QMessageBox
 
-        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        # CRÍTICO: ScreenResolution para evitar microscópicos en térmicas
+        printer = QPrinter(QPrinter.PrinterMode.ScreenResolution)
         printer.setOutputFormat(QPrinter.OutputFormat.NativeFormat)
 
         printer_name = self.settings.value("printer_name", "POS-80")
@@ -395,21 +402,27 @@ class TicketPreviewDialog(QDialog):
 
         doc = QTextDocument()
         doc.setDocumentMargin(0)
-        doc.setDefaultStyleSheet("body { color: black; font-family: monospace; font-size: 12px; }")
         doc.setHtml(self.html_impresion)
 
-        w_mm = float(self.settings.value("width", 58.0))
-        doc.setTextWidth((w_mm / 25.4) * 96)
+        # 1. Configurar ancho
+        ancho_mm = float(self.settings.value("width", 58.0))
+        ancho_puntos = (ancho_mm / 25.4) * 96
+        doc.setTextWidth(ancho_puntos)
 
-        alto_mm = (doc.size().height() / 96) * 25.4
+        # 2. Calcular alto
+        alto_puntos = doc.size().height()
+        alto_mm = (alto_puntos / 96) * 25.4
 
-        tamanio = QPageSize(QSizeF(w_mm, alto_mm + 5.0), QPageSize.Unit.Millimeter)
+        # 3. Aplicar al QPrinter
+        tamanio = QPageSize(QSizeF(ancho_mm, alto_mm + 15), QPageSize.Unit.Millimeter)
         printer.setPageSize(tamanio)
-        printer.setPageMargins(QMarginsF(0.0, 0.0, 0.0, 0.0), QPageLayout.Unit.Millimeter)
+        printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
         printer.setFullPage(True)
 
+        # 4. MATAR PAGINACIÓN DEL DOCUMENTO (CRÍTICO)
+        doc.setPageSize(QSizeF(ancho_puntos, alto_puntos + 50))
+
         doc.print(printer)
-        self.accept()
 
         # Enviar aviso temporal de finalización para la interfaz sin bloquear con prompts extras (sólo informativo)
         QMessageBox.information(self, "Impresión", f"Enviando ticket a {printer_name}...")
