@@ -686,19 +686,34 @@ class EstadoCuentaProveedorTab(QWidget):
         hoy = dt.datetime.utcnow().date()
 
         for row, m in enumerate(movs):
-            self.table.setItem(row, 0, QTableWidgetItem(m.fecha.strftime("%Y-%m-%d")))
-            self.table.setItem(row, 1, QTableWidgetItem(m.concepto))
-            self.table.setItem(row, 2, QTableWidgetItem(f"${m.debe:.2f}"))
-            self.table.setItem(row, 3, QTableWidgetItem(f"${m.haber:.2f}"))
-            self.table.setItem(row, 4, QTableWidgetItem(f"${m.saldo:.2f}"))
+            fecha = m.get('fecha')
+            if isinstance(fecha, str):
+                fecha_str = fecha
+            else:
+                fecha_str = fecha.strftime("%Y-%m-%d") if fecha else ""
+
+            self.table.setItem(row, 0, QTableWidgetItem(fecha_str))
+            self.table.setItem(row, 1, QTableWidgetItem(m.get('concepto', '')))
+            self.table.setItem(row, 2, QTableWidgetItem(f"${m.get('debe', 0.0):.2f}"))
+            self.table.setItem(row, 3, QTableWidgetItem(f"${m.get('haber', 0.0):.2f}"))
+            self.table.setItem(row, 4, QTableWidgetItem(f"${m.get('saldo', 0.0):.2f}"))
 
             i_venc = QTableWidgetItem("-")
-            if m.fecha_vencimiento:
-                venc_date = m.fecha_vencimiento.date()
-                i_venc.setText(venc_date.strftime("%Y-%m-%d"))
+            fecha_vencimiento = m.get('fecha_vencimiento')
+            if fecha_vencimiento:
+                if isinstance(fecha_vencimiento, str):
+                    try:
+                        venc_date = dt.datetime.strptime(fecha_vencimiento, "%Y-%m-%d").date()
+                    except ValueError:
+                        # Fallback for full datetime string formats
+                        venc_date = dt.datetime.strptime(fecha_vencimiento[:10], "%Y-%m-%d").date()
+                    i_venc.setText(fecha_vencimiento[:10])
+                else:
+                    venc_date = fecha_vencimiento.date() if hasattr(fecha_vencimiento, 'date') else fecha_vencimiento
+                    i_venc.setText(venc_date.strftime("%Y-%m-%d"))
 
                 # Reglas visuales (Semáforo)
-                if m.debe == 0 and m.haber > 0: # Es una deuda sin cancelar en su propia linea (aprox)
+                if m.get('debe', 0) == 0 and m.get('haber', 0) > 0: # Es una deuda sin cancelar en su propia linea (aprox)
                     dias_restantes = (venc_date - hoy).days
                     if dias_restantes < 0:
                         for c in range(6): self.table.item(row, c).setBackground(QBrush(QColor(74, 28, 28))) # Rojo Oscuro
@@ -708,7 +723,7 @@ class EstadoCuentaProveedorTab(QWidget):
                         for c in range(6): self.table.item(row, c).setForeground(Qt.GlobalColor.white)
 
             self.table.setItem(row, 5, i_venc)
-            saldo_actual = m.saldo
+            saldo_actual = m.get('saldo', 0.0)
 
         self.lbl_saldo.setText(f"Deuda Total: ${saldo_actual:.2f}")
         if saldo_actual > 0:
