@@ -657,7 +657,33 @@ class EstadoCuentaProveedorTab(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.itemDoubleClicked.connect(self._ver_detalles_movimiento)
         layout.addWidget(self.table)
+
+    def _ver_detalles_movimiento(self, item):
+        row = item.row()
+        item_0 = self.table.item(row, 0)
+        if not item_0: return
+        datos = item_0.data(Qt.ItemDataRole.UserRole)
+        if not datos: return
+
+        fecha_str = self.table.item(row, 0).text()
+
+        texto_info = f"<b>Fecha:</b> {fecha_str}<br>"
+        texto_info += f"<b>Concepto/Observaciones:</b> {datos.get('concepto', '')}<br><br>"
+        texto_info += f"<b>Debe (Pago que le hicimos):</b> ${datos.get('debe', 0.0):.2f}<br>"
+        texto_info += f"<b>Haber (Factura que nos hizo):</b> ${datos.get('haber', 0.0):.2f}<br>"
+        texto_info += f"<b>Saldo Resultante:</b> ${datos.get('saldo', 0.0):.2f}<br>"
+
+        venc = datos.get('fecha_vencimiento')
+        if venc:
+            texto_info += f"<br><b>Vencimiento:</b> {venc}"
+
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Detalles del Movimiento")
+        msg.setText(texto_info)
+        msg.setTextFormat(Qt.TextFormat.RichText)
+        msg.exec()
 
     def cargar_proveedores(self):
         from database.conexion import get_session
@@ -692,7 +718,10 @@ class EstadoCuentaProveedorTab(QWidget):
             else:
                 fecha_str = fecha.strftime("%Y-%m-%d") if fecha else ""
 
-            self.table.setItem(row, 0, QTableWidgetItem(fecha_str))
+            item_fecha = QTableWidgetItem(fecha_str)
+            item_fecha.setData(Qt.ItemDataRole.UserRole, m)
+
+            self.table.setItem(row, 0, item_fecha)
             self.table.setItem(row, 1, QTableWidgetItem(m.get('concepto', '')))
             self.table.setItem(row, 2, QTableWidgetItem(f"${m.get('debe', 0.0):.2f}"))
             self.table.setItem(row, 3, QTableWidgetItem(f"${m.get('haber', 0.0):.2f}"))
