@@ -12,6 +12,20 @@ class GastosView(QWidget):
         self.setup_ui()
         self.cargar_datos()
 
+    def _exportar_pdf(self):
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from utils.export_utils import ExportUtils
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Guardar Reporte PDF", "Reporte_Gastos.pdf", "Archivos PDF (*.pdf)"
+        )
+        if filepath:
+            try:
+                ExportUtils.exportar_tabla_a_pdf(self.table, "Reporte de Egresos/Gastos - Barter Plus", filepath)
+                QMessageBox.information(self, "Éxito", "PDF exportado correctamente.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Fallo al exportar: {str(e)}")
+
     def setup_ui(self):
         layout = QVBoxLayout(self)
 
