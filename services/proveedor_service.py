@@ -84,13 +84,18 @@ class ProveedorService:
             return ultimo_mov.saldo if ultimo_mov else 0.0
 
     @staticmethod
-    def registrar_pago(proveedor_id: int, monto: float, metodo: str = "Efectivo", origen_caja: bool = True) -> ProveedorCuentaCorriente:
+    def registrar_pago(proveedor_id: int, datos_pago: dict) -> ProveedorCuentaCorriente:
         """
         Registra un pago al proveedor (Debe) reduciendo nuestro saldo (deuda).
-        Opcionalmente extrae dinero de la caja activa.
+        Impacta dinámicamente en Caja, Cheques o Asientos según el método.
         """
         with get_session() as session:
             try:
+                metodo = datos_pago["metodo"]
+                monto = datos_pago["monto"]
+                cheque_id = datos_pago["cheque_id"]
+                observaciones = datos_pago["observaciones"]
+
                 ultimo_mov = session.query(ProveedorCuentaCorriente)\
                     .filter_by(proveedor_id=proveedor_id)\
                     .order_by(ProveedorCuentaCorriente.id.desc())\
@@ -104,40 +109,71 @@ class ProveedorService:
 
                 nuevo_saldo = saldo_anterior - monto
 
+                # Definir concepto basado en observaciones
+                concepto_cc = f"Pago a Proveedor ({metodo})"
+                if metodo == "Otros (Canje/Baterías)" and observaciones:
+                    concepto_cc = f"Pago Otros: {observaciones}"
+                elif observaciones:
+                    concepto_cc += f" - {observaciones}"
+
+                # Paso A: Registrar CC Proveedor (Reducir Deuda)
                 mov_cc = ProveedorCuentaCorriente(
                     proveedor_id=proveedor_id,
-                    concepto=f"Pago a Proveedor ({metodo})",
+                    concepto=concepto_cc,
                     debe=monto,
                     haber=0.0,
                     saldo=nuevo_saldo
                 )
                 session.add(mov_cc)
 
-                if origen_caja:
-                    if metodo == "Transferencia":
-                        from database.models.contabilidad import AsientoDiario
-                        import datetime as dt
-                        asiento = AsientoDiario(
-                            fecha=dt.datetime.utcnow(),
-                            cuenta="Cuenta Bancaria",
-                            debe=0.0,
-                            haber=monto,
-                            descripcion=f"Pago Proveedor Transferencia #{proveedor_id}"
-                        )
-                        session.add(asiento)
-                    else:
-                        caja_abierta = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
-                        if not caja_abierta:
-                            raise ValueError("No hay una caja abierta para extraer el pago.")
+                # Paso B: Impactar Activos (Caja/Bancos/Cheques)
+                if metodo == "Efectivo":
+                    caja_abierta = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
+                    if not caja_abierta:
+                        raise ValueError("No hay una caja abierta para extraer el pago en efectivo.")
+                    mov_caja = MovimientoCaja(
+                        caja_id=caja_abierta.id,
+                        tipo="Egreso",
+                        concepto=f"Pago Proveedor #{proveedor_id}",
+                        monto=monto,
+                        metodo="Efectivo"
+                    )
+                    session.add(mov_caja)
+                elif metodo == "Transferencia":
+                    caja_abierta = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
+                    if not caja_abierta:
+                        raise ValueError("No hay una caja abierta para atar la transferencia.")
+                    mov_caja = MovimientoCaja(
+                        caja_id=caja_abierta.id,
+                        tipo="Egreso",
+                        concepto=f"Pago Proveedor #{proveedor_id}",
+                        monto=monto,
+                        metodo="Transferencia"
+                    )
+                    session.add(mov_caja)
 
-                        mov_caja = MovimientoCaja(
-                            caja_id=caja_abierta.id,
-                            tipo="Egreso",
-                            concepto=f"Pago Proveedor #{proveedor_id} - CC",
-                            monto=monto,
-                            metodo=metodo
-                        )
-                        session.add(mov_caja)
+                    from database.models.contabilidad import AsientoDiario
+                    import datetime as dt
+                    asiento = AsientoDiario(
+                        fecha=dt.datetime.utcnow(),
+                        cuenta="Cuenta Bancaria",
+                        debe=0.0,
+                        haber=monto,
+                        descripcion=f"Egreso Pago Proveedor #{proveedor_id}"
+                    )
+                    session.add(asiento)
+                elif metodo == "Cheque de Terceros":
+                    from database.models.cheques import Cheque
+                    if not cheque_id:
+                        raise ValueError("ID de cheque no proporcionado.")
+                    cheque = session.query(Cheque).get(cheque_id)
+                    if not cheque:
+                        raise ValueError("El cheque no existe en el sistema.")
+                    if cheque.estado != "Pendiente":
+                        raise ValueError(f"El cheque no se encuentra disponible (Estado actual: {cheque.estado}).")
+
+                    # Consumir el cheque
+                    cheque.estado = f"Entregado a Proveedor #{proveedor_id}"
 
                 session.commit()
                 session.refresh(mov_cc)

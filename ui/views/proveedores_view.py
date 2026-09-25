@@ -729,11 +729,15 @@ class EstadoCuentaProveedorTab(QWidget):
             QMessageBox.information(self, "Aviso", "No se registra deuda con este proveedor.")
             return
 
-        monto, ok = QInputDialog.getDouble(self, "Registrar Pago", f"Deuda actual: ${deuda:.2f}\n\nMonto a Pagar:", deuda, 0, deuda, 2)
-        if ok and monto > 0:
+        from ui.components.dialogs import PagoProveedorDialog
+        from PyQt6.QtWidgets import QDialog
+
+        dialog = PagoProveedorDialog(deuda, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            datos_pago = dialog.get_datos()
             try:
-                ProveedorService.registrar_pago(prov_id, monto)
-                QMessageBox.information(self, "Éxito", f"Pago de ${monto:.2f} registrado. Se descontó de la Caja Activa.")
+                ProveedorService.registrar_pago(prov_id, datos_pago)
+                QMessageBox.information(self, "Éxito", f"Pago de ${datos_pago['monto']:.2f} registrado exitosamente.")
                 self.cargar_datos()
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Fallo al registrar pago:\n{e}")

@@ -2,6 +2,7 @@ from PyQt6.QtWidgets import QTextBrowser
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QLineEdit, QCheckBox, QPushButton, QMessageBox, QHBoxLayout, QLabel, QDoubleSpinBox, QComboBox
 )
+from PyQt6.QtCore import Qt
 from services.cliente_service import ClienteService
 
 class DeclaracionCiegaDialog(QDialog):
@@ -95,6 +96,129 @@ class EgresoCajaDialog(QDialog):
             "metodo": self.combo_metodo.currentText(),
             "concepto": self.input_concepto.text().strip(),
             "monto": self.spin_monto.value()
+        }
+
+class PagoProveedorDialog(QDialog):
+    def __init__(self, deuda_total, parent=None):
+        super().__init__(parent)
+        self.deuda_total = deuda_total
+        self.setWindowTitle("Registrar Pago a Proveedor")
+        self.setMinimumWidth(400)
+        self.cheques_disponibles = []
+        self.setup_ui()
+        self.cargar_cheques()
+
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        lbl_deuda = QLabel(f"Deuda Total: ${self.deuda_total:.2f}")
+        lbl_deuda.setStyleSheet("font-weight: bold; font-size: 16px; color: #c0392b;")
+        layout.addWidget(lbl_deuda)
+
+        self.combo_metodo = QComboBox()
+        self.combo_metodo.addItems(["Efectivo", "Transferencia", "Cheque de Terceros", "Otros (Canje/Baterías)"])
+        self.combo_metodo.currentTextChanged.connect(self.on_metodo_changed)
+
+        self.combo_cheques = QComboBox()
+        self.combo_cheques.setVisible(False)
+        self.combo_cheques.currentIndexChanged.connect(self.on_cheque_selected)
+
+        self.spin_monto = QDoubleSpinBox()
+        self.spin_monto.setMaximum(99999999.99)
+        self.spin_monto.setDecimals(2)
+        self.spin_monto.setPrefix("$ ")
+        self.spin_monto.setValue(self.deuda_total)
+
+        self.txt_observaciones = QLineEdit()
+        self.txt_observaciones.setPlaceholderText("Obligatorio para pagos 'Otros'")
+
+        form.addRow("Método de Pago:", self.combo_metodo)
+        form.addRow("Seleccionar Cheque:", self.combo_cheques)
+        form.addRow("Monto a Pagar:", self.spin_monto)
+        form.addRow("Observaciones:", self.txt_observaciones)
+
+        layout.addLayout(form)
+
+        btn_layout = QHBoxLayout()
+        self.btn_guardar = QPushButton("Registrar Pago")
+        self.btn_guardar.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; padding: 5px;")
+        self.btn_guardar.clicked.connect(self.validar_guardar)
+
+        self.btn_cancelar = QPushButton("Cancelar")
+        self.btn_cancelar.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold; padding: 5px;")
+        self.btn_cancelar.clicked.connect(self.reject)
+
+        btn_layout.addWidget(self.btn_guardar)
+        btn_layout.addWidget(self.btn_cancelar)
+        layout.addLayout(btn_layout)
+
+    def cargar_cheques(self):
+        from database.conexion import get_session
+        from database.models.cheques import Cheque
+        from sqlalchemy import select
+
+        with get_session() as session:
+            cheques = session.scalars(select(Cheque).where(Cheque.estado == "Pendiente")).all()
+            for ch in cheques:
+                self.cheques_disponibles.append({
+                    "id": ch.id,
+                    "banco": ch.banco,
+                    "numero": ch.numero_cheque,
+                    "monto": ch.monto
+                })
+
+        for ch in self.cheques_disponibles:
+            self.combo_cheques.addItem(f"{ch['banco']} - Nº {ch['numero']} - ${ch['monto']:.2f}", ch['id'])
+
+    def on_metodo_changed(self, text):
+        if text == "Cheque de Terceros":
+            self.combo_cheques.setVisible(True)
+            self.spin_monto.setEnabled(False)
+            self.on_cheque_selected()
+        else:
+            self.combo_cheques.setVisible(False)
+            self.spin_monto.setEnabled(True)
+
+    def on_cheque_selected(self):
+        if self.combo_metodo.currentText() == "Cheque de Terceros":
+            idx = self.combo_cheques.currentIndex()
+            if idx >= 0 and idx < len(self.cheques_disponibles):
+                ch = self.cheques_disponibles[idx]
+                self.spin_monto.setValue(ch['monto'])
+            else:
+                self.spin_monto.setValue(0.0)
+
+    def validar_guardar(self):
+        metodo = self.combo_metodo.currentText()
+        monto = self.spin_monto.value()
+        obs = self.txt_observaciones.text().strip()
+
+        if monto <= 0:
+            QMessageBox.warning(self, "Error", "El monto debe ser mayor a 0.")
+            return
+
+        if metodo == "Cheque de Terceros" and self.combo_cheques.count() == 0:
+            QMessageBox.warning(self, "Error", "No hay cheques en cartera disponibles.")
+            return
+
+        if metodo == "Otros (Canje/Baterías)" and not obs:
+            QMessageBox.warning(self, "Error", "Las observaciones son obligatorias para el método 'Otros'.")
+            return
+
+        self.accept()
+
+    def get_datos(self):
+        metodo = self.combo_metodo.currentText()
+        cheque_id = None
+        if metodo == "Cheque de Terceros" and self.combo_cheques.count() > 0:
+            cheque_id = self.combo_cheques.currentData()
+
+        return {
+            "metodo": metodo,
+            "monto": self.spin_monto.value(),
+            "cheque_id": cheque_id,
+            "observaciones": self.txt_observaciones.text().strip()
         }
 
 class FastClientDialog(QDialog):
