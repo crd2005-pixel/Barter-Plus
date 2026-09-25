@@ -98,9 +98,13 @@ class VentasTab(QWidget):
         self.btn_cobrar_cc = QPushButton("Cobrar Cta. Cte.")
         self.btn_cobrar_cc.setStyleSheet("padding: 10px; font-weight: bold; background-color: #d35400; color: white;")
 
+        self.btn_egreso = QPushButton("Egreso de Caja")
+        self.btn_egreso.setStyleSheet("padding: 10px; font-weight: bold; background-color: #7f8c8d; color: #c0392b; border: 2px solid #c0392b;")
+
         self.fila_controles_layout.addWidget(self.btn_cobrar_cc)
         self.fila_controles_layout.addWidget(self.btn_sugerir_pedido)
         self.fila_controles_layout.addWidget(self.btn_consulta_rapida)
+        self.fila_controles_layout.addWidget(self.btn_egreso)
 
         # Ensamblaje
         self.layout_cabecera.addLayout(self.fila_cliente_layout)
@@ -225,6 +229,7 @@ class VentasTab(QWidget):
         self.btn_nuevo_cliente.clicked.connect(self.crear_cliente_rapido)
         self.btn_cobrar_cc.clicked.connect(self.abrir_cobro_cc)
         self.btn_buscar_presupuesto.clicked.connect(self._abrir_recuperar_dialog)
+        self.btn_egreso.clicked.connect(self._abrir_egreso_caja)
 
         # --- ATAJOS DE TECLADO ---
         shortcut_f12 = QShortcut(QKeySequence("F12"), self)
@@ -497,6 +502,24 @@ class VentasTab(QWidget):
         self.txt_codigo.clear()
         self.txt_cantidad.setText("1")
         self.txt_codigo.setFocus()
+
+    def _abrir_egreso_caja(self):
+        from ui.components.dialogs import EgresoCajaDialog
+        from services.caja_service import CajaService
+        from PyQt6.QtWidgets import QDialog
+
+        dialog = EgresoCajaDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            datos = dialog.get_datos()
+            exito, msj = CajaService.registrar_egreso(
+                monto=datos["monto"],
+                concepto=datos["concepto"],
+                metodo=datos["metodo"]
+            )
+            if exito:
+                QMessageBox.information(self, "Éxito", "Egreso registrado correctamente.")
+            else:
+                QMessageBox.critical(self, "Error", msj)
 
     def agregar_item_manual(self):
         dialog = ItemManualDialog(self)

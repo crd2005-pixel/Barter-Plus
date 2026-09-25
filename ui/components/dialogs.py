@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import QTextBrowser
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QCheckBox, QPushButton, QMessageBox, QHBoxLayout, QLabel, QDoubleSpinBox
+    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QCheckBox, QPushButton, QMessageBox, QHBoxLayout, QLabel, QDoubleSpinBox, QComboBox
 )
 from services.cliente_service import ClienteService
 
@@ -37,6 +37,65 @@ class DeclaracionCiegaDialog(QDialog):
     def get_monto(self):
         return self.spin_monto.value()
 
+
+class EgresoCajaDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Registrar Egreso de Caja")
+        self.setMinimumWidth(350)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.combo_metodo = QComboBox()
+        self.combo_metodo.addItems(["Efectivo", "Transferencia"])
+
+        self.input_concepto = QLineEdit()
+        self.input_concepto.setPlaceholderText("Ej: Pago proveedor, insumos...")
+
+        self.spin_monto = QDoubleSpinBox()
+        self.spin_monto.setMaximum(9999999.99)
+        self.spin_monto.setDecimals(2)
+        self.spin_monto.setPrefix("$ ")
+
+        form.addRow("Método:", self.combo_metodo)
+        form.addRow("Concepto:", self.input_concepto)
+        form.addRow("Monto:", self.spin_monto)
+
+        layout.addLayout(form)
+
+        btn_layout = QHBoxLayout()
+        self.btn_guardar = QPushButton("Guardar Egreso")
+        self.btn_guardar.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; padding: 5px;")
+        self.btn_cancelar = QPushButton("Cancelar")
+        self.btn_cancelar.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold; padding: 5px;")
+
+        self.btn_guardar.clicked.connect(self.validar_guardar)
+        self.btn_cancelar.clicked.connect(self.reject)
+
+        btn_layout.addWidget(self.btn_guardar)
+        btn_layout.addWidget(self.btn_cancelar)
+        layout.addLayout(btn_layout)
+
+    def validar_guardar(self):
+        monto = self.spin_monto.value()
+        concepto = self.input_concepto.text().strip()
+
+        if monto <= 0:
+            QMessageBox.warning(self, "Error", "El monto debe ser mayor a 0.")
+            return
+        if not concepto:
+            QMessageBox.warning(self, "Error", "El concepto no puede estar vacío.")
+            return
+
+        self.accept()
+
+    def get_datos(self):
+        return {
+            "metodo": self.combo_metodo.currentText(),
+            "concepto": self.input_concepto.text().strip(),
+            "monto": self.spin_monto.value()
+        }
 
 class FastClientDialog(QDialog):
     def __init__(self, parent=None):
