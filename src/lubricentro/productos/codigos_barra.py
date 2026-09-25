@@ -828,6 +828,7 @@ class CodigosBarraTab(QWidget):
 
 
     def _abrir_config_ticket(self):
+        from ui.components.dialogs import ConfiguracionTicketDialog
         dlg = ConfiguracionTicketDialog(self)
         dlg.exec()
 
