@@ -635,6 +635,10 @@ class EstadoCuentaProveedorTab(QWidget):
         self.btn_ver = QPushButton("Ver Estado de Cuenta")
         self.btn_ver.clicked.connect(self.cargar_datos)
 
+        self.btn_exportar_pdf = QPushButton("Exportar a PDF")
+        self.btn_exportar_pdf.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold;")
+        self.btn_exportar_pdf.clicked.connect(self._exportar_pdf_cuenta)
+
         self.btn_pago = QPushButton("Registrar Pago")
         self.btn_pago.setStyleSheet("background-color: #f39c12; color: white; font-weight: bold;")
         self.btn_pago.clicked.connect(self.registrar_pago)
@@ -643,6 +647,7 @@ class EstadoCuentaProveedorTab(QWidget):
         header_lay.addWidget(self.combo_proveedor)
         header_lay.addWidget(self.btn_ver)
         header_lay.addStretch()
+        header_lay.addWidget(self.btn_exportar_pdf)
         header_lay.addWidget(self.btn_pago)
         layout.addLayout(header_lay)
 
@@ -679,11 +684,69 @@ class EstadoCuentaProveedorTab(QWidget):
         if venc:
             texto_info += f"<br><b>Vencimiento:</b> {venc}"
 
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Detalles del Movimiento")
-        msg.setText(texto_info)
-        msg.setTextFormat(Qt.TextFormat.RichText)
-        msg.exec()
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Detalles del Movimiento")
+        dlg.resize(400, 300)
+        dlg_layout = QVBoxLayout(dlg)
+
+        visor = QTextBrowser()
+        visor.setHtml(f"<h1>Detalle de Movimiento</h1><p>{texto_info}</p>")
+        dlg_layout.addWidget(visor)
+
+        btn_lay = QHBoxLayout()
+        btn_exportar_detalle = QPushButton("Exportar PDF")
+        btn_exportar_detalle.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold;")
+
+        btn_cerrar = QPushButton("Cerrar")
+        btn_cerrar.clicked.connect(dlg.accept)
+
+        def _exportar_detalle_pdf():
+            from PyQt6.QtWidgets import QFileDialog, QMessageBox
+            from PyQt6.QtPrintSupport import QPrinter
+            from PyQt6.QtGui import QTextDocument, QPageSize
+
+            filepath, _ = QFileDialog.getSaveFileName(
+                dlg, "Guardar Detalle PDF", "Detalle_Movimiento_Proveedor.pdf", "Archivos PDF (*.pdf)"
+            )
+            if filepath:
+                try:
+                    printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+                    printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+                    printer.setOutputFileName(filepath)
+                    printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+
+                    doc = QTextDocument()
+                    doc.setHtml(f"<h1>Detalle de Movimiento</h1><p>{texto_info}</p>")
+                    doc.print(printer)
+
+                    QMessageBox.information(dlg, "Éxito", "Detalle exportado correctamente.")
+                except Exception as e:
+                    QMessageBox.critical(dlg, "Error", f"Fallo al exportar detalle: {str(e)}")
+
+        btn_exportar_detalle.clicked.connect(_exportar_detalle_pdf)
+
+        btn_lay.addWidget(btn_exportar_detalle)
+        btn_lay.addWidget(btn_cerrar)
+        dlg_layout.addLayout(btn_lay)
+
+        dlg.exec()
+
+    def _exportar_pdf_cuenta(self):
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from utils.export_utils import ExportUtils
+
+        prov_nombre = self.combo_proveedor.currentText()
+        if not prov_nombre: prov_nombre = "General"
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Guardar Reporte PDF", f"Estado_de_Cuenta_{prov_nombre}.pdf", "Archivos PDF (*.pdf)"
+        )
+        if filepath:
+            try:
+                ExportUtils.exportar_tabla_a_pdf(self.table, f"Estado de Cuenta - {prov_nombre}", filepath)
+                QMessageBox.information(self, "Éxito", "El PDF se exportó correctamente.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo exportar: {str(e)}")
 
     def cargar_proveedores(self):
         from database.conexion import get_session
