@@ -101,9 +101,13 @@ class VentasTab(QWidget):
         self.btn_egreso = QPushButton("Egreso de Caja")
         self.btn_egreso.setStyleSheet("padding: 10px; font-weight: bold; background-color: #7f8c8d; color: #c0392b; border: 2px solid #c0392b;")
 
+        self.btn_equivalencias = QPushButton("Buscador Equivalencias (Web)")
+        self.btn_equivalencias.setStyleSheet("padding: 10px; font-weight: bold; background-color: #34495e; color: white;")
+
         self.fila_controles_layout.addWidget(self.btn_cobrar_cc)
         self.fila_controles_layout.addWidget(self.btn_sugerir_pedido)
         self.fila_controles_layout.addWidget(self.btn_consulta_rapida)
+        self.fila_controles_layout.addWidget(self.btn_equivalencias)
         self.fila_controles_layout.addWidget(self.btn_egreso)
 
         # Ensamblaje
@@ -230,6 +234,7 @@ class VentasTab(QWidget):
         self.btn_cobrar_cc.clicked.connect(self.abrir_cobro_cc)
         self.btn_buscar_presupuesto.clicked.connect(self._abrir_recuperar_dialog)
         self.btn_egreso.clicked.connect(self._abrir_egreso_caja)
+        self.btn_equivalencias.clicked.connect(self._abrir_buscador_equivalencias)
 
         # --- ATAJOS DE TECLADO ---
         shortcut_f12 = QShortcut(QKeySequence("F12"), self)
@@ -502,6 +507,11 @@ class VentasTab(QWidget):
         self.txt_codigo.clear()
         self.txt_cantidad.setText("1")
         self.txt_codigo.setFocus()
+
+    def _abrir_buscador_equivalencias(self):
+        from ui.components.dialogs import BuscadorEquivalenciasDialog
+        dlg = BuscadorEquivalenciasDialog(self)
+        dlg.exec()
 
     def _abrir_egreso_caja(self):
         from ui.components.dialogs import EgresoCajaDialog

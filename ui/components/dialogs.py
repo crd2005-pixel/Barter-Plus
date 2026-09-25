@@ -1,9 +1,70 @@
 from PyQt6.QtWidgets import QTextBrowser
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QCheckBox, QPushButton, QMessageBox, QHBoxLayout, QLabel, QDoubleSpinBox, QComboBox
+    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QCheckBox, QPushButton, QMessageBox, QHBoxLayout, QLabel, QDoubleSpinBox, QComboBox, QGroupBox
 )
 from PyQt6.QtCore import Qt
+import webbrowser
 from services.cliente_service import ClienteService
+
+class BuscadorEquivalenciasDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Buscador de Equivalencias a MARENO")
+        self.resize(500, 300)
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+
+        lbl_info = QLabel("Ingrese el código del filtro de otra marca (ej. Hasting, Seineca, Fram):")
+        layout.addWidget(lbl_info)
+
+        self.input_busqueda = QLineEdit()
+        self.input_busqueda.setPlaceholderText("Código a convertir...")
+        self.input_busqueda.setStyleSheet("font-size: 18px; padding: 5px;")
+        layout.addWidget(self.input_busqueda)
+
+        # Botones de Búsqueda Activa
+        self.btn_buscar_smart = QPushButton("Buscar Equivalencia en MARENO")
+        self.btn_buscar_smart.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; font-size: 16px; padding: 10px;")
+        self.btn_buscar_smart.clicked.connect(self.buscar_mareno)
+
+        self.btn_busqueda_general = QPushButton("Búsqueda Abierta (Todas las marcas)")
+        self.btn_busqueda_general.setStyleSheet("background-color: #7f8c8d; color: white; padding: 8px;")
+        self.btn_busqueda_general.clicked.connect(self.buscar_abierta)
+
+        layout.addWidget(self.btn_buscar_smart)
+        layout.addWidget(self.btn_busqueda_general)
+
+        # Catálogos Oficiales
+        group = QGroupBox("Catálogos Oficiales Rápidos")
+        lay_cat = QHBoxLayout(group)
+
+        btn_mareno = QPushButton("Catálogo Mareno")
+        btn_mareno.clicked.connect(lambda: webbrowser.open("https://mareno.com.ar/catalogo/"))
+
+        btn_fram = QPushButton("Catálogo Fram")
+        btn_fram.clicked.connect(lambda: webbrowser.open("https://www.fram.com/parts-search/"))
+
+        btn_tecneco = QPushButton("Catálogo Tecneco")
+        btn_tecneco.clicked.connect(lambda: webbrowser.open("https://www.tecneco.com/catalogo-online/"))
+
+        lay_cat.addWidget(btn_mareno)
+        lay_cat.addWidget(btn_fram)
+        lay_cat.addWidget(btn_tecneco)
+        layout.addWidget(group)
+
+    def buscar_mareno(self):
+        texto_limpio = self.input_busqueda.text().strip().replace(' ', '+')
+        if not texto_limpio: return
+        query = f"https://www.google.com/search?q=equivalencia+filtro+{texto_limpio}+a+mareno+cruzamiento"
+        webbrowser.open(query)
+
+    def buscar_abierta(self):
+        texto_limpio = self.input_busqueda.text().strip().replace(' ', '+')
+        if not texto_limpio: return
+        query = f"https://www.google.com/search?q=equivalencias+filtro+{texto_limpio}"
+        webbrowser.open(query)
 
 class DeclaracionCiegaDialog(QDialog):
     def __init__(self, parent=None):
