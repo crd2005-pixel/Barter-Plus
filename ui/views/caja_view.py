@@ -233,12 +233,36 @@ class HistorialCajaTab(QWidget):
         super().__init__()
         self.setup_ui()
 
+    def _exportar_pdf(self):
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from utils.export_utils import ExportUtils
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Guardar Reporte PDF", f"Reporte_{self.__class__.__name__}.pdf", "Archivos PDF (*.pdf)"
+        )
+        if filepath:
+            try:
+                ExportUtils.exportar_tabla_a_pdf(self.table, "Historial de Caja - Reporte Oficial", filepath)
+                QMessageBox.information(self, "Éxito", "El PDF se exportó correctamente.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo exportar: {str(e)}")
+
     def setup_ui(self):
         layout = QVBoxLayout(self)
 
+        top_layout = QHBoxLayout()
         self.btn_refresh = QPushButton("Actualizar Historial")
         self.btn_refresh.clicked.connect(self.cargar_historial)
-        layout.addWidget(self.btn_refresh)
+
+        self.btn_exportar_pdf = QPushButton("Exportar a PDF")
+        self.btn_exportar_pdf.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold;")
+        self.btn_exportar_pdf.clicked.connect(self._exportar_pdf)
+
+        top_layout.addWidget(self.btn_refresh)
+        top_layout.addStretch()
+        top_layout.addWidget(self.btn_exportar_pdf)
+
+        layout.addLayout(top_layout)
 
         self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels([

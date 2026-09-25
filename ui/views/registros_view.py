@@ -14,6 +14,17 @@ class RegistroVentasTab(QWidget):
         self.setup_ui()
         self.cargar_datos()
 
+    def _exportar_pdf_liquidez(self):
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from utils.export_utils import ExportUtils
+        filepath, _ = QFileDialog.getSaveFileName(self, "Guardar Reporte PDF", "Reporte_Liquidez.pdf", "Archivos PDF (*.pdf)")
+        if filepath:
+            try:
+                ExportUtils.exportar_tabla_a_pdf(self.table, "Liquidez y Bancos - Reporte Oficial", filepath)
+                QMessageBox.information(self, "Éxito", "El PDF se exportó correctamente.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo exportar: {str(e)}")
+
     def setup_ui(self):
         layout = QVBoxLayout(self)
 
@@ -276,9 +287,19 @@ class CuentasCorrientesTab(QWidget):
         layout.addLayout(header_lay)
 
         # Panel Resumen
+        panel_resumen_lay = QHBoxLayout()
         self.lbl_saldo = QLabel("Saldo Total Adeudado: $0.00")
         self.lbl_saldo.setStyleSheet("font-size: 24px; font-weight: bold; color: red;")
-        layout.addWidget(self.lbl_saldo)
+
+        self.btn_exportar_pdf_cc = QPushButton("Exportar a PDF")
+        self.btn_exportar_pdf_cc.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold; padding: 10px;")
+        self.btn_exportar_pdf_cc.clicked.connect(self._exportar_pdf)
+
+        panel_resumen_lay.addWidget(self.lbl_saldo)
+        panel_resumen_lay.addStretch()
+        panel_resumen_lay.addWidget(self.btn_exportar_pdf_cc)
+
+        layout.addLayout(panel_resumen_lay)
 
         # Grilla
         self.table = QTableWidget(0, 5)
@@ -339,6 +360,20 @@ class CuentasCorrientesTab(QWidget):
         else:
             self.lbl_saldo.setStyleSheet("font-size: 24px; font-weight: bold; color: green;")
 
+    def _exportar_pdf(self):
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from utils.export_utils import ExportUtils
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Guardar Reporte PDF", f"Reporte_{self.__class__.__name__}.pdf", "Archivos PDF (*.pdf)"
+        )
+        if filepath:
+            try:
+                ExportUtils.exportar_tabla_a_pdf(self.table, "Cuentas Corrientes - Reporte Oficial", filepath)
+                QMessageBox.information(self, "Éxito", "El PDF se exportó correctamente.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo exportar: {str(e)}")
+
         self.table.scrollToBottom()
 
 class ContabilidadTab(QWidget):
@@ -346,6 +381,28 @@ class ContabilidadTab(QWidget):
         super().__init__()
         self.setup_ui()
         self.cargar_datos()
+
+    def _exportar_pdf_diario(self):
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from utils.export_utils import ExportUtils
+        filepath, _ = QFileDialog.getSaveFileName(self, "Guardar Reporte PDF", "Reporte_LibroDiario.pdf", "Archivos PDF (*.pdf)")
+        if filepath:
+            try:
+                ExportUtils.exportar_tabla_a_pdf(self.tbl_diario, "Libro Diario - Reporte Oficial", filepath)
+                QMessageBox.information(self, "Éxito", "El PDF se exportó correctamente.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo exportar: {str(e)}")
+
+    def _exportar_pdf_iva(self):
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from utils.export_utils import ExportUtils
+        filepath, _ = QFileDialog.getSaveFileName(self, "Guardar Reporte PDF", "Reporte_LibroIVA.pdf", "Archivos PDF (*.pdf)")
+        if filepath:
+            try:
+                ExportUtils.exportar_tabla_a_pdf(self.tbl_iva, "Libro IVA - Reporte Oficial", filepath)
+                QMessageBox.information(self, "Éxito", "El PDF se exportó correctamente.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo exportar: {str(e)}")
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
@@ -386,7 +443,12 @@ class ContabilidadTab(QWidget):
         self.tbl_diario.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.tbl_diario.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 
+        self.btn_exportar_pdf_diario = QPushButton("Exportar a PDF")
+        self.btn_exportar_pdf_diario.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold; padding: 10px;")
+        self.btn_exportar_pdf_diario.clicked.connect(self._exportar_pdf_diario)
+
         lay_diario.addWidget(lbl_diario)
+        lay_diario.addWidget(self.btn_exportar_pdf_diario)
         lay_diario.addWidget(self.tbl_diario)
 
         # Widget Libro IVA
@@ -411,7 +473,12 @@ class ContabilidadTab(QWidget):
         self.tbl_iva.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.tbl_iva.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 
+        self.btn_exportar_pdf_iva = QPushButton("Exportar a PDF")
+        self.btn_exportar_pdf_iva.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold; padding: 10px;")
+        self.btn_exportar_pdf_iva.clicked.connect(self._exportar_pdf_iva)
+
         lay_iva.addLayout(self.panel_iva)
+        lay_iva.addWidget(self.btn_exportar_pdf_iva)
         lay_iva.addWidget(self.tbl_iva)
 
         splitter.addWidget(w_diario)
@@ -513,7 +580,17 @@ class LiquidezBancosTab(QWidget):
         # Grilla de Acreditaciones Próximas
         lbl_grilla = QLabel("Próximas Acreditaciones (Tarjetas y Cheques)")
         lbl_grilla.setStyleSheet("font-size: 16px; font-weight: bold; margin-top: 20px;")
-        layout.addWidget(lbl_grilla)
+
+        self.btn_exportar_pdf_liquidez = QPushButton("Exportar a PDF")
+        self.btn_exportar_pdf_liquidez.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold; padding: 10px;")
+        self.btn_exportar_pdf_liquidez.clicked.connect(self._exportar_pdf_liquidez)
+
+        box_grilla = QHBoxLayout()
+        box_grilla.addWidget(lbl_grilla)
+        box_grilla.addStretch()
+        box_grilla.addWidget(self.btn_exportar_pdf_liquidez)
+
+        layout.addLayout(box_grilla)
 
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(["Fecha Acreditación/Venc.", "Origen (Banco/Tarjeta)", "Cuotas/Tipo", "Monto Neto a Ingresar", "Estado"])

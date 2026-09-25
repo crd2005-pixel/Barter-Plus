@@ -82,6 +82,20 @@ class HistorialComprasDialog(QDialog):
         self.resize(800, 600)
         self.setup_ui()
 
+    def _exportar_pdf(self):
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from utils.export_utils import ExportUtils
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Guardar Reporte PDF", f"Reporte_{self.__class__.__name__}.pdf", "Archivos PDF (*.pdf)"
+        )
+        if filepath:
+            try:
+                ExportUtils.exportar_tabla_a_pdf(self.table, "Maestro de Clientes - Reporte Oficial", filepath)
+                QMessageBox.information(self, "Éxito", "El PDF se exportó correctamente.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo exportar: {str(e)}")
+
     def setup_ui(self):
         layout = QVBoxLayout(self)
 
@@ -140,9 +154,14 @@ class ClientesView(QWidget):
         self.btn_editar.setStyleSheet("background-color: #f39c12; color: white; font-weight: bold;")
         self.btn_editar.clicked.connect(self.editar_cliente)
 
+        self.btn_exportar_pdf = QPushButton("Exportar a PDF")
+        self.btn_exportar_pdf.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold;")
+        self.btn_exportar_pdf.clicked.connect(self._exportar_pdf)
+
         header_lay.addWidget(lbl_titulo)
         header_lay.addWidget(self.txt_buscar)
         header_lay.addStretch()
+        header_lay.addWidget(self.btn_exportar_pdf)
         header_lay.addWidget(self.btn_editar)
         header_lay.addWidget(self.btn_recargar)
         layout.addLayout(header_lay)
