@@ -49,9 +49,18 @@ class GastosView(QWidget):
         layout.addLayout(form_lay)
 
         # Historial del Mes
+        hist_lay = QHBoxLayout()
         lbl_historial = QLabel("Historial de Gastos del Mes Actual")
         lbl_historial.setStyleSheet("font-weight: bold; margin-top: 15px;")
-        layout.addWidget(lbl_historial)
+
+        self.btn_exportar = QPushButton("Exportar a PDF")
+        self.btn_exportar.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold; margin-top: 15px;")
+        self.btn_exportar.clicked.connect(self._exportar_pdf)
+
+        hist_lay.addWidget(lbl_historial)
+        hist_lay.addStretch()
+        hist_lay.addWidget(self.btn_exportar)
+        layout.addLayout(hist_lay)
 
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(["Fecha", "Categoría", "Origen Fondos", "Descripción", "Monto Extraído"])

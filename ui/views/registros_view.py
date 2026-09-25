@@ -14,17 +14,6 @@ class RegistroVentasTab(QWidget):
         self.setup_ui()
         self.cargar_datos()
 
-    def _exportar_pdf_liquidez(self):
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
-        from utils.export_utils import ExportUtils
-        filepath, _ = QFileDialog.getSaveFileName(self, "Guardar Reporte PDF", "Reporte_Liquidez.pdf", "Archivos PDF (*.pdf)")
-        if filepath:
-            try:
-                ExportUtils.exportar_tabla_a_pdf(self.table, "Liquidez y Bancos - Reporte Oficial", filepath)
-                QMessageBox.information(self, "Éxito", "El PDF se exportó correctamente.")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"No se pudo exportar: {str(e)}")
-
     def setup_ui(self):
         layout = QVBoxLayout(self)
 
@@ -538,6 +527,17 @@ class LiquidezBancosTab(QWidget):
         super().__init__()
         self.setup_ui()
         self.cargar_datos()
+
+    def _exportar_pdf_liquidez(self):
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from utils.export_utils import ExportUtils
+        filepath, _ = QFileDialog.getSaveFileName(self, "Guardar Reporte PDF", "Reporte_Liquidez.pdf", "Archivos PDF (*.pdf)")
+        if filepath:
+            try:
+                ExportUtils.exportar_tabla_a_pdf(self.table, "Liquidez y Bancos - Reporte Oficial", filepath)
+                QMessageBox.information(self, "Éxito", "El PDF se exportó correctamente.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo exportar: {str(e)}")
 
     def setup_ui(self):
         layout = QVBoxLayout(self)

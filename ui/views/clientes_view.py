@@ -82,20 +82,6 @@ class HistorialComprasDialog(QDialog):
         self.resize(800, 600)
         self.setup_ui()
 
-    def _exportar_pdf(self):
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
-        from utils.export_utils import ExportUtils
-
-        filepath, _ = QFileDialog.getSaveFileName(
-            self, "Guardar Reporte PDF", f"Reporte_{self.__class__.__name__}.pdf", "Archivos PDF (*.pdf)"
-        )
-        if filepath:
-            try:
-                ExportUtils.exportar_tabla_a_pdf(self.table, "Maestro de Clientes - Reporte Oficial", filepath)
-                QMessageBox.information(self, "Éxito", "El PDF se exportó correctamente.")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"No se pudo exportar: {str(e)}")
-
     def setup_ui(self):
         layout = QVBoxLayout(self)
 
@@ -134,6 +120,20 @@ class ClientesView(QWidget):
         super().__init__(parent)
         self.setup_ui()
         self.cargar_datos()
+
+    def _exportar_pdf(self):
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from utils.export_utils import ExportUtils
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Guardar Reporte PDF", f"Reporte_{self.__class__.__name__}.pdf", "Archivos PDF (*.pdf)"
+        )
+        if filepath:
+            try:
+                ExportUtils.exportar_tabla_a_pdf(self.table, "Maestro de Clientes - Reporte Oficial", filepath)
+                QMessageBox.information(self, "Éxito", "El PDF se exportó correctamente.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo exportar: {str(e)}")
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
