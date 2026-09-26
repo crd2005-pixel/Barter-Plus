@@ -18,19 +18,23 @@ class DashboardView(QWidget):
             QFrame {
                 background-color: #2c3e50;
                 border-radius: 8px;
-                padding: 8px;
-                min-height: 80px;
+                border: 1px solid #34495e;
+            }
+            QLabel {
+                color: #ecf0f1;
+                font-weight: bold;
             }
         """)
         lay = QVBoxLayout(frame)
+        lay.setContentsMargins(5, 5, 5, 5)
         lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         lbl_titulo = QLabel(titulo)
-        lbl_titulo.setStyleSheet("color: #bdc3c7; font-size: 12px;")
+        lbl_titulo.setStyleSheet("font-size: 11px;")
         lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         lbl_valor = QLabel("$ 0.00")
-        lbl_valor.setStyleSheet(f"color: {color_valor}; font-size: 24px; font-weight: bold;")
+        lbl_valor.setStyleSheet(f"color: {color_valor}; font-size: 18px; font-weight: bold;")
         lbl_valor.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         lay.addWidget(lbl_titulo)
@@ -94,7 +98,9 @@ class DashboardView(QWidget):
         lbl_1.setStyleSheet("font-weight: bold; font-size: 14px;")
         self.tbl_top_rotacion = QTableWidget(0, 3)
         self.tbl_top_rotacion.setHorizontalHeaderLabels(["Código", "Producto", "Cant. Vendida"])
+        self.tbl_top_rotacion.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.tbl_top_rotacion.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.tbl_top_rotacion.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.tbl_top_rotacion.setColumnWidth(0, 100)
         self.tbl_top_rotacion.setColumnWidth(2, 100)
         self.tbl_top_rotacion.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -109,8 +115,10 @@ class DashboardView(QWidget):
         lbl_2.setStyleSheet("font-weight: bold; font-size: 14px; color: #e67e22;")
         self.tbl_peores = QTableWidget(0, 4)
         self.tbl_peores.setHorizontalHeaderLabels(["Código", "Producto", "Stock Actual", "Cant. Vendida"])
-        self.tbl_peores.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tbl_peores.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.tbl_peores.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.tbl_peores.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.tbl_peores.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.tbl_peores.setColumnWidth(0, 100)
         self.tbl_peores.setColumnWidth(2, 80)
         self.tbl_peores.setColumnWidth(3, 80)
@@ -126,7 +134,9 @@ class DashboardView(QWidget):
         lbl_3.setStyleSheet("font-weight: bold; font-size: 14px; color: #c0392b;")
         self.tbl_deudores = QTableWidget(0, 3)
         self.tbl_deudores.setHorizontalHeaderLabels(["Cliente", "Teléfono", "Saldo Deudor"])
-        self.tbl_deudores.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tbl_deudores.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.tbl_deudores.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.tbl_deudores.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.tbl_deudores.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.tbl_deudores.setAlternatingRowColors(True)
         lay_3.addWidget(lbl_3)
@@ -139,7 +149,9 @@ class DashboardView(QWidget):
         lbl_4.setStyleSheet("font-weight: bold; font-size: 14px; color: #e74c3c;")
         self.tbl_alertas_stock = QTableWidget(0, 3)
         self.tbl_alertas_stock.setHorizontalHeaderLabels(["Producto", "Stock Actual", "Stock Mínimo"])
-        self.tbl_alertas_stock.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tbl_alertas_stock.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.tbl_alertas_stock.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.tbl_alertas_stock.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.tbl_alertas_stock.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.tbl_alertas_stock.setAlternatingRowColors(True)
         lay_4.addWidget(lbl_4)
@@ -163,6 +175,7 @@ class DashboardView(QWidget):
 
         self.txt_news = QTextBrowser()
         self.txt_news.setOpenExternalLinks(True)
+        self.txt_news.setText("Cargando información o sin conexión...")
         self.txt_news.setStyleSheet("background-color: transparent; color: white; font-size: 13px; border: 1px solid #444;")
 
         lay_news.addWidget(lbl_news)
@@ -175,11 +188,12 @@ class DashboardView(QWidget):
         # Configurar Scroll Area principal
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        container_widget = QWidget()
-        container_widget.setLayout(layout)
-        scroll_area.setWidget(container_widget)
+        self.scroll_content = QWidget()
+        self.scroll_content.setLayout(layout)
+        scroll_area.setWidget(self.scroll_content)
 
         main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(scroll_area)
 
         self._cargar_noticias()
@@ -211,11 +225,11 @@ class DashboardView(QWidget):
 
         texto_desc = f"$ {desc_data['total_dinero_descontado']:,.2f}\n({desc_data['cantidad_operaciones']} ops | {desc_data['porcentaje_sobre_ventas']:.1f}%)"
         self.lbl_descuentos.setText(texto_desc)
-        self.lbl_descuentos.setStyleSheet("color: #e67e22; font-size: 18px; font-weight: bold;")
+        self.lbl_descuentos.setStyleSheet("color: #e67e22; font-size: 16px; font-weight: bold;")
 
         texto_gasto = f"$ {gastos_data['total_gastos']:,.2f}\n({gastos_data['incidencia_operativa']:.1f}% vs Ventas)"
         self.lbl_gastos.setText(texto_gasto)
-        self.lbl_gastos.setStyleSheet("color: #e74c3c; font-size: 18px; font-weight: bold;")
+        self.lbl_gastos.setStyleSheet("color: #e74c3c; font-size: 16px; font-weight: bold;")
 
         # 2. Cargar Tabla 1: Top Rotacion
         top_productos = DashboardService.obtener_top_productos_mes()
