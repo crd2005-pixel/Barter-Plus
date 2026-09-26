@@ -18,6 +18,14 @@ def main():
             except Exception:
                 pass # Probablemente la columna ya exista
 
+            try:
+                conn.execute(text("CREATE TABLE IF NOT EXISTS vehiculos (id INTEGER PRIMARY KEY AUTOINCREMENT, cliente_id INTEGER NOT NULL, dominio VARCHAR NOT NULL UNIQUE, marca VARCHAR, modelo VARCHAR, anio INTEGER)"))
+                conn.execute(text("CREATE TABLE IF NOT EXISTS garantias_baterias (id INTEGER PRIMARY KEY AUTOINCREMENT, vehiculo_id INTEGER NOT NULL, producto_id INTEGER NOT NULL, fecha_instalacion DATE, meses_garantia INTEGER NOT NULL, fecha_vencimiento DATE NOT NULL, codigo_garantia VARCHAR NOT NULL UNIQUE)"))
+                conn.execute(text("CREATE TABLE IF NOT EXISTS cambios_aceite (id INTEGER PRIMARY KEY AUTOINCREMENT, vehiculo_id INTEGER NOT NULL, fecha DATE, km_actual INTEGER NOT NULL, proximo_km INTEGER NOT NULL, aceite_utilizado VARCHAR NOT NULL, filtro_aceite BOOLEAN, filtro_aire BOOLEAN, filtro_combustible BOOLEAN, filtro_habitaculo BOOLEAN, observaciones VARCHAR)"))
+                conn.commit()
+            except Exception:
+                pass
+
     except Exception as e:
         print(f"Error inicializando base de datos: {e}")
 

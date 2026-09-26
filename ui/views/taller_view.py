@@ -46,6 +46,8 @@ class NuevoVehiculoDialog(QDialog):
             self.combo_cliente.addItem(c.nombre, c.id)
 
         self.txt_dominio = QLineEdit()
+        # Force uppercase for patente
+        self.txt_dominio.textChanged.connect(lambda t: self.txt_dominio.setText(t.upper().replace(" ", "")))
         self.txt_marca = QLineEdit()
         self.txt_modelo = QLineEdit()
         self.txt_anio = QSpinBox()
@@ -68,7 +70,7 @@ class NuevoVehiculoDialog(QDialog):
         layout.addRow(btn_layout)
 
     def guardar(self):
-        dom = self.txt_dominio.text().strip()
+        dom = self.txt_dominio.text().strip().upper().replace(" ", "")
         if not dom:
             QMessageBox.warning(self, "Error", "El dominio es obligatorio.")
             return
@@ -145,7 +147,7 @@ class GarantiasTab(QWidget):
         # Grilla de Historial
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels([
-            "ID", "Fecha Instalación", "Batería", "Vencimiento", "Código", "Acción"
+            "ID", "Vehículo (Patente)", "Batería", "Fecha Instalación", "Vencimiento", "Acción"
         ])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self.table)
@@ -204,15 +206,18 @@ class GarantiasTab(QWidget):
         self.table.setRowCount(len(historial))
         for row, g in enumerate(historial):
             self.table.setItem(row, 0, QTableWidgetItem(str(g.id)))
-            self.table.setItem(row, 1, QTableWidgetItem(g.fecha_instalacion.strftime('%d/%m/%Y')))
+
+            # Cruzando datos para mostrar Patente
+            patente_info = f"{g.vehiculo.dominio} ({g.vehiculo.marca})"
+
+            self.table.setItem(row, 1, QTableWidgetItem(patente_info))
             self.table.setItem(row, 2, QTableWidgetItem(g.producto.nombre))
+            self.table.setItem(row, 3, QTableWidgetItem(g.fecha_instalacion.strftime('%d/%m/%Y')))
 
             i_venc = QTableWidgetItem(g.fecha_vencimiento.strftime('%d/%m/%Y'))
             if g.fecha_vencimiento < QDate.currentDate().toPyDate():
                 i_venc.setForeground(Qt.GlobalColor.red)
-            self.table.setItem(row, 3, i_venc)
-
-            self.table.setItem(row, 4, QTableWidgetItem(g.codigo_garantia))
+            self.table.setItem(row, 4, i_venc)
 
             btn_qr = QPushButton("Ver QR")
             btn_qr.clicked.connect(lambda checked, gid=g.id: self.mostrar_qr(gid))
