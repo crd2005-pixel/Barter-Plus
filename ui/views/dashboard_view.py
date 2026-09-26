@@ -18,14 +18,15 @@ class DashboardView(QWidget):
             QFrame {
                 background-color: #2c3e50;
                 border-radius: 8px;
-                padding: 15px;
+                padding: 8px;
+                min-height: 80px;
             }
         """)
         lay = QVBoxLayout(frame)
         lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         lbl_titulo = QLabel(titulo)
-        lbl_titulo.setStyleSheet("color: #bdc3c7; font-size: 14px; font-weight: bold;")
+        lbl_titulo.setStyleSheet("color: #bdc3c7; font-size: 12px;")
         lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         lbl_valor = QLabel("$ 0.00")
@@ -64,18 +65,22 @@ class DashboardView(QWidget):
         self.card_ticket_prom_frame, self.lbl_ticket_prom = self._crear_tarjeta_kpi("Ticket Promedio", "#1abc9c")
         self.card_cobrar_frame, self.lbl_cobrar = self._crear_tarjeta_kpi("Cuentas a Cobrar", "#f1c40f")
 
+        # Reordenamos a un layout más amigable (3x3 o 2 filas extensas)
         grid_kpi.addWidget(self.card_liquidez_frame, 0, 0)
         grid_kpi.addWidget(self.card_deuda_prov_frame, 0, 1)
-        grid_kpi.addWidget(self.card_inventario_frame, 0, 2)
-        grid_kpi.addWidget(self.card_ventas_frame, 0, 3)
-        grid_kpi.addWidget(self.card_ticket_prom_frame, 1, 0)
-        grid_kpi.addWidget(self.card_cobrar_frame, 1, 1)
+        grid_kpi.addWidget(self.card_cobrar_frame, 0, 2)
+        grid_kpi.addWidget(self.card_inventario_frame, 0, 3)
+
+        self.card_utilidad_frame, self.lbl_utilidad = self._crear_tarjeta_kpi("Utilidad Bruta Est.", "#f39c12")
+        grid_kpi.addWidget(self.card_ventas_frame, 1, 0)
+        grid_kpi.addWidget(self.card_utilidad_frame, 1, 1)
+        grid_kpi.addWidget(self.card_ticket_prom_frame, 1, 2)
 
         self.card_descuentos_frame, self.lbl_descuentos = self._crear_tarjeta_kpi("Fuga por Descuentos", "#e67e22")
         self.card_gastos_frame, self.lbl_gastos = self._crear_tarjeta_kpi("Incidencia Operativa (Gastos)", "#e74c3c")
 
-        grid_kpi.addWidget(self.card_descuentos_frame, 1, 2)
-        grid_kpi.addWidget(self.card_gastos_frame, 1, 3)
+        grid_kpi.addWidget(self.card_descuentos_frame, 1, 3)
+        grid_kpi.addWidget(self.card_gastos_frame, 1, 4)
 
         layout.addLayout(grid_kpi)
 
@@ -89,7 +94,9 @@ class DashboardView(QWidget):
         lbl_1.setStyleSheet("font-weight: bold; font-size: 14px;")
         self.tbl_top_rotacion = QTableWidget(0, 3)
         self.tbl_top_rotacion.setHorizontalHeaderLabels(["Código", "Producto", "Cant. Vendida"])
-        self.tbl_top_rotacion.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tbl_top_rotacion.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.tbl_top_rotacion.setColumnWidth(0, 100)
+        self.tbl_top_rotacion.setColumnWidth(2, 100)
         self.tbl_top_rotacion.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.tbl_top_rotacion.setAlternatingRowColors(True)
         lay_1.addWidget(lbl_1)
@@ -103,6 +110,10 @@ class DashboardView(QWidget):
         self.tbl_peores = QTableWidget(0, 4)
         self.tbl_peores.setHorizontalHeaderLabels(["Código", "Producto", "Stock Actual", "Cant. Vendida"])
         self.tbl_peores.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tbl_peores.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.tbl_peores.setColumnWidth(0, 100)
+        self.tbl_peores.setColumnWidth(2, 80)
+        self.tbl_peores.setColumnWidth(3, 80)
         self.tbl_peores.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.tbl_peores.setAlternatingRowColors(True)
         lay_2.addWidget(lbl_2)
@@ -142,7 +153,7 @@ class DashboardView(QWidget):
 
         # Panel Principal Contenedor
         main_h_lay = QHBoxLayout()
-        main_h_lay.addLayout(grid_tablas, stretch=3)
+        main_h_lay.addLayout(grid_tablas, stretch=4)
 
         # Columna de Noticias
         frame_news = QFrame()
@@ -152,7 +163,7 @@ class DashboardView(QWidget):
 
         self.txt_news = QTextBrowser()
         self.txt_news.setOpenExternalLinks(True)
-        self.txt_news.setStyleSheet("background-color: #fcfcfc; color: #333; font-size: 13px; border: 1px solid #ccc;")
+        self.txt_news.setStyleSheet("background-color: transparent; color: white; font-size: 13px; border: 1px solid #444;")
 
         lay_news.addWidget(lbl_news)
         lay_news.addWidget(self.txt_news)
@@ -181,6 +192,7 @@ class DashboardView(QWidget):
         ventas_mes = DashboardService.obtener_ventas_del_mes()
         ticket_prom = DashboardService.obtener_ticket_promedio()
         cuentas_cobrar = DashboardService.obtener_cuentas_a_cobrar()
+        utilidad_bruta = DashboardService.obtener_utilidad_bruta_mes()
 
         self.lbl_liquidez.setText(f"$ {liquidez:,.2f}")
         self.lbl_liquidez.setStyleSheet(f"color: {'#2ecc71' if liquidez >= 0 else '#e74c3c'}; font-size: 24px; font-weight: bold;")
@@ -191,6 +203,7 @@ class DashboardView(QWidget):
         self.lbl_ventas.setText(f"$ {ventas_mes:,.2f}")
         self.lbl_ticket_prom.setText(f"$ {ticket_prom:,.2f}")
         self.lbl_cobrar.setText(f"$ {cuentas_cobrar:,.2f}")
+        self.lbl_utilidad.setText(f"$ {utilidad_bruta:,.2f}")
 
         # Nuevos KPIs Fugas/Gastos
         desc_data = DashboardService.obtener_analisis_descuentos()

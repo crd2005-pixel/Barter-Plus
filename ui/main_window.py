@@ -51,15 +51,12 @@ class MainWindow(QMainWindow):
         self.setup_tabs()
 
     def setup_tabs(self):
-        # Dashboard Principal
-        self.dashboard_view = DashboardView()
-        self.tabs.addTab(self.dashboard_view, "Métricas")
-
         # Pestañas reales
         self.ventas_tab = VentasTab()
         self.productos_tab = ProductosTab()
         self.precios_tab = PreciosTab()
         self.proveedores_tab = ProveedoresView()
+        self.dashboard_view = DashboardView()
 
         # Añadir pestañas al QTabWidget
         self.tabs.addTab(self.ventas_tab, "POS")
@@ -70,7 +67,6 @@ class MainWindow(QMainWindow):
         self.gastos_view = GastosView()
         self.tabs.addTab(self.gastos_view, "Egresos")
 
-
         self.taller_view = TallerView()
         self.tabs.addTab(self.taller_view, "Taller")
 
@@ -80,17 +76,19 @@ class MainWindow(QMainWindow):
         self.clientes_view = ClientesView()
         self.tabs.addTab(self.clientes_view, "Clientes")
 
-
         self.tabs.addTab(self.productos_tab, "Productos")
         self.tabs.addTab(self.precios_tab, "Precios")
         self.tabs.addTab(self.proveedores_tab, "Proveedores")
+
+        # Dashboard Principal movido al final
+        self.tabs.addTab(self.dashboard_view, "Métricas")
 
 
 # Hacer las pestañas movibles
         self.tabs.setMovable(True)
 
         # Seleccionar por defecto la pestaña Dashboard
-        self.tabs.setCurrentWidget(self.dashboard_view)
+        self.tabs.setCurrentWidget(self.ventas_tab)
 
     def change_theme(self, theme_name: str):
         app = QApplication.instance()

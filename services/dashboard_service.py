@@ -45,6 +45,35 @@ class DashboardService:
             )
             return total or 0.0
 
+
+    @staticmethod
+    def obtener_utilidad_bruta_mes() -> float:
+        hoy = dt.date.today()
+        inicio_mes = hoy.replace(day=1)
+        with get_session() as session:
+            dt_desde = dt.datetime.combine(inicio_mes, dt.time.min)
+            dt_hasta = dt.datetime.combine(hoy, dt.time.max)
+
+            # Utilidad Bruta = Ventas - (Costo * Cantidad Vendida)
+            # Primero obtenemos el total facturado neto de anulación:
+            total_ventas = session.scalar(
+                select(func.sum(Venta.total))
+                .where(and_(Venta.fecha >= dt_desde, Venta.fecha <= dt_hasta, Venta.estado == "Completada"))
+            ) or 0.0
+
+            # Y le restamos el costo historizado, PERO como no lo guardamos en detalle (solo precio),
+            # buscaremos el costo actual del producto en ese momento multiplicando el registro actual
+            # OJO: Para hacerlo preciso contablemente, deberíamos tener costo en DetalleVenta.
+            # Como no está explícitamente ahi, calculamos sumando el costo actual.
+            costo_total = session.scalar(
+                select(func.sum(Producto.costo * DetalleVenta.cantidad))
+                .join(DetalleVenta, DetalleVenta.producto_id == Producto.id)
+                .join(Venta, Venta.id == DetalleVenta.venta_id)
+                .where(and_(Venta.fecha >= dt_desde, Venta.fecha <= dt_hasta, Venta.estado == "Completada"))
+            ) or 0.0
+
+            return total_ventas - costo_total
+
     @staticmethod
     def obtener_cuentas_a_cobrar() -> float:
         with get_session() as session:
