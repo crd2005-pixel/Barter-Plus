@@ -9,6 +9,7 @@ from ui.views.taller_view import TallerView
 from ui.views.registros_view import RegistrosView
 from ui.views.gastos_view import GastosView
 from ui.views.clientes_view import ClientesView
+from ui.views.dashboard_view import DashboardView
 from ui.styles import LIGHT_THEME, DARK_THEME
 
 class MainWindow(QMainWindow):
@@ -50,8 +51,9 @@ class MainWindow(QMainWindow):
         self.setup_tabs()
 
     def setup_tabs(self):
-        # Placeholder para otras pestañas
-
+        # Dashboard Principal
+        self.dashboard_view = DashboardView()
+        self.tabs.addTab(self.dashboard_view, "Métricas")
 
         # Pestañas reales
         self.ventas_tab = VentasTab()
@@ -87,8 +89,8 @@ class MainWindow(QMainWindow):
 # Hacer las pestañas movibles
         self.tabs.setMovable(True)
 
-        # Seleccionar por defecto la pestaña Ventas
-        self.tabs.setCurrentWidget(self.ventas_tab)
+        # Seleccionar por defecto la pestaña Dashboard
+        self.tabs.setCurrentWidget(self.dashboard_view)
 
     def change_theme(self, theme_name: str):
         app = QApplication.instance()
