@@ -58,85 +58,136 @@ class DashboardView(QWidget):
         grid_kpi = QGridLayout()
 
         self.card_liquidez_frame, self.lbl_liquidez = self._crear_tarjeta_kpi("Liquidez Neta", "#2ecc71")
-        self.card_ventas_frame, self.lbl_ventas = self._crear_tarjeta_kpi("Ventas del Mes", "#3498db")
-        self.card_cobrar_frame, self.lbl_cobrar = self._crear_tarjeta_kpi("Cuentas a Cobrar", "#f1c40f")
+        self.card_deuda_prov_frame, self.lbl_deuda_prov = self._crear_tarjeta_kpi("Deuda a Proveedores", "#e74c3c")
         self.card_inventario_frame, self.lbl_inventario = self._crear_tarjeta_kpi("Valor del Inventario", "#9b59b6")
+        self.card_ventas_frame, self.lbl_ventas = self._crear_tarjeta_kpi("Ventas del Mes", "#3498db")
+        self.card_ticket_prom_frame, self.lbl_ticket_prom = self._crear_tarjeta_kpi("Ticket Promedio", "#1abc9c")
+        self.card_cobrar_frame, self.lbl_cobrar = self._crear_tarjeta_kpi("Cuentas a Cobrar", "#f1c40f")
 
         grid_kpi.addWidget(self.card_liquidez_frame, 0, 0)
-        grid_kpi.addWidget(self.card_ventas_frame, 0, 1)
-        grid_kpi.addWidget(self.card_cobrar_frame, 0, 2)
-        grid_kpi.addWidget(self.card_inventario_frame, 0, 3)
+        grid_kpi.addWidget(self.card_deuda_prov_frame, 0, 1)
+        grid_kpi.addWidget(self.card_inventario_frame, 0, 2)
+        grid_kpi.addWidget(self.card_ventas_frame, 1, 0)
+        grid_kpi.addWidget(self.card_ticket_prom_frame, 1, 1)
+        grid_kpi.addWidget(self.card_cobrar_frame, 1, 2)
 
         layout.addLayout(grid_kpi)
 
-        # Tablas de Análisis Inferiores
-        lay_tablas = QHBoxLayout()
+        # Tablas de Análisis Inferiores (Grid 2x2)
+        grid_tablas = QGridLayout()
 
-        # Tabla A: Top 10 Productos
-        frame_a = QFrame()
-        lay_a = QVBoxLayout(frame_a)
-        lbl_a = QLabel("Top 10 Productos Más Vendidos (Mes)")
-        lbl_a.setStyleSheet("font-weight: bold; font-size: 16px;")
+        # Tabla 1: Top 10 Mayor Rotación
+        frame_1 = QFrame()
+        lay_1 = QVBoxLayout(frame_1)
+        lbl_1 = QLabel("Top 10 Mayor Rotación (Mes)")
+        lbl_1.setStyleSheet("font-weight: bold; font-size: 14px;")
+        self.tbl_top_rotacion = QTableWidget(0, 3)
+        self.tbl_top_rotacion.setHorizontalHeaderLabels(["Código", "Producto", "Cant. Vendida"])
+        self.tbl_top_rotacion.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tbl_top_rotacion.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.tbl_top_rotacion.setAlternatingRowColors(True)
+        lay_1.addWidget(lbl_1)
+        lay_1.addWidget(self.tbl_top_rotacion)
 
-        self.tbl_top_productos = QTableWidget(0, 4)
-        self.tbl_top_productos.setHorizontalHeaderLabels(["Código", "Producto", "Cant. Vendida", "Ingreso Generado"])
-        self.tbl_top_productos.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.tbl_top_productos.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.tbl_top_productos.setAlternatingRowColors(True)
+        # Tabla 2: Top 10 Capital Estancado
+        frame_2 = QFrame()
+        lay_2 = QVBoxLayout(frame_2)
+        lbl_2 = QLabel("Top 10 Capital Estancado")
+        lbl_2.setStyleSheet("font-weight: bold; font-size: 14px; color: #e67e22;")
+        self.tbl_peores = QTableWidget(0, 4)
+        self.tbl_peores.setHorizontalHeaderLabels(["Código", "Producto", "Stock Actual", "Cant. Vendida"])
+        self.tbl_peores.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tbl_peores.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.tbl_peores.setAlternatingRowColors(True)
+        lay_2.addWidget(lbl_2)
+        lay_2.addWidget(self.tbl_peores)
 
-        lay_a.addWidget(lbl_a)
-        lay_a.addWidget(self.tbl_top_productos)
+        # Tabla 3: Ranking de Deudores
+        frame_3 = QFrame()
+        lay_3 = QVBoxLayout(frame_3)
+        lbl_3 = QLabel("Ranking de Deudores")
+        lbl_3.setStyleSheet("font-weight: bold; font-size: 14px; color: #c0392b;")
+        self.tbl_deudores = QTableWidget(0, 3)
+        self.tbl_deudores.setHorizontalHeaderLabels(["Cliente", "Teléfono", "Saldo Deudor"])
+        self.tbl_deudores.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tbl_deudores.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.tbl_deudores.setAlternatingRowColors(True)
+        lay_3.addWidget(lbl_3)
+        lay_3.addWidget(self.tbl_deudores)
 
-        # Tabla B: Alertas de Stock
-        frame_b = QFrame()
-        lay_b = QVBoxLayout(frame_b)
-        lbl_b = QLabel("Alertas de Stock y Vencimientos")
-        lbl_b.setStyleSheet("font-weight: bold; font-size: 16px; color: #e74c3c;")
-
+        # Tabla 4: Alerta de Quiebre de Stock
+        frame_4 = QFrame()
+        lay_4 = QVBoxLayout(frame_4)
+        lbl_4 = QLabel("Alerta de Quiebre de Stock")
+        lbl_4.setStyleSheet("font-weight: bold; font-size: 14px; color: #e74c3c;")
         self.tbl_alertas_stock = QTableWidget(0, 3)
         self.tbl_alertas_stock.setHorizontalHeaderLabels(["Producto", "Stock Actual", "Stock Mínimo"])
         self.tbl_alertas_stock.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.tbl_alertas_stock.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.tbl_alertas_stock.setAlternatingRowColors(True)
+        lay_4.addWidget(lbl_4)
+        lay_4.addWidget(self.tbl_alertas_stock)
 
-        lay_b.addWidget(lbl_b)
-        lay_b.addWidget(self.tbl_alertas_stock)
+        grid_tablas.addWidget(frame_1, 0, 0)
+        grid_tablas.addWidget(frame_2, 0, 1)
+        grid_tablas.addWidget(frame_3, 1, 0)
+        grid_tablas.addWidget(frame_4, 1, 1)
 
-        lay_tablas.addWidget(frame_a)
-        lay_tablas.addWidget(frame_b)
-
-        layout.addLayout(lay_tablas)
+        layout.addLayout(grid_tablas)
 
     def cargar_datos(self):
         # 1. Cargar KPIs
         liquidez = DashboardService.obtener_liquidez_neta()
-        ventas_mes = DashboardService.obtener_ventas_del_mes()
-        cuentas_cobrar = DashboardService.obtener_cuentas_a_cobrar()
+        deuda_prov = DashboardService.obtener_deuda_proveedores()
         valor_inventario = DashboardService.obtener_valor_inventario()
+        ventas_mes = DashboardService.obtener_ventas_del_mes()
+        ticket_prom = DashboardService.obtener_ticket_promedio()
+        cuentas_cobrar = DashboardService.obtener_cuentas_a_cobrar()
 
         self.lbl_liquidez.setText(f"$ {liquidez:,.2f}")
         self.lbl_liquidez.setStyleSheet(f"color: {'#2ecc71' if liquidez >= 0 else '#e74c3c'}; font-size: 24px; font-weight: bold;")
 
-        self.lbl_ventas.setText(f"$ {ventas_mes:,.2f}")
-        self.lbl_cobrar.setText(f"$ {cuentas_cobrar:,.2f}")
+        self.lbl_deuda_prov.setText(f"$ {deuda_prov:,.2f}")
+
         self.lbl_inventario.setText(f"$ {valor_inventario:,.2f}")
+        self.lbl_ventas.setText(f"$ {ventas_mes:,.2f}")
+        self.lbl_ticket_prom.setText(f"$ {ticket_prom:,.2f}")
+        self.lbl_cobrar.setText(f"$ {cuentas_cobrar:,.2f}")
 
-        # 2. Cargar Tabla Top Productos
+        # 2. Cargar Tabla 1: Top Rotacion
         top_productos = DashboardService.obtener_top_productos_mes()
-        self.tbl_top_productos.setRowCount(len(top_productos))
+        self.tbl_top_rotacion.setRowCount(len(top_productos))
         for row, prod in enumerate(top_productos):
-            self.tbl_top_productos.setItem(row, 0, QTableWidgetItem(prod["codigo"]))
-            self.tbl_top_productos.setItem(row, 1, QTableWidgetItem(prod["producto"]))
-
+            self.tbl_top_rotacion.setItem(row, 0, QTableWidgetItem(prod["codigo"]))
+            self.tbl_top_rotacion.setItem(row, 1, QTableWidgetItem(prod["producto"]))
             item_cant = QTableWidgetItem(f"{prod['cantidad']:.2f}")
             item_cant.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.tbl_top_productos.setItem(row, 2, item_cant)
+            self.tbl_top_rotacion.setItem(row, 2, item_cant)
 
-            item_ing = QTableWidgetItem(f"$ {prod['ingreso']:,.2f}")
-            item_ing.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            self.tbl_top_productos.setItem(row, 3, item_ing)
+        # 3. Cargar Tabla 2: Peores Productos
+        peores = DashboardService.obtener_peores_productos()
+        self.tbl_peores.setRowCount(len(peores))
+        for row, p in enumerate(peores):
+            self.tbl_peores.setItem(row, 0, QTableWidgetItem(p["codigo"]))
+            self.tbl_peores.setItem(row, 1, QTableWidgetItem(p["producto"]))
+            item_stk = QTableWidgetItem(f"{p['stock']:.2f}")
+            item_stk.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.tbl_peores.setItem(row, 2, item_stk)
+            item_vnd = QTableWidgetItem(f"{p['vendido']:.2f}")
+            item_vnd.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.tbl_peores.setItem(row, 3, item_vnd)
 
-        # 3. Cargar Alertas de Stock
+        # 4. Cargar Tabla 3: Deudores
+        deudores = DashboardService.obtener_ranking_deudores()
+        self.tbl_deudores.setRowCount(len(deudores))
+        for row, d in enumerate(deudores):
+            self.tbl_deudores.setItem(row, 0, QTableWidgetItem(d["cliente"]))
+            self.tbl_deudores.setItem(row, 1, QTableWidgetItem(d["telefono"]))
+            item_saldo = QTableWidgetItem(f"$ {d['saldo']:,.2f}")
+            item_saldo.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self.tbl_deudores.setItem(row, 2, item_saldo)
+
+        # 5. Cargar Tabla 4: Alertas de Stock
         alertas = DashboardService.obtener_alertas_stock()
         self.tbl_alertas_stock.setRowCount(len(alertas))
         for row, alerta in enumerate(alertas):
@@ -145,7 +196,7 @@ class DashboardView(QWidget):
             item_act = QTableWidgetItem(f"{alerta['stock_actual']:.2f}")
             item_act.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             if alerta['stock_actual'] <= 0:
-                item_act.setForeground(QColor("#e74c3c")) # Rojo
+                item_act.setForeground(QColor("#e74c3c"))
             self.tbl_alertas_stock.setItem(row, 1, item_act)
 
             item_min = QTableWidgetItem(f"{alerta['stock_minimo']:.2f}")

@@ -1,9 +1,9 @@
 from database.conexion import get_session
 from database.models.producto import Producto
 from database.models.venta import Venta, DetalleVenta
-from database.models.cliente import ClienteCuentaCorriente
+from database.models.cliente import ClienteCuentaCorriente, Cliente
 from database.models.proveedor import ProveedorCuentaCorriente
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, desc, asc
 import datetime as dt
 
 class DashboardService:
@@ -40,7 +40,7 @@ class DashboardService:
             dt_hasta = dt.datetime.combine(hoy, dt.time.max)
             total = session.scalar(
                 select(func.sum(Venta.total))
-                .where(and_(Venta.fecha >= dt_desde, Venta.fecha <= dt_hasta, Venta.estado == "Completado"))
+                .where(and_(Venta.fecha >= dt_desde, Venta.fecha <= dt_hasta, Venta.estado == "Completada"))
             )
             return total or 0.0
 
@@ -87,7 +87,7 @@ class DashboardService:
                 )
                 .join(DetalleVenta, DetalleVenta.producto_id == Producto.id)
                 .join(Venta, Venta.id == DetalleVenta.venta_id)
-                .where(and_(Venta.fecha >= dt_desde, Venta.fecha <= dt_hasta, Venta.estado == "Completado"))
+                .where(and_(Venta.fecha >= dt_desde, Venta.fecha <= dt_hasta, Venta.estado == "Completada"))
                 .group_by(Producto.id)
                 .order_by(func.sum(DetalleVenta.cantidad).desc())
                 .limit(limite)
@@ -123,3 +123,86 @@ class DashboardService:
                     "stock_minimo": p.stock_minimo
                 })
             return lista
+
+    @staticmethod
+    def obtener_deuda_proveedores() -> float:
+        with get_session() as session:
+            subq = session.query(
+                ProveedorCuentaCorriente.proveedor_id,
+                func.max(ProveedorCuentaCorriente.id).label('max_id')
+            ).group_by(ProveedorCuentaCorriente.proveedor_id).subquery()
+
+            ultimos_movs = session.query(ProveedorCuentaCorriente).join(
+                subq, ProveedorCuentaCorriente.id == subq.c.max_id
+            ).all()
+
+            deuda = sum(m.saldo for m in ultimos_movs if m.saldo > 0)
+            return deuda
+
+    @staticmethod
+    def obtener_ranking_deudores(limite: int = 10) -> list[dict]:
+        with get_session() as session:
+            subq = session.query(
+                ClienteCuentaCorriente.cliente_id,
+                func.max(ClienteCuentaCorriente.id).label('max_id')
+            ).group_by(ClienteCuentaCorriente.cliente_id).subquery()
+
+            # Joins to get the Cliente name and phone
+            stmt = select(Cliente.nombre, Cliente.telefono, ClienteCuentaCorriente.saldo).join(
+                ClienteCuentaCorriente, Cliente.id == ClienteCuentaCorriente.cliente_id
+            ).join(
+                subq, ClienteCuentaCorriente.id == subq.c.max_id
+            ).where(ClienteCuentaCorriente.saldo > 0).order_by(desc(ClienteCuentaCorriente.saldo)).limit(limite)
+
+            resultados = session.execute(stmt).all()
+            lista = []
+            for r in resultados:
+                lista.append({
+                    "cliente": r.nombre,
+                    "telefono": r.telefono or "-",
+                    "saldo": r.saldo
+                })
+            return lista
+
+    @staticmethod
+    def obtener_peores_productos(limite: int = 10) -> list[dict]:
+        with get_session() as session:
+            # We want products with stock > 0, but lowest historical sales.
+            # We'll outerjoin with DetalleVenta and group by product to sum quantity sold.
+            stmt = select(
+                Producto.codigo_barras,
+                Producto.sku,
+                Producto.nombre,
+                Producto.stock_actual,
+                func.coalesce(func.sum(DetalleVenta.cantidad), 0).label("total_vendido")
+            ).outerjoin(
+                DetalleVenta, Producto.id == DetalleVenta.producto_id
+            ).where(
+                Producto.stock_actual > 0
+            ).group_by(Producto.id).order_by(asc("total_vendido")).limit(limite)
+
+            resultados = session.execute(stmt).all()
+            lista = []
+            for r in resultados:
+                lista.append({
+                    "codigo": r.codigo_barras or r.sku or "-",
+                    "producto": r.nombre,
+                    "stock": r.stock_actual,
+                    "vendido": r.total_vendido
+                })
+            return lista
+
+    @staticmethod
+    def obtener_ticket_promedio() -> float:
+        hoy = dt.date.today()
+        inicio_mes = hoy.replace(day=1)
+        with get_session() as session:
+            dt_desde = dt.datetime.combine(inicio_mes, dt.time.min)
+            dt_hasta = dt.datetime.combine(hoy, dt.time.max)
+            stmt = select(func.sum(Venta.total), func.count(Venta.id)).where(
+                and_(Venta.fecha >= dt_desde, Venta.fecha <= dt_hasta, Venta.estado == "Completada")
+            )
+            resultado = session.execute(stmt).first()
+            if resultado and resultado[1] > 0:
+                return resultado[0] / resultado[1]
+            return 0.0
