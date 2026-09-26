@@ -1418,12 +1418,6 @@ class DetalleServiceDialog(QDialog):
         from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QTextBrowser, QLabel, QPushButton
         from PyQt6.QtGui import QPixmap, QImage
         from PyQt6.QtCore import Qt
-        from services.taller_service import TallerService
-        from database.conexion import get_session
-        from database.models.taller import CambioAceite, Vehiculo
-        from database.models.cliente import Cliente
-        from sqlalchemy import select
-        from sqlalchemy.orm import joinedload
 
         layout = QVBoxLayout(self)
         h_lay = QHBoxLayout()
@@ -1433,16 +1427,20 @@ class DetalleServiceDialog(QDialog):
 
         self.lbl_qr = QLabel()
         self.lbl_qr.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_qr.setFixedSize(200, 200)
         h_lay.addWidget(self.lbl_qr)
 
         layout.addLayout(h_lay)
 
         btn_box = QHBoxLayout()
-        self.btn_pdf = QPushButton("Exportar a PDF")
+        self.btn_imprimir = QPushButton("Imprimir Ticket (Térmica)")
+        self.btn_imprimir.clicked.connect(self._imprimir_ticket_termico)
+        self.btn_pdf = QPushButton("Exportar PDF (WhatsApp)")
         self.btn_pdf.clicked.connect(self._exportar_pdf)
         self.btn_cerrar = QPushButton("Cerrar")
         self.btn_cerrar.clicked.connect(self.accept)
 
+        btn_box.addWidget(self.btn_imprimir)
         btn_box.addWidget(self.btn_pdf)
         btn_box.addWidget(self.btn_cerrar)
         layout.addLayout(btn_box)
@@ -1450,13 +1448,15 @@ class DetalleServiceDialog(QDialog):
         self._cargar_datos()
 
     def _cargar_datos(self):
-        from services.taller_service import TallerService
         from database.conexion import get_session
         from database.models.taller import CambioAceite, Vehiculo
         from sqlalchemy import select
         from sqlalchemy.orm import joinedload
         from PyQt6.QtGui import QImage, QPixmap
         from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QMessageBox
+        import io
+        import base64
 
         with get_session() as s:
             c = s.scalars(select(CambioAceite).options(joinedload(CambioAceite.vehiculo).joinedload(Vehiculo.cliente)).where(CambioAceite.id == self.service_id)).first()
@@ -1469,45 +1469,110 @@ class DetalleServiceDialog(QDialog):
             if c.filtro_habitaculo: filtros.append("Habitáculo")
             filtros_str = ", ".join(filtros) if filtros else "Ninguno"
 
+            # Store vars for printing
+            self.proximo_km = str(c.proximo_km)
+            self.aceite = c.aceite_utilizado
+            self.filtros_str = filtros_str
+
             html = f"""
-            <h3>Detalle de Service</h3>
-            <b>Fecha:</b> {c.fecha.strftime('%d/%m/%Y')}<br>
-            <b>Cliente:</b> {c.vehiculo.cliente.nombre}<br>
-            <b>Vehículo:</b> {c.vehiculo.dominio} ({c.vehiculo.marca} {c.vehiculo.modelo})<br><br>
-            <b>Km Actual:</b> {c.km_actual}<br>
-            <b>Próximo Km:</b> {c.proximo_km}<br><br>
-            <b>Aceite Utilizado:</b> {c.aceite_utilizado}<br>
-            <b>Filtros Cambiados:</b> {filtros_str}<br>
-            <b>Observaciones:</b> {c.observaciones or ''}
+            <h2 style="text-align: center;">Barter Plus</h2>
+            <hr>
+            <p><b>Próximo Cambio:</b> {self.proximo_km} KM</p>
+            <p><b>Aceite Utilizado:</b> {self.aceite}</p>
+            <p><b>Filtros Cambiados:</b> {self.filtros_str}</p>
             """
             self.txt_detalle.setHtml(html)
             self.html_content = html
 
-        try:
-            self.img_bytes = TallerService.generar_qr_aceite(self.service_id)
-            qimg = QImage.fromData(self.img_bytes)
-            pix = QPixmap.fromImage(qimg)
-            self.lbl_qr.setPixmap(pix.scaled(250, 250, Qt.AspectRatioMode.KeepAspectRatio))
-        except Exception as e:
-            self.lbl_qr.setText("Error al cargar QR")
+            # Generar QR
+            t_lines = ["Barter Plus", f"Próximo Cambio: {self.proximo_km} KM", f"Aceite: {self.aceite}", f"Filtros: {self.filtros_str}"]
+            qr_data = "\n".join(t_lines)
+
+            try:
+                import qrcode
+                qr = qrcode.QRCode(version=1, box_size=10, border=4)
+                qr.add_data(qr_data)
+                qr.make(fit=True)
+                img = qr.make_image(fill_color="black", back_color="white")
+
+                byte_io = io.BytesIO()
+                img.save(byte_io, 'PNG')
+                self.img_bytes = byte_io.getvalue()
+                self.qr_base64 = base64.b64encode(self.img_bytes).decode('utf-8')
+
+                qimg = QImage.fromData(self.img_bytes)
+                pix = QPixmap.fromImage(qimg)
+                self.lbl_qr.setPixmap(pix.scaled(200, 200, Qt.AspectRatioMode.KeepAspectRatio))
+            except ImportError:
+                self.lbl_qr.setText("Módulo 'qrcode' no instalado.")
+                QMessageBox.warning(self, "Dependencia Faltante", "El módulo 'qrcode' no está instalado. No se generará la imagen del código QR.")
+                self.img_bytes = None
+                self.qr_base64 = ""
+            except Exception as e:
+                self.lbl_qr.setText("Error QR")
+                self.img_bytes = None
+                self.qr_base64 = ""
+
+    def _imprimir_ticket_termico(self):
+        from PyQt6.QtPrintSupport import QPrinter
+        from PyQt6.QtGui import QTextDocument, QPageSize
+        from PyQt6.QtCore import QSizeF, QMarginsF
+        from PyQt6.QtGui import QPageLayout
+        from PyQt6.QtWidgets import QMessageBox
+
+        if not hasattr(self, 'qr_base64') or not self.qr_base64:
+            QMessageBox.warning(self, "Atención", "No hay QR generado para imprimir.")
+            qr_tag = ""
+        else:
+            qr_tag = f'<img src="data:image/png;base64,{self.qr_base64}" width="180" height="180">'
+
+        ticket_html = f"""
+        <div style="width: 280px; font-family: monospace; font-size: 14px; text-align: center; color: black; background-color: white;">
+            <h1 style="margin: 0;">BARTER PLUS</h1>
+            <p style="margin: 5px 0;">Control de Service</p>
+            <hr style="border-top: 1px dashed black;">
+            <p style="text-align: left;"><b>Próx. Cambio:</b><br>{self.proximo_km} KM</p>
+            <p style="text-align: left;"><b>Aceite:</b><br>{self.aceite}</p>
+            <p style="text-align: left;"><b>Filtros:</b><br>{self.filtros_str}</p>
+            <hr style="border-top: 1px dashed black;">
+            {qr_tag}
+            <p style="font-size: 10px;">Escanee para guardar</p>
+        </div>
+        """
+
+        # We assume standard POS printer width around 70-80mm.
+        printer = QPrinter(QPrinter.PrinterMode.ScreenResolution)
+        printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
+
+        doc = QTextDocument()
+        doc.setDocumentMargin(0)
+        doc.setHtml(ticket_html)
+
+        # Apply strict dimensions to prevent infinite paper spooling
+        width_px = 280
+        height_px = doc.size().height() + 50
+        doc.setPageSize(QSizeF(width_px, height_px))
+
+        doc.print(printer)
+        QMessageBox.information(self, "Impresión", "Ticket enviado a la impresora por defecto.")
 
     def _exportar_pdf(self):
         from PyQt6.QtPrintSupport import QPrinter
         from PyQt6.QtGui import QTextDocument, QPageSize
         from PyQt6.QtWidgets import QFileDialog, QMessageBox
-        from PyQt6.QtCore import QSizeF
-        import base64
 
-        path, _ = QFileDialog.getSaveFileName(self, "Exportar PDF", f"Service_Detalle_{self.service_id}.pdf", "PDF Files (*.pdf)")
+        path, _ = QFileDialog.getSaveFileName(self, "Exportar PDF", f"Service_Ficha_{self.service_id}.pdf", "PDF Files (*.pdf)")
         if not path: return
 
-        b64_img = base64.b64encode(self.img_bytes).decode('utf-8')
+        img_html = ""
+        if hasattr(self, 'qr_base64') and self.qr_base64:
+            img_html = f'<img src="data:image/png;base64,{self.qr_base64}" width="200" height="200">'
 
         full_html = f"""
-        <html><body style="font-family: sans-serif;">
+        <html><body style="font-family: sans-serif; background-color: white; color: black;">
         <table width="100%"><tr>
         <td width="60%" valign="top">{self.html_content}</td>
-        <td width="40%" align="center"><img src="data:image/png;base64,{b64_img}" width="200" height="200"></td>
+        <td width="40%" align="center">{img_html}</td>
         </tr></table>
         </body></html>
         """

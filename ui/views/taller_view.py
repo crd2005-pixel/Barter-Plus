@@ -94,6 +94,44 @@ class NuevoVehiculoDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
 
+class GarantiasTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+
+        # Selector de Cliente y Vehículo Superior
+        header_lay = QVBoxLayout()
+
+        # Cliente
+        lay_cli = QHBoxLayout()
+        self.combo_cliente = QComboBox()
+        self.btn_recargar_c = QPushButton("Actualizar Clientes")
+        self.btn_recargar_c.clicked.connect(self.cargar_clientes)
+        lay_cli.addWidget(QLabel("Cliente:"))
+        lay_cli.addWidget(self.combo_cliente)
+        lay_cli.addWidget(self.btn_recargar_c)
+        header_lay.addLayout(lay_cli)
+
+        # Vehículo
+        lay_veh = QHBoxLayout()
+        self.combo_vehiculos = QComboBox()
+        self.combo_vehiculos.setEnabled(False)
+        self.btn_recargar_v = QPushButton("Actualizar Lista")
+        self.btn_recargar_v.clicked.connect(self._filtrar_vehiculos_por_cliente)
+        self.btn_nuevo_v = QPushButton("+ Vehículo")
+        self.btn_nuevo_v.clicked.connect(self.nuevo_vehiculo)
+
+        lay_veh.addWidget(QLabel("Vehículo:"))
+        lay_veh.addWidget(self.combo_vehiculos)
+        lay_veh.addWidget(self.btn_recargar_v)
+        lay_veh.addWidget(self.btn_nuevo_v)
+        header_lay.addLayout(lay_veh)
+
+        layout.addLayout(header_lay)
+
         # Conectar Cliente -> Vehículo
         self.combo_cliente.currentIndexChanged.connect(self._filtrar_vehiculos_por_cliente)
 
@@ -145,21 +183,6 @@ class NuevoVehiculoDialog(QDialog):
 
         self.combo_vehiculos.currentIndexChanged.connect(self.cargar_historial)
 
-    def _exportar_pdf(self):
-        from utils.export_utils import ExportUtils
-        import os
-        from PyQt6.QtWidgets import QFileDialog
-
-        c_id = self.combo_cliente.currentData()
-        if not c_id:
-            QMessageBox.warning(self, "Error", "Seleccione un cliente primero.")
-            return
-
-        path, _ = QFileDialog.getSaveFileName(self, "Exportar PDF", f"Historial_Garantias_Cliente_{c_id}.pdf", "PDF Files (*.pdf)")
-        if path:
-            ExportUtils.exportar_tabla_a_pdf(self.table, f"Historial de Garantías - Cliente ID: {c_id}", path)
-            QMessageBox.information(self, "Éxito", "Historial exportado correctamente.")
-
     def buscar_producto(self):
         query = self.txt_busqueda_prod.text().strip()
         if not query: return
@@ -170,17 +193,20 @@ class NuevoVehiculoDialog(QDialog):
         else:
             QMessageBox.warning(self, "No encontrado", "No se encontró la batería.")
 
-        self.table.itemDoubleClicked.connect(self._abrir_detalle_service)
+    def _exportar_pdf(self):
+        from utils.export_utils import ExportUtils
+        import os
+        from PyQt6.QtWidgets import QFileDialog
 
-    def _abrir_detalle_service(self, item):
-        row = item.row()
-        c_id_str = self.table.item(row, 0).text()
-        if not c_id_str.isdigit(): return
+        c_id = self.combo_cliente.currentData()
+        if not c_id:
+            QMessageBox.warning(self, "Error", "Seleccione un cliente primero.")
+            return
 
-        c_id = int(c_id_str)
-        from ui.components.dialogs import DetalleServiceDialog
-        dlg = DetalleServiceDialog(c_id, self)
-        dlg.exec()
+        path, _ = QFileDialog.getSaveFileName(self, "Exportar PDF", f"Historial_Cliente_{c_id}.pdf", "PDF Files (*.pdf)")
+        if path:
+            ExportUtils.exportar_tabla_a_pdf(self.table, f"Historial - Cliente ID: {c_id}", path)
+            QMessageBox.information(self, "Éxito", "Historial exportado correctamente.")
 
     def cargar_clientes(self):
         from database.conexion import get_session
@@ -249,18 +275,15 @@ class NuevoVehiculoDialog(QDialog):
         self.table.setRowCount(len(historial))
         for row, g in enumerate(historial):
             self.table.setItem(row, 0, QTableWidgetItem(str(g.id)))
-
-            # Cruzando datos para mostrar Patente
-            patente_info = f"{g.vehiculo.dominio} ({g.vehiculo.marca})"
-
-            self.table.setItem(row, 1, QTableWidgetItem(patente_info))
+            self.table.setItem(row, 1, QTableWidgetItem(g.fecha_instalacion.strftime('%d/%m/%Y')))
             self.table.setItem(row, 2, QTableWidgetItem(g.producto.nombre))
-            self.table.setItem(row, 3, QTableWidgetItem(g.fecha_instalacion.strftime('%d/%m/%Y')))
 
             i_venc = QTableWidgetItem(g.fecha_vencimiento.strftime('%d/%m/%Y'))
             if g.fecha_vencimiento < QDate.currentDate().toPyDate():
                 i_venc.setForeground(Qt.GlobalColor.red)
-            self.table.setItem(row, 4, i_venc)
+            self.table.setItem(row, 3, i_venc)
+
+            self.table.setItem(row, 4, QTableWidgetItem(g.codigo_garantia))
 
             btn_qr = QPushButton("Ver QR")
             btn_qr.clicked.connect(lambda checked, gid=g.id: self.mostrar_qr(gid))
@@ -362,18 +385,22 @@ class AceiteTab(QWidget):
         layout.addWidget(self.btn_exportar_pdf_grilla)
 
         self.combo_vehiculos.currentIndexChanged.connect(self.cargar_historial)
-
         self.table.itemDoubleClicked.connect(self._abrir_detalle_service)
 
-    def _abrir_detalle_service(self, item):
-        row = item.row()
-        c_id_str = self.table.item(row, 0).text()
-        if not c_id_str.isdigit(): return
+    def _exportar_pdf(self):
+        from utils.export_utils import ExportUtils
+        import os
+        from PyQt6.QtWidgets import QFileDialog
 
-        c_id = int(c_id_str)
-        from ui.components.dialogs import DetalleServiceDialog
-        dlg = DetalleServiceDialog(c_id, self)
-        dlg.exec()
+        c_id = self.combo_cliente.currentData()
+        if not c_id:
+            QMessageBox.warning(self, "Error", "Seleccione un cliente primero.")
+            return
+
+        path, _ = QFileDialog.getSaveFileName(self, "Exportar PDF", f"Historial_Cliente_{c_id}.pdf", "PDF Files (*.pdf)")
+        if path:
+            ExportUtils.exportar_tabla_a_pdf(self.table, f"Historial - Cliente ID: {c_id}", path)
+            QMessageBox.information(self, "Éxito", "Historial exportado correctamente.")
 
     def cargar_clientes(self):
         from database.conexion import get_session
@@ -409,31 +436,20 @@ class AceiteTab(QWidget):
         self.combo_vehiculos.blockSignals(False)
         self.cargar_historial()
 
-    def _exportar_pdf(self):
-        from utils.export_utils import ExportUtils
-        import os
-        from PyQt6.QtWidgets import QFileDialog
+    def _abrir_detalle_service(self, item):
+        row = item.row()
+        c_id_str = self.table.item(row, 0).text()
+        if not c_id_str.isdigit(): return
 
-        c_id = self.combo_cliente.currentData()
-        if not c_id:
-            QMessageBox.warning(self, "Error", "Seleccione un cliente primero.")
-            return
-
-        path, _ = QFileDialog.getSaveFileName(self, "Exportar PDF", f"Historial_Service_Cliente_{c_id}.pdf", "PDF Files (*.pdf)")
-        if path:
-            ExportUtils.exportar_tabla_a_pdf(self.table, f"Historial de Service - Cliente ID: {c_id}", path)
-            QMessageBox.information(self, "Éxito", "Historial exportado correctamente.")
+        c_id = int(c_id_str)
+        from ui.components.dialogs import DetalleServiceDialog
+        dlg = DetalleServiceDialog(c_id, self)
+        dlg.exec()
 
     def guardar_service(self):
         v_id = self.combo_vehiculos.currentData()
         if not v_id:
             QMessageBox.warning(self, "Error", "Debe seleccionar un vehículo.")
-            return
-
-        km_act = self.txt_km_act.value()
-        km_prox = self.txt_km_prox.value()
-        if km_act <= 0 or km_prox <= 0:
-            QMessageBox.warning(self, "Error", "El Kilometraje Actual y Próximo deben ser mayores a 0.")
             return
 
         aceite = self.txt_aceite.text().strip()
@@ -444,8 +460,8 @@ class AceiteTab(QWidget):
         try:
             c = TallerService.registrar_cambio_aceite(
                 vehiculo_id=v_id,
-                km_actual=km_act,
-                proximo_km=km_prox,
+                km_actual=self.txt_km_act.value(),
+                proximo_km=self.txt_km_prox.value(),
                 aceite=aceite,
                 f_aceite=self.chk_f_aceite.isChecked(),
                 f_aire=self.chk_f_aire.isChecked(),
@@ -513,5 +529,5 @@ class TallerView(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        self.tab_garantias.cargar_vehiculos()
-        self.tab_aceite.cargar_vehiculos()
+        self.tab_garantias.cargar_clientes()
+        self.tab_aceite.cargar_clientes()
