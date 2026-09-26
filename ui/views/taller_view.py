@@ -43,7 +43,8 @@ class NuevoVehiculoDialog(QDialog):
 
         self.combo_cliente = QComboBox()
         for c in ClienteService.listar_todos():
-            self.combo_cliente.addItem(c.nombre, c.id)
+            texto = f"[{c.id}] {c.nombre} ({c.telefono or 'Sin tel'})"
+            self.combo_cliente.addItem(texto, c.id)
 
         self.txt_dominio = QLineEdit()
         # Force uppercase for patente
@@ -170,10 +171,12 @@ class GarantiasTab(QWidget):
         from database.conexion import get_session
         from database.models.taller import Vehiculo
         from sqlalchemy import select
+        from sqlalchemy.orm import joinedload
         with get_session() as session:
-            vehiculos = session.scalars(select(Vehiculo)).all()
+            vehiculos = session.scalars(select(Vehiculo).options(joinedload(Vehiculo.cliente))).all()
             for v in vehiculos:
-                self.combo_vehiculos.addItem(f"{v.dominio} - {v.marca} {v.modelo}", v.id)
+                cliente_nom = v.cliente.nombre if v.cliente else "Desconocido"
+                self.combo_vehiculos.addItem(f"{v.dominio} - {v.marca} {v.modelo} (Cliente: {cliente_nom})", v.id)
         self.combo_vehiculos.blockSignals(False)
         self.cargar_historial()
 
@@ -303,10 +306,12 @@ class AceiteTab(QWidget):
         from database.conexion import get_session
         from database.models.taller import Vehiculo
         from sqlalchemy import select
+        from sqlalchemy.orm import joinedload
         with get_session() as session:
-            vehiculos = session.scalars(select(Vehiculo)).all()
+            vehiculos = session.scalars(select(Vehiculo).options(joinedload(Vehiculo.cliente))).all()
             for v in vehiculos:
-                self.combo_vehiculos.addItem(f"{v.dominio} - {v.marca} {v.modelo}", v.id)
+                cliente_nom = v.cliente.nombre if v.cliente else "Desconocido"
+                self.combo_vehiculos.addItem(f"{v.dominio} - {v.marca} {v.modelo} (Cliente: {cliente_nom})", v.id)
         self.combo_vehiculos.blockSignals(False)
         self.cargar_historial()
 
@@ -314,6 +319,12 @@ class AceiteTab(QWidget):
         v_id = self.combo_vehiculos.currentData()
         if not v_id:
             QMessageBox.warning(self, "Error", "Debe seleccionar un vehículo.")
+            return
+
+        km_act = self.txt_km_act.value()
+        km_prox = self.txt_km_prox.value()
+        if km_act <= 0 or km_prox <= 0:
+            QMessageBox.warning(self, "Error", "El Kilometraje Actual y Próximo deben ser mayores a 0.")
             return
 
         aceite = self.txt_aceite.text().strip()
@@ -324,8 +335,8 @@ class AceiteTab(QWidget):
         try:
             c = TallerService.registrar_cambio_aceite(
                 vehiculo_id=v_id,
-                km_actual=self.txt_km_act.value(),
-                proximo_km=self.txt_km_prox.value(),
+                km_actual=km_act,
+                proximo_km=km_prox,
                 aceite=aceite,
                 f_aceite=self.chk_f_aceite.isChecked(),
                 f_aire=self.chk_f_aire.isChecked(),
