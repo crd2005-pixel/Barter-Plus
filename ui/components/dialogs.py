@@ -1405,3 +1405,120 @@ class ConfirmacionPosnetDialog(QDialog):
             "lote": self.txt_lote.text().strip(),
             "cupon": self.txt_cupon.text().strip()
         }
+
+class DetalleServiceDialog(QDialog):
+    def __init__(self, service_id, parent=None):
+        super().__init__(parent)
+        self.service_id = service_id
+        self.setWindowTitle("Detalle de Service y QR")
+        self.resize(600, 400)
+        self.setup_ui()
+
+    def setup_ui(self):
+        from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QTextBrowser, QLabel, QPushButton
+        from PyQt6.QtGui import QPixmap, QImage
+        from PyQt6.QtCore import Qt
+        from services.taller_service import TallerService
+        from database.conexion import get_session
+        from database.models.taller import CambioAceite, Vehiculo
+        from database.models.cliente import Cliente
+        from sqlalchemy import select
+        from sqlalchemy.orm import joinedload
+
+        layout = QVBoxLayout(self)
+        h_lay = QHBoxLayout()
+
+        self.txt_detalle = QTextBrowser()
+        h_lay.addWidget(self.txt_detalle)
+
+        self.lbl_qr = QLabel()
+        self.lbl_qr.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        h_lay.addWidget(self.lbl_qr)
+
+        layout.addLayout(h_lay)
+
+        btn_box = QHBoxLayout()
+        self.btn_pdf = QPushButton("Exportar a PDF")
+        self.btn_pdf.clicked.connect(self._exportar_pdf)
+        self.btn_cerrar = QPushButton("Cerrar")
+        self.btn_cerrar.clicked.connect(self.accept)
+
+        btn_box.addWidget(self.btn_pdf)
+        btn_box.addWidget(self.btn_cerrar)
+        layout.addLayout(btn_box)
+
+        self._cargar_datos()
+
+    def _cargar_datos(self):
+        from services.taller_service import TallerService
+        from database.conexion import get_session
+        from database.models.taller import CambioAceite, Vehiculo
+        from sqlalchemy import select
+        from sqlalchemy.orm import joinedload
+        from PyQt6.QtGui import QImage, QPixmap
+        from PyQt6.QtCore import Qt
+
+        with get_session() as s:
+            c = s.scalars(select(CambioAceite).options(joinedload(CambioAceite.vehiculo).joinedload(Vehiculo.cliente)).where(CambioAceite.id == self.service_id)).first()
+            if not c: return
+
+            filtros = []
+            if c.filtro_aceite: filtros.append("Aceite")
+            if c.filtro_aire: filtros.append("Aire")
+            if c.filtro_combustible: filtros.append("Combustible")
+            if c.filtro_habitaculo: filtros.append("Habitáculo")
+            filtros_str = ", ".join(filtros) if filtros else "Ninguno"
+
+            html = f"""
+            <h3>Detalle de Service</h3>
+            <b>Fecha:</b> {c.fecha.strftime('%d/%m/%Y')}<br>
+            <b>Cliente:</b> {c.vehiculo.cliente.nombre}<br>
+            <b>Vehículo:</b> {c.vehiculo.dominio} ({c.vehiculo.marca} {c.vehiculo.modelo})<br><br>
+            <b>Km Actual:</b> {c.km_actual}<br>
+            <b>Próximo Km:</b> {c.proximo_km}<br><br>
+            <b>Aceite Utilizado:</b> {c.aceite_utilizado}<br>
+            <b>Filtros Cambiados:</b> {filtros_str}<br>
+            <b>Observaciones:</b> {c.observaciones or ''}
+            """
+            self.txt_detalle.setHtml(html)
+            self.html_content = html
+
+        try:
+            self.img_bytes = TallerService.generar_qr_aceite(self.service_id)
+            qimg = QImage.fromData(self.img_bytes)
+            pix = QPixmap.fromImage(qimg)
+            self.lbl_qr.setPixmap(pix.scaled(250, 250, Qt.AspectRatioMode.KeepAspectRatio))
+        except Exception as e:
+            self.lbl_qr.setText("Error al cargar QR")
+
+    def _exportar_pdf(self):
+        from PyQt6.QtPrintSupport import QPrinter
+        from PyQt6.QtGui import QTextDocument, QPageSize
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from PyQt6.QtCore import QSizeF
+        import base64
+
+        path, _ = QFileDialog.getSaveFileName(self, "Exportar PDF", f"Service_Detalle_{self.service_id}.pdf", "PDF Files (*.pdf)")
+        if not path: return
+
+        b64_img = base64.b64encode(self.img_bytes).decode('utf-8')
+
+        full_html = f"""
+        <html><body style="font-family: sans-serif;">
+        <table width="100%"><tr>
+        <td width="60%" valign="top">{self.html_content}</td>
+        <td width="40%" align="center"><img src="data:image/png;base64,{b64_img}" width="200" height="200"></td>
+        </tr></table>
+        </body></html>
+        """
+
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+        printer.setOutputFileName(path)
+        printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+
+        doc = QTextDocument()
+        doc.setHtml(full_html)
+        doc.print(printer)
+
+        QMessageBox.information(self, "Éxito", "PDF exportado correctamente.")

@@ -14,6 +14,14 @@ def main():
         with engine.connect() as conn:
             try:
                 conn.execute(text("ALTER TABLE cheques ADD COLUMN estado VARCHAR DEFAULT 'Pendiente'"))
+            except Exception:
+                pass
+            try:
+                conn.execute(text("ALTER TABLE cambios_aceite ADD COLUMN qr_token VARCHAR"))
+            except Exception:
+                pass
+            try:
+                conn.execute(text("ALTER TABLE garantias_baterias ADD COLUMN qr_token VARCHAR"))
                 conn.commit()
             except Exception:
                 pass # Probablemente la columna ya exista
