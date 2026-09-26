@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame, QLabel, QTableWidget,
-    QTableWidgetItem, QHeaderView, QPushButton
+    QTableWidgetItem, QHeaderView, QPushButton, QScrollArea, QTextBrowser
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QColor
@@ -38,7 +38,7 @@ class DashboardView(QWidget):
         return frame, lbl_valor
 
     def setup_ui(self):
-        layout = QVBoxLayout(self)
+        layout = QVBoxLayout()
 
         # Header con botón actualizar
         header_lay = QHBoxLayout()
@@ -67,9 +67,15 @@ class DashboardView(QWidget):
         grid_kpi.addWidget(self.card_liquidez_frame, 0, 0)
         grid_kpi.addWidget(self.card_deuda_prov_frame, 0, 1)
         grid_kpi.addWidget(self.card_inventario_frame, 0, 2)
-        grid_kpi.addWidget(self.card_ventas_frame, 1, 0)
-        grid_kpi.addWidget(self.card_ticket_prom_frame, 1, 1)
-        grid_kpi.addWidget(self.card_cobrar_frame, 1, 2)
+        grid_kpi.addWidget(self.card_ventas_frame, 0, 3)
+        grid_kpi.addWidget(self.card_ticket_prom_frame, 1, 0)
+        grid_kpi.addWidget(self.card_cobrar_frame, 1, 1)
+
+        self.card_descuentos_frame, self.lbl_descuentos = self._crear_tarjeta_kpi("Fuga por Descuentos", "#e67e22")
+        self.card_gastos_frame, self.lbl_gastos = self._crear_tarjeta_kpi("Incidencia Operativa (Gastos)", "#e74c3c")
+
+        grid_kpi.addWidget(self.card_descuentos_frame, 1, 2)
+        grid_kpi.addWidget(self.card_gastos_frame, 1, 3)
 
         layout.addLayout(grid_kpi)
 
@@ -133,7 +139,39 @@ class DashboardView(QWidget):
         grid_tablas.addWidget(frame_3, 1, 0)
         grid_tablas.addWidget(frame_4, 1, 1)
 
-        layout.addLayout(grid_tablas)
+
+        # Panel Principal Contenedor
+        main_h_lay = QHBoxLayout()
+        main_h_lay.addLayout(grid_tablas, stretch=3)
+
+        # Columna de Noticias
+        frame_news = QFrame()
+        lay_news = QVBoxLayout(frame_news)
+        lbl_news = QLabel("Contexto Económico y Sectorial")
+        lbl_news.setStyleSheet("font-weight: bold; font-size: 16px; color: #2980b9;")
+
+        self.txt_news = QTextBrowser()
+        self.txt_news.setOpenExternalLinks(True)
+        self.txt_news.setStyleSheet("background-color: #fcfcfc; color: #333; font-size: 13px; border: 1px solid #ccc;")
+
+        lay_news.addWidget(lbl_news)
+        lay_news.addWidget(self.txt_news)
+
+        main_h_lay.addWidget(frame_news, stretch=1)
+
+        layout.addLayout(main_h_lay)
+
+        # Configurar Scroll Area principal
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        container_widget = QWidget()
+        container_widget.setLayout(layout)
+        scroll_area.setWidget(container_widget)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.addWidget(scroll_area)
+
+        self._cargar_noticias()
 
     def cargar_datos(self):
         # 1. Cargar KPIs
@@ -153,6 +191,18 @@ class DashboardView(QWidget):
         self.lbl_ventas.setText(f"$ {ventas_mes:,.2f}")
         self.lbl_ticket_prom.setText(f"$ {ticket_prom:,.2f}")
         self.lbl_cobrar.setText(f"$ {cuentas_cobrar:,.2f}")
+
+        # Nuevos KPIs Fugas/Gastos
+        desc_data = DashboardService.obtener_analisis_descuentos()
+        gastos_data = DashboardService.obtener_incidencia_gastos()
+
+        texto_desc = f"$ {desc_data['total_dinero_descontado']:,.2f}\n({desc_data['cantidad_operaciones']} ops | {desc_data['porcentaje_sobre_ventas']:.1f}%)"
+        self.lbl_descuentos.setText(texto_desc)
+        self.lbl_descuentos.setStyleSheet("color: #e67e22; font-size: 18px; font-weight: bold;")
+
+        texto_gasto = f"$ {gastos_data['total_gastos']:,.2f}\n({gastos_data['incidencia_operativa']:.1f}% vs Ventas)"
+        self.lbl_gastos.setText(texto_gasto)
+        self.lbl_gastos.setStyleSheet("color: #e74c3c; font-size: 18px; font-weight: bold;")
 
         # 2. Cargar Tabla 1: Top Rotacion
         top_productos = DashboardService.obtener_top_productos_mes()
@@ -202,3 +252,35 @@ class DashboardView(QWidget):
             item_min = QTableWidgetItem(f"{alerta['stock_minimo']:.2f}")
             item_min.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.tbl_alertas_stock.setItem(row, 2, item_min)
+
+    def _cargar_noticias(self):
+        import threading
+        def fetch():
+            import urllib.request
+            import xml.etree.ElementTree as ET
+
+            html = ""
+            try:
+                # Usamos Ambito Financiero Economía
+                req = urllib.request.Request('https://www.ambito.com/rss/economia.xml', headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    xml_data = response.read()
+
+                root = ET.fromstring(xml_data)
+                items = root.findall('.//item')[:5]
+
+                for item in items:
+                    title = item.find('title').text if item.find('title') is not None else 'Sin título'
+                    link = item.find('link').text if item.find('link') is not None else '#'
+                    pub_date = item.find('pubDate').text if item.find('pubDate') is not None else ''
+
+                    html += f"<h3><a href='{link}' style='color: #2980b9; text-decoration: none;'>{title}</a></h3>"
+                    html += f"<p style='color: #7f8c8d; font-size: 11px; margin-top: -10px;'>{pub_date}</p><hr>"
+            except Exception as e:
+                html = f"<p style='color: red;'>Sin conexión para noticias.<br>({str(e)})</p>"
+
+            # Actualizar GUI de forma segura (aunque en PyQt estricto deberia ser por señales, QTextBrowser tolera setText si no hay mucha concurrencia, pero lo haremos con un QTimer para ser pulcros)
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(0, lambda: self.txt_news.setHtml(html))
+
+        threading.Thread(target=fetch, daemon=True).start()

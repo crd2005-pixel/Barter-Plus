@@ -1,3 +1,4 @@
+from database.models.caja import MovimientoCaja
 from database.conexion import get_session
 from database.models.producto import Producto
 from database.models.venta import Venta, DetalleVenta
@@ -206,3 +207,84 @@ class DashboardService:
             if resultado and resultado[1] > 0:
                 return resultado[0] / resultado[1]
             return 0.0
+
+    @staticmethod
+    def obtener_analisis_descuentos() -> dict:
+        hoy = dt.date.today()
+        inicio_mes = hoy.replace(day=1)
+        with get_session() as session:
+            dt_desde = dt.datetime.combine(inicio_mes, dt.time.min)
+            dt_hasta = dt.datetime.combine(hoy, dt.time.max)
+
+            stmt = select(
+                func.sum(Venta.descuento).label('total_descuento'),
+                func.count(Venta.id).label('cant_ops_desc'),
+                func.sum(Venta.total).label('total_ventas')
+            ).where(
+                and_(
+                    Venta.fecha >= dt_desde,
+                    Venta.fecha <= dt_hasta,
+                    Venta.estado == "Completada"
+                )
+            )
+
+            # The count should only consider sales where descuento > 0
+            stmt_cant = select(func.count(Venta.id)).where(
+                and_(
+                    Venta.fecha >= dt_desde,
+                    Venta.fecha <= dt_hasta,
+                    Venta.estado == "Completada",
+                    Venta.descuento > 0
+                )
+            )
+
+            res = session.execute(stmt).first()
+            cant = session.execute(stmt_cant).scalar() or 0
+
+            total_desc = res.total_descuento or 0.0
+            total_ventas = res.total_ventas or 0.0
+
+            ventas_brutas = total_ventas + total_desc
+            porcentaje = (total_desc / ventas_brutas * 100) if ventas_brutas > 0 else 0.0
+
+            return {
+                "total_dinero_descontado": total_desc,
+                "cantidad_operaciones": cant,
+                "porcentaje_sobre_ventas": porcentaje
+            }
+
+    @staticmethod
+    def obtener_incidencia_gastos() -> dict:
+        hoy = dt.date.today()
+        inicio_mes = hoy.replace(day=1)
+        with get_session() as session:
+            dt_desde = dt.datetime.combine(inicio_mes, dt.time.min)
+            dt_hasta = dt.datetime.combine(hoy, dt.time.max)
+
+            # Sum of Egresos (excluding Supplier payments if possible, but the prompt says "Total de Gastos del mes ($)").
+            # I will query MovimientoCaja with tipo == "Egreso"
+            stmt_gastos = select(func.sum(MovimientoCaja.monto)).where(
+                and_(
+                    MovimientoCaja.fecha >= dt_desde,
+                    MovimientoCaja.fecha <= dt_hasta,
+                    MovimientoCaja.tipo == "Egreso"
+                )
+            )
+
+            total_gastos = session.scalar(stmt_gastos) or 0.0
+
+            stmt_ventas = select(func.sum(Venta.total)).where(
+                and_(
+                    Venta.fecha >= dt_desde,
+                    Venta.fecha <= dt_hasta,
+                    Venta.estado == "Completada"
+                )
+            )
+            total_ventas = session.scalar(stmt_ventas) or 0.0
+
+            incidencia = (total_gastos / total_ventas * 100) if total_ventas > 0 else 0.0
+
+            return {
+                "total_gastos": total_gastos,
+                "incidencia_operativa": incidencia
+            }
