@@ -92,23 +92,33 @@ class VentasTab(QWidget):
         self.btn_consulta_rapida = QPushButton("Consultar Precio (F2)")
         self.btn_consulta_rapida.setStyleSheet("padding: 10px; font-weight: bold; background-color: #f39c12; color: white;")
 
-        self.btn_sugerir_pedido = QPushButton("Anotar Pedido Manual")
+        self.btn_sugerir_pedido = QPushButton("Pedido Sugerido")
         self.btn_sugerir_pedido.setStyleSheet("padding: 10px; font-weight: bold; background-color: #8e44ad; color: white;")
 
         self.btn_cobrar_cc = QPushButton("Cobrar Cta. Cte.")
         self.btn_cobrar_cc.setStyleSheet("padding: 10px; font-weight: bold; background-color: #d35400; color: white;")
 
         self.btn_egreso = QPushButton("Egreso de Caja")
-        self.btn_egreso.setStyleSheet("padding: 10px; font-weight: bold; background-color: #7f8c8d; color: #c0392b; border: 2px solid #c0392b;")
+        self.btn_egreso.setStyleSheet("background-color: #A93226; color: white; font-weight: bold; border-radius: 4px; padding: 6px;")
 
-        self.btn_equivalencias = QPushButton("Buscador Equivalencias (Web)")
+        self.btn_equivalencias = QPushButton("Equivalencia(Web)")
         self.btn_equivalencias.setStyleSheet("padding: 10px; font-weight: bold; background-color: #34495e; color: white;")
 
-        self.fila_controles_layout.addWidget(self.btn_cobrar_cc)
-        self.fila_controles_layout.addWidget(self.btn_sugerir_pedido)
-        self.fila_controles_layout.addWidget(self.btn_consulta_rapida)
-        self.fila_controles_layout.addWidget(self.btn_equivalencias)
-        self.fila_controles_layout.addWidget(self.btn_egreso)
+        layout_botones_vertical = QVBoxLayout()
+
+        fila_superior = QHBoxLayout()
+        fila_superior.addWidget(self.btn_cobrar_cc)
+        fila_superior.addWidget(self.btn_sugerir_pedido)
+
+        fila_inferior = QHBoxLayout()
+        fila_inferior.addWidget(self.btn_consulta_rapida)
+        fila_inferior.addWidget(self.btn_equivalencias)
+        fila_inferior.addWidget(self.btn_egreso)
+
+        layout_botones_vertical.addLayout(fila_superior)
+        layout_botones_vertical.addLayout(fila_inferior)
+
+        self.fila_controles_layout.addLayout(layout_botones_vertical)
 
         # Ensamblaje
         self.layout_cabecera.addLayout(self.fila_cliente_layout)
