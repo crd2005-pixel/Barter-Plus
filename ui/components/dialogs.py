@@ -1411,7 +1411,7 @@ class DetalleServiceDialog(QDialog):
         super().__init__(parent)
         self.service_id = service_id
         self.setWindowTitle("Detalle de Service y QR")
-        self.resize(600, 400)
+        self.resize(600, 450)
         self.setup_ui()
 
     def setup_ui(self):
@@ -1434,8 +1434,8 @@ class DetalleServiceDialog(QDialog):
 
         btn_box = QHBoxLayout()
         self.btn_imprimir = QPushButton("Imprimir Ticket (Térmica)")
-        self.btn_imprimir.clicked.connect(self._imprimir_ticket_termico)
-        self.btn_pdf = QPushButton("Exportar PDF (WhatsApp)")
+        self.btn_imprimir.clicked.connect(self._imprimir_ticket)
+        self.btn_pdf = QPushButton("Exportar Ficha a PDF")
         self.btn_pdf.clicked.connect(self._exportar_pdf)
         self.btn_cerrar = QPushButton("Cerrar")
         self.btn_cerrar.clicked.connect(self.accept)
@@ -1456,7 +1456,6 @@ class DetalleServiceDialog(QDialog):
         from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import QMessageBox
         import io
-        import base64
 
         with get_session() as s:
             c = s.scalars(select(CambioAceite).options(joinedload(CambioAceite.vehiculo).joinedload(Vehiculo.cliente)).where(CambioAceite.id == self.service_id)).first()
@@ -1470,6 +1469,10 @@ class DetalleServiceDialog(QDialog):
             filtros_str = ", ".join(filtros) if filtros else "Ninguno"
 
             # Store vars for printing
+            self.fecha_str = c.fecha.strftime('%d/%m/%Y')
+            self.marca = c.vehiculo.marca or ""
+            self.modelo = c.vehiculo.modelo or ""
+            self.km_actual = str(c.km_actual)
             self.proximo_km = str(c.proximo_km)
             self.aceite = c.aceite_utilizado
             self.filtros_str = filtros_str
@@ -1477,15 +1480,17 @@ class DetalleServiceDialog(QDialog):
             html = f"""
             <h2 style="text-align: center;">Barter Plus</h2>
             <hr>
+            <p><b>Fecha:</b> {self.fecha_str}</p>
+            <p><b>Vehículo:</b> {self.marca} {self.modelo}</p>
+            <p><b>Km Actual:</b> {self.km_actual}</p>
             <p><b>Próximo Cambio:</b> {self.proximo_km} KM</p>
             <p><b>Aceite Utilizado:</b> {self.aceite}</p>
             <p><b>Filtros Cambiados:</b> {self.filtros_str}</p>
             """
             self.txt_detalle.setHtml(html)
-            self.html_content = html
 
             # Generar QR
-            t_lines = ["Barter Plus", f"Próximo Cambio: {self.proximo_km} KM", f"Aceite: {self.aceite}", f"Filtros: {self.filtros_str}"]
+            t_lines = ["Barter Plus", f"Vehiculo: {self.marca} {self.modelo}", f"Prox Cambio: {self.proximo_km} KM", f"Aceite: {self.aceite}"]
             qr_data = "\n".join(t_lines)
 
             try:
@@ -1497,93 +1502,93 @@ class DetalleServiceDialog(QDialog):
 
                 byte_io = io.BytesIO()
                 img.save(byte_io, 'PNG')
-                self.img_bytes = byte_io.getvalue()
-                self.qr_base64 = base64.b64encode(self.img_bytes).decode('utf-8')
+                img_bytes = byte_io.getvalue()
 
-                qimg = QImage.fromData(self.img_bytes)
+                qimg = QImage.fromData(img_bytes)
                 pix = QPixmap.fromImage(qimg)
                 self.lbl_qr.setPixmap(pix.scaled(200, 200, Qt.AspectRatioMode.KeepAspectRatio))
             except ImportError:
                 self.lbl_qr.setText("Módulo 'qrcode' no instalado.")
                 QMessageBox.warning(self, "Dependencia Faltante", "El módulo 'qrcode' no está instalado. No se generará la imagen del código QR.")
-                self.img_bytes = None
-                self.qr_base64 = ""
             except Exception as e:
                 self.lbl_qr.setText("Error QR")
-                self.img_bytes = None
-                self.qr_base64 = ""
 
-    def _imprimir_ticket_termico(self):
-        from PyQt6.QtPrintSupport import QPrinter
-        from PyQt6.QtGui import QTextDocument, QPageSize
-        from PyQt6.QtCore import QSizeF, QMarginsF
-        from PyQt6.QtGui import QPageLayout
-        from PyQt6.QtWidgets import QMessageBox
+    def _imprimir_ticket(self):
+        from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
+        from PyQt6.QtGui import QTextDocument, QPageLayout
+        from PyQt6.QtCore import QBuffer, QIODevice, QMarginsF, QByteArray
 
-        if not hasattr(self, 'qr_base64') or not self.qr_base64:
-            QMessageBox.warning(self, "Atención", "No hay QR generado para imprimir.")
-            qr_tag = ""
-        else:
-            qr_tag = f'<img src="data:image/png;base64,{self.qr_base64}" width="180" height="180">'
+        buffer = QBuffer()
+        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+        if self.lbl_qr.pixmap():
+            self.lbl_qr.pixmap().save(buffer, "PNG")
+        qr_base64 = buffer.data().toBase64().data().decode()
 
-        ticket_html = f"""
-        <div style="width: 280px; font-family: monospace; font-size: 14px; text-align: center; color: black; background-color: white;">
-            <h1 style="margin: 0;">BARTER PLUS</h1>
-            <p style="margin: 5px 0;">Control de Service</p>
-            <hr style="border-top: 1px dashed black;">
-            <p style="text-align: left;"><b>Próx. Cambio:</b><br>{self.proximo_km} KM</p>
-            <p style="text-align: left;"><b>Aceite:</b><br>{self.aceite}</p>
-            <p style="text-align: left;"><b>Filtros:</b><br>{self.filtros_str}</p>
-            <hr style="border-top: 1px dashed black;">
-            {qr_tag}
-            <p style="font-size: 10px;">Escanee para guardar</p>
-        </div>
-        """
-
-        # We assume standard POS printer width around 70-80mm.
         printer = QPrinter(QPrinter.PrinterMode.ScreenResolution)
-        printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
+        dialog = QPrintDialog(printer, self)
+        if dialog.exec() == int(QPrintDialog.DialogCode.Accepted):
+            doc = QTextDocument()
+            html_ticket = f"""
+            <div style='width: 250px; font-family: monospace; font-size: 13px;'>
+            <h2 style='text-align: center; margin:0;'>BARTER PLUS</h2>
+            <p style='text-align: center; margin:0;'>Lubricentro</p>
+            <hr>
+            <b>Fecha:</b> {self.fecha_str}<br>
+            <b>Vehiculo:</b> {self.marca} {self.modelo}<br>
+            <b>Km Actual:</b> {self.km_actual}<br>
+            <b>Prox Cambio:</b> {self.proximo_km} KM<br>
+            <b>Aceite:</b> {self.aceite}<br>
+            <b>Filtros:</b> {self.filtros_str}
+            <hr>
+            <div style='text-align: center;'>
+            <img src='data:image/png;base64,{qr_base64}' width='150' height='150'>
+            </div>
+            </div>
+            """
+            doc.setHtml(html_ticket)
 
-        doc = QTextDocument()
-        doc.setDocumentMargin(0)
-        doc.setHtml(ticket_html)
+            # Use appropriate PyQt6 API for margins
+            layout = printer.pageLayout()
+            layout.setMargins(QMarginsF(0, 0, 0, 0))
+            printer.setPageLayout(layout)
 
-        # Apply strict dimensions to prevent infinite paper spooling
-        width_px = 280
-        height_px = doc.size().height() + 50
-        doc.setPageSize(QSizeF(width_px, height_px))
-
-        doc.print(printer)
-        QMessageBox.information(self, "Impresión", "Ticket enviado a la impresora por defecto.")
+            doc.print(printer)
 
     def _exportar_pdf(self):
         from PyQt6.QtPrintSupport import QPrinter
-        from PyQt6.QtGui import QTextDocument, QPageSize
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from PyQt6.QtGui import QTextDocument
+        from PyQt6.QtWidgets import QFileDialog
+        from PyQt6.QtCore import QBuffer, QIODevice
 
-        path, _ = QFileDialog.getSaveFileName(self, "Exportar PDF", f"Service_Ficha_{self.service_id}.pdf", "PDF Files (*.pdf)")
-        if not path: return
+        ruta, _ = QFileDialog.getSaveFileName(self, "Guardar Ficha PDF", "", "PDF Files (*.pdf)")
+        if ruta:
+            buffer = QBuffer()
+            buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+            if self.lbl_qr.pixmap():
+                self.lbl_qr.pixmap().save(buffer, "PNG")
+            qr_base64 = buffer.data().toBase64().data().decode()
 
-        img_html = ""
-        if hasattr(self, 'qr_base64') and self.qr_base64:
-            img_html = f'<img src="data:image/png;base64,{self.qr_base64}" width="200" height="200">'
+            printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+            printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+            printer.setOutputFileName(ruta)
 
-        full_html = f"""
-        <html><body style="font-family: sans-serif; background-color: white; color: black;">
-        <table width="100%"><tr>
-        <td width="60%" valign="top">{self.html_content}</td>
-        <td width="40%" align="center">{img_html}</td>
-        </tr></table>
-        </body></html>
-        """
-
-        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
-        printer.setOutputFileName(path)
-        printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
-
-        doc = QTextDocument()
-        doc.setHtml(full_html)
-        doc.print(printer)
-
-        QMessageBox.information(self, "Éxito", "PDF exportado correctamente.")
+            doc = QTextDocument()
+            html_ticket = f"""
+            <div style='font-family: sans-serif; font-size: 14px;'>
+            <h2 style='text-align: center; margin:0;'>BARTER PLUS</h2>
+            <p style='text-align: center; margin:0;'>Lubricentro</p>
+            <hr>
+            <b>Fecha:</b> {self.fecha_str}<br>
+            <b>Vehiculo:</b> {self.marca} {self.modelo}<br>
+            <b>Km Actual:</b> {self.km_actual}<br>
+            <b>Prox Cambio:</b> {self.proximo_km} KM<br>
+            <b>Aceite:</b> {self.aceite}<br>
+            <b>Filtros:</b> {self.filtros_str}
+            <hr>
+            <div style='text-align: center;'>
+            <img src='data:image/png;base64,{qr_base64}' width='150' height='150'>
+            </div>
+            </div>
+            """
+            doc.setHtml(html_ticket)
+            doc.print(printer)
