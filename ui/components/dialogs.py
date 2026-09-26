@@ -1515,8 +1515,8 @@ class DetalleServiceDialog(QDialog):
 
     def _imprimir_ticket(self):
         from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
-        from PyQt6.QtGui import QTextDocument, QPageLayout
-        from PyQt6.QtCore import QBuffer, QIODevice, QMarginsF, QByteArray
+        from PyQt6.QtGui import QTextDocument, QPageLayout, QPageSize
+        from PyQt6.QtCore import QBuffer, QIODevice, QMarginsF, QByteArray, QSizeF
 
         buffer = QBuffer()
         buffer.open(QIODevice.OpenModeFlag.WriteOnly)
@@ -1524,34 +1524,65 @@ class DetalleServiceDialog(QDialog):
             self.lbl_qr.pixmap().save(buffer, "PNG")
         qr_base64 = buffer.data().toBase64().data().decode()
 
-        printer = QPrinter(QPrinter.PrinterMode.ScreenResolution)
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer.setPageSize(QPageSize(QSizeF(50, 40), QPageSize.Unit.Millimeter))
+        printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
+
         dialog = QPrintDialog(printer, self)
         if dialog.exec() == int(QPrintDialog.DialogCode.Accepted):
-            doc = QTextDocument()
-            html_ticket = f"""
-            <div style='width: 250px; font-family: monospace; font-size: 13px;'>
-            <h2 style='text-align: center; margin:0;'>BARTER PLUS</h2>
-            <p style='text-align: center; margin:0;'>Lubricentro</p>
-            <hr>
-            <b>Fecha:</b> {self.fecha_str}<br>
-            <b>Vehiculo:</b> {self.marca} {self.modelo}<br>
-            <b>Km Actual:</b> {self.km_actual}<br>
-            <b>Prox Cambio:</b> {self.proximo_km} KM<br>
-            <b>Aceite:</b> {self.aceite}<br>
-            <b>Filtros:</b> {self.filtros_str}
-            <hr>
-            <div style='text-align: center;'>
-            <img src='data:image/png;base64,{qr_base64}' width='150' height='150'>
-            </div>
-            </div>
+            filtros_cortos = self.filtros_str.replace("Combustible", "Comb").replace("Habitáculo", "Habit")
+
+            html_etiqueta = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body {{
+                        font-family: Arial, sans-serif;
+                        font-size: 8px; /* Letra muy pequeña para HighResolution */
+                        margin: 0;
+                        padding: 2px;
+                        color: black;
+                        background-color: white;
+                    }}
+                    table {{
+                        width: 100%;
+                        border-collapse: collapse;
+                    }}
+                    td {{
+                        vertical-align: top;
+                    }}
+                    .titulo {{
+                        font-size: 10px;
+                        font-weight: bold;
+                        margin-bottom: 2px;
+                    }}
+                    .dato {{
+                        margin: 1px 0;
+                    }}
+                </style>
+            </head>
+            <body>
+                <table>
+                    <tr>
+                        <td width="55%">
+                            <div class="titulo">BARTER PLUS</div>
+                            <div class="dato"><b>Veh:</b> {self.marca} {self.modelo}</div>
+                            <div class="dato"><b>KM:</b> {self.km_actual}</div>
+                            <div class="dato"><b>Próx:</b> {self.proximo_km}</div>
+                            <div class="dato"><b>Aceite:</b> {self.aceite}</div>
+                            <div class="dato"><b>Filtros:</b> {filtros_cortos}</div>
+                        </td>
+                        <td width="45%" align="right" style="vertical-align: middle;">
+                            <img src="data:image/png;base64,{qr_base64}" width="70" height="70">
+                        </td>
+                    </tr>
+                </table>
+            </body>
+            </html>
             """
-            doc.setHtml(html_ticket)
-
-            # Use appropriate PyQt6 API for margins
-            layout = printer.pageLayout()
-            layout.setMargins(QMarginsF(0, 0, 0, 0))
-            printer.setPageLayout(layout)
-
+            doc = QTextDocument()
+            doc.setHtml(html_etiqueta)
             doc.print(printer)
 
     def _exportar_pdf(self):
