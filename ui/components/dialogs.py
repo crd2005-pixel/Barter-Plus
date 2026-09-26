@@ -1515,75 +1515,91 @@ class DetalleServiceDialog(QDialog):
 
     def _imprimir_ticket(self):
         from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
-        from PyQt6.QtGui import QTextDocument, QPageLayout, QPageSize
-        from PyQt6.QtCore import QBuffer, QIODevice, QMarginsF, QByteArray, QSizeF
+        from PyQt6.QtGui import QPainter, QPageSize, QPageLayout, QFont, QPen
+        from PyQt6.QtCore import QSizeF, QMarginsF, Qt, QRect
+        from PyQt6.QtWidgets import QMessageBox
 
-        buffer = QBuffer()
-        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
-        if self.lbl_qr.pixmap():
-            self.lbl_qr.pixmap().save(buffer, "PNG")
-        qr_base64 = buffer.data().toBase64().data().decode()
-
+        # Setup Printer EXACTLY like Barcode Labels (Rollo)
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-        printer.setPageSize(QPageSize(QSizeF(50, 40), QPageSize.Unit.Millimeter))
-        printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
+
+        # Define QPageSize (50x40 mm)
+        w_mm = 50.0
+        h_mm = 40.0
+        size = QPageSize(QSizeF(w_mm, h_mm), QPageSize.Unit.Millimeter)
+        printer.setPageSize(size)
+        printer.setPageMargins(QMarginsF(0.0, 0.0, 0.0, 0.0), QPageLayout.Unit.Millimeter)
+        printer.setFullPage(True) # Force full page drawing for roll printers
 
         dialog = QPrintDialog(printer, self)
         if dialog.exec() == int(QPrintDialog.DialogCode.Accepted):
-            filtros_cortos = self.filtros_str.replace("Combustible", "Comb").replace("Habitáculo", "Habit")
+            painter = QPainter(printer)
+            if not painter.isActive():
+                QMessageBox.critical(self, "Error", "No se pudo iniciar QPainter sobre la impresora.")
+                return
 
-            html_etiqueta = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body {{
-                        font-family: Arial, sans-serif;
-                        font-size: 8px; /* Letra muy pequeña para HighResolution */
-                        margin: 0;
-                        padding: 2px;
-                        color: black;
-                        background-color: white;
-                    }}
-                    table {{
-                        width: 100%;
-                        border-collapse: collapse;
-                    }}
-                    td {{
-                        vertical-align: top;
-                    }}
-                    .titulo {{
-                        font-size: 10px;
-                        font-weight: bold;
-                        margin-bottom: 2px;
-                    }}
-                    .dato {{
-                        margin: 1px 0;
-                    }}
-                </style>
-            </head>
-            <body>
-                <table>
-                    <tr>
-                        <td width="55%">
-                            <div class="titulo">BARTER PLUS</div>
-                            <div class="dato"><b>Veh:</b> {self.marca} {self.modelo}</div>
-                            <div class="dato"><b>KM:</b> {self.km_actual}</div>
-                            <div class="dato"><b>Próx:</b> {self.proximo_km}</div>
-                            <div class="dato"><b>Aceite:</b> {self.aceite}</div>
-                            <div class="dato"><b>Filtros:</b> {filtros_cortos}</div>
-                        </td>
-                        <td width="45%" align="right" style="vertical-align: middle;">
-                            <img src="data:image/png;base64,{qr_base64}" width="70" height="70">
-                        </td>
-                    </tr>
-                </table>
-            </body>
-            </html>
-            """
-            doc = QTextDocument()
-            doc.setHtml(html_etiqueta)
-            doc.print(printer)
+            dpi = printer.resolution()
+            if dpi <= 0: dpi = 96
+            ppm = dpi / 25.4
+
+            # Use paintRectPixels like the new standard in labels
+            page_rect = printer.pageLayout().paintRectPixels(dpi)
+
+            # Setup Fonts based on HighRes scaling (same as labels)
+            font_title = QFont("Arial")
+            font_title.setPixelSize(int(10 * (dpi / 72.0)))
+            font_title.setBold(True)
+
+            font_text = QFont("Arial")
+            font_text.setPixelSize(int(8 * (dpi / 72.0)))
+
+            # Black pen to avoid microscopic rendering issues
+            pen = QPen(Qt.GlobalColor.black)
+            pen.setWidth(2)
+            pen.setStyle(Qt.PenStyle.SolidLine)
+            painter.setPen(pen)
+
+            # Define Areas
+            w_px = w_mm * ppm
+            h_px = h_mm * ppm
+
+            # Text area (Left ~55%)
+            text_x = int(page_rect.x() + (2 * ppm)) # 2mm margin
+            text_y = int(page_rect.y() + (2 * ppm))
+            text_w = int(w_px * 0.55)
+
+            # QR area (Right ~45%)
+            qr_x = int(text_x + text_w)
+            qr_y = int(page_rect.y() + (5 * ppm)) # Center vertically roughly
+            qr_size = int(h_px - (10 * ppm)) # Keep inside bounds
+
+            # Draw Text
+            painter.setFont(font_title)
+            painter.drawText(text_x, text_y + painter.fontMetrics().ascent(), "BARTER PLUS")
+            text_y += painter.fontMetrics().height() + int(2 * ppm)
+
+            painter.setFont(font_text)
+
+            filtros_cortos = self.filtros_str.replace("Combustible", "Comb").replace("Habitáculo", "Habit")
+            lines = [
+                f"Veh: {self.marca} {self.modelo}",
+                f"KM: {self.km_actual}",
+                f"Próx: {self.proximo_km}",
+                f"Aceite: {self.aceite}",
+                f"Filtros: {filtros_cortos}"
+            ]
+
+            for line in lines:
+                painter.drawText(text_x, text_y + painter.fontMetrics().ascent(), line)
+                text_y += painter.fontMetrics().height() + int(1 * ppm)
+
+            # Draw QR Base64 to Pixmap if not already in memory
+            if self.lbl_qr.pixmap():
+                qr_pix = self.lbl_qr.pixmap().scaled(qr_size, qr_size, Qt.AspectRatioMode.KeepAspectRatio)
+                painter.drawPixmap(qr_x, qr_y, qr_pix)
+
+            painter.end()
+            del painter
+
 
     def _exportar_pdf(self):
         from PyQt6.QtPrintSupport import QPrinter
