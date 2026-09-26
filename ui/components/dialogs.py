@@ -29,11 +29,16 @@ class BuscadorEquivalenciasDialog(QDialog):
         self.btn_buscar_smart.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; font-size: 16px; padding: 10px;")
         self.btn_buscar_smart.clicked.connect(self.buscar_mareno)
 
+        self.btn_buscar_seineca = QPushButton("Buscar Equivalencia en SEINECA")
+        self.btn_buscar_seineca.setStyleSheet("background-color: #d35400; color: white; font-weight: bold; font-size: 14px; padding: 10px;")
+        self.btn_buscar_seineca.clicked.connect(self._buscar_seineca)
+
         self.btn_busqueda_general = QPushButton("Búsqueda Abierta (Todas las marcas)")
         self.btn_busqueda_general.setStyleSheet("background-color: #7f8c8d; color: white; padding: 8px;")
         self.btn_busqueda_general.clicked.connect(self.buscar_abierta)
 
         layout.addWidget(self.btn_buscar_smart)
+        layout.addWidget(self.btn_buscar_seineca)
         layout.addWidget(self.btn_busqueda_general)
 
         # Catálogos Oficiales
@@ -46,12 +51,12 @@ class BuscadorEquivalenciasDialog(QDialog):
         btn_fram = QPushButton("Catálogo Fram")
         btn_fram.clicked.connect(lambda: webbrowser.open("https://www.fram.com/parts-search/"))
 
-        btn_tecneco = QPushButton("Catálogo Tecneco")
-        btn_tecneco.clicked.connect(lambda: webbrowser.open("https://www.tecneco.com/catalogo-online/"))
+        btn_wega = QPushButton("Catálogo Wega")
+        btn_wega.clicked.connect(lambda: webbrowser.open("https://wega.com.ar/es/catalogo"))
 
         lay_cat.addWidget(btn_mareno)
         lay_cat.addWidget(btn_fram)
-        lay_cat.addWidget(btn_tecneco)
+        lay_cat.addWidget(btn_wega)
         layout.addWidget(group)
 
     def buscar_mareno(self):
@@ -59,6 +64,12 @@ class BuscadorEquivalenciasDialog(QDialog):
         if not texto_limpio: return
         query = f"https://www.google.com/search?q=equivalencia+filtro+{texto_limpio}+a+mareno+cruzamiento"
         webbrowser.open(query)
+
+    def _buscar_seineca(self):
+        texto_limpio = self.input_busqueda.text().strip().replace(' ', '+')
+        if texto_limpio:
+            query = f"https://www.google.com/search?q=equivalencia+filtro+{texto_limpio}+a+seineca+cruzamiento"
+            webbrowser.open(query)
 
     def buscar_abierta(self):
         texto_limpio = self.input_busqueda.text().strip().replace(' ', '+')
