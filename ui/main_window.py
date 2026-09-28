@@ -96,17 +96,46 @@ class MainWindow(QMainWindow):
 
 
     def _aplicar_permisos(self, rol, permisos_string):
+        import json
         self.rol_actual = rol
         if rol == 'Administrador':
             return # Todo visible
 
-        # Si es Mostrador, parseamos los permisos
-        permisos_lista = [p.strip() for p in permisos_string.split(',')]
+        # Parse JSON o fallback a lista separada por comas
+        try:
+            permisos_lista = json.loads(permisos_string) if permisos_string else []
+        except:
+            permisos_lista = [p.strip() for p in permisos_string.split(',')] if permisos_string else []
 
+        # Nivel 1: Ocultar pestañas principales
         for i in range(self.tabs.count()):
             tab_text = self.tabs.tabText(i)
             if tab_text == "Configuración":
                 self.tabs.setTabVisible(i, False)
+                continue
+
+            # Verifica si la pestaña principal o alguno de sus hijos está en la lista
+            padre_ok = tab_text in permisos_lista
+            hijo_ok = any(p.startswith(f"{tab_text}:") for p in permisos_lista)
+
+            if not (padre_ok or hijo_ok):
+                self.tabs.setTabVisible(i, False)
+            else:
+                # Nivel 2: Ocultar subpestañas dentro de los módulos
+                widget = self.tabs.widget(i)
+                if hasattr(widget, 'tabs'):
+                    sub_tabs = widget.tabs
+                    for j in range(sub_tabs.count()):
+                        sub_text = sub_tabs.tabText(j)
+                        sub_full = f"{tab_text}:{sub_text}"
+                        if sub_full not in permisos_lista and sub_text not in permisos_lista and not padre_ok:
+                            sub_tabs.setTabVisible(j, False)
+
+        # Seguridad Activa: Seleccionar primera pestaña visible
+        for i in range(self.tabs.count()):
+            if self.tabs.isTabVisible(i):
+                self.tabs.setCurrentIndex(i)
+                break
             elif tab_text not in permisos_lista:
                 self.tabs.setTabVisible(i, False)
 

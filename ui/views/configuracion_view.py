@@ -1,13 +1,14 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QSpinBox, QGroupBox, QFormLayout, QMessageBox, QTabWidget,
-    QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit, QComboBox, QCheckBox, QAbstractItemView
+    QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit, QComboBox, QCheckBox, QAbstractItemView, QTreeWidget, QTreeWidgetItem
 )
 from PyQt6.QtCore import QTimer, QThreadPool, pyqtSlot, Qt
 from core.backup_manager import BackupWorker, GoogleDriveUploader
 from database.conexion import get_session
 from database.models.usuario import Usuario
 import hashlib
+import json
 
 class ConfiguracionView(QWidget):
     def __init__(self):
@@ -112,16 +113,45 @@ class ConfiguracionView(QWidget):
         group_form.setLayout(form)
         right_panel.addWidget(group_form)
 
-        # Permisos
+        # Permisos Granulares
         self.group_permisos = QGroupBox("Permisos de Pestañas (Solo Mostrador)")
         permisos_lay = QVBoxLayout()
 
-        self.chk_dict = {}
-        modulos = ["POS", "Caja", "Egresos", "Taller", "Finanzas", "Clientes", "Productos", "Precios", "Proveedores", "Métricas"]
-        for m in modulos:
-            chk = QCheckBox(m)
-            self.chk_dict[m] = chk
-            permisos_lay.addWidget(chk)
+        self.tree_permisos = QTreeWidget()
+        self.tree_permisos.setHeaderHidden(True)
+
+        estructura = {
+            "POS": [],
+            "Caja": ["Caja Actual", "Historial / Auditoría", "Configuración de Tarjetas"],
+            "Egresos": [],
+            "Taller": ["Garantías de Baterías", "Cambios de Aceite"],
+            "Finanzas": [],
+            "Clientes": [],
+            "Productos": [],
+            "Precios": ["Gestor de Precios", "Códigos de Barra y Etiquetas"],
+            "Proveedores": [],
+            "Métricas": [],
+            "Configuración": []
+        }
+
+        self.nodos_dict = {}
+
+        for padre, hijos in estructura.items():
+            item_padre = QTreeWidgetItem([padre])
+            item_padre.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            item_padre.setCheckState(0, Qt.CheckState.Unchecked)
+            self.tree_permisos.addTopLevelItem(item_padre)
+            self.nodos_dict[padre] = item_padre
+
+            for hijo in hijos:
+                item_hijo = QTreeWidgetItem([hijo])
+                item_hijo.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+                item_hijo.setCheckState(0, Qt.CheckState.Unchecked)
+                item_padre.addChild(item_hijo)
+                self.nodos_dict[f"{padre}:{hijo}"] = item_hijo
+
+        self.tree_permisos.expandAll()
+        permisos_lay.addWidget(self.tree_permisos)
 
         self.group_permisos.setLayout(permisos_lay)
         right_panel.addWidget(self.group_permisos)
@@ -161,8 +191,8 @@ class ConfiguracionView(QWidget):
         self.txt_usr_name.clear()
         self.txt_usr_pass.clear()
         self.cmb_usr_rol.setCurrentIndex(1) # Mostrador
-        for chk in self.chk_dict.values():
-            chk.setChecked(False)
+        for nodo in self.nodos_dict.values():
+            nodo.setCheckState(0, Qt.CheckState.Unchecked)
 
     def _cargar_usuario_seleccionado(self):
         items = self.tabla_usuarios.selectedItems()
@@ -177,23 +207,28 @@ class ConfiguracionView(QWidget):
             self.txt_usr_pass.clear()
             self.cmb_usr_rol.setCurrentText(u.rol)
 
-            for chk in self.chk_dict.values():
-                chk.setChecked(False)
+            for nodo in self.nodos_dict.values():
+                nodo.setCheckState(0, Qt.CheckState.Unchecked)
 
             if u.rol == "Administrador":
                 self._on_rol_changed("Administrador")
             else:
                 self._on_rol_changed("Mostrador")
-                permisos = u.permisos.split(',')
+                try:
+                    permisos = json.loads(u.permisos) if u.permisos else []
+                except:
+                    # Fallback for old comma-separated
+                    permisos = u.permisos.split(',') if u.permisos else []
+
                 for p in permisos:
-                    if p in self.chk_dict:
-                        self.chk_dict[p].setChecked(True)
+                    if p in self.nodos_dict:
+                        self.nodos_dict[p].setCheckState(0, Qt.CheckState.Checked)
 
     def _on_rol_changed(self, rol):
         if rol == "Administrador":
             self.group_permisos.setEnabled(False)
-            for chk in self.chk_dict.values():
-                chk.setChecked(True)
+            for nodo in self.nodos_dict.values():
+                nodo.setCheckState(0, Qt.CheckState.Checked)
         else:
             self.group_permisos.setEnabled(True)
 
@@ -209,8 +244,8 @@ class ConfiguracionView(QWidget):
         if rol == "Administrador":
             permisos = "TODOS"
         else:
-            perm_list = [k for k, v in self.chk_dict.items() if v.isChecked()]
-            permisos = ",".join(perm_list)
+            perm_list = [k for k, v in self.nodos_dict.items() if v.checkState(0) == Qt.CheckState.Checked]
+            permisos = json.dumps(perm_list)
 
         with get_session() as s:
             if self.txt_usr_id.text():
