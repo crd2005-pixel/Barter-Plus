@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QSettings, QSizeF, QRectF, QTimer, QMarginsF
 from PyQt6.QtGui import QColor, QPainter, QFont, QPen, QBrush, QPageLayout, QPageSize
-from PyQt6.QtPrintSupport import QPrinter, QPrintDialog, QPrintPreviewWidget
+from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
 
 from database.conexion import get_session
 from database.models.producto import Producto
@@ -137,12 +137,21 @@ class EtiquetasPreviewDialog(QDialog):
 
         left_lay.addLayout(btn_box)
 
-        # --- RIGHT PANEL: Preview ---
-        self.preview = QPrintPreviewWidget(self.printer)
-        self.preview.paintRequested.connect(self._paint_preview)
+        # --- RIGHT PANEL: Preview (NOW PDF GENERATOR) ---
+        right_widget = QWidget()
+        right_lay = QVBoxLayout(right_widget)
+        lbl_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_info.setStyleSheet("color: #7f8c8d; font-size: 14px; font-weight: bold;")
+
+        btn_preview_pdf = QPushButton("Generar Vista Previa PDF")
+        btn_preview_pdf.setStyleSheet("font-weight:bold; height: 50px; background-color: #3498db; color: white;")
+        btn_preview_pdf.clicked.connect(self._abrir_vista_previa)
+
+        right_lay.addWidget(lbl_info)
+        right_lay.addWidget(btn_preview_pdf)
 
         splitter.addWidget(left_widget)
-        splitter.addWidget(self.preview)
+        splitter.addWidget(right_widget)
         splitter.setStretchFactor(1, 2) # Give preview more space
 
         # Load Settings
@@ -235,7 +244,8 @@ class EtiquetasPreviewDialog(QDialog):
             self._trigger_update()
 
     def _trigger_update(self):
-        self.preview.updatePreview()
+        # self.preview.updatePreview()
+        pass
 
     def _apply_printer_config(self, printer):
         """Applies page size and margins to the given printer based on UI settings."""
@@ -256,22 +266,49 @@ class EtiquetasPreviewDialog(QDialog):
             printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
             printer.setFullPage(False)
 
-    def _paint_preview(self, printer):
+    def _abrir_vista_previa(self):
+        import os
+        import tempfile
+        import webbrowser
         import traceback
-        self._save_settings()
-        self._apply_printer_config(printer)
+        from PyQt6.QtPrintSupport import QPrinter
+        from PyQt6.QtGui import QPainter
 
-        painter = QPainter()
+        self._save_settings()
+
         try:
+            # 1. Obtener datos
+            # We already have self.items
+
+            # 2. Crear ruta temporal para el PDF
+            temp_dir = tempfile.gettempdir()
+            pdf_path = os.path.join(temp_dir, "vista_previa_etiquetas.pdf")
+
+            # 3. Configurar QPrinter para exportar a PDF
+            printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+            printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+            printer.setOutputFileName(pdf_path)
+
+            # Configurar el tamaño exacto
+            self._apply_printer_config(printer)
+
+            # 4. Iniciar QPainter
+            painter = QPainter()
             if not painter.begin(printer):
-                raise Exception("Fallo al inicializar QPainter en el QPrinter")
-            self._draw_labels(painter, printer)
-        except Exception as e:
-            print("ERROR EN DIBUJO ETIQUETAS:")
-            traceback.print_exc()
-        finally:
-            if painter.isActive():
+                raise Exception("Fallo al inicializar el PDF")
+
+            try:
+                # 5. Lógica de dibujo
+                self._draw_labels(painter, printer)
+            finally:
                 painter.end()
+
+            # 6. Abrir el PDF generado
+            webbrowser.open_new(pdf_path)
+
+        except Exception as e:
+            traceback.print_exc()
+            QMessageBox.critical(self, "Error de Impresión", f"Ocurrió un error al generar la vista previa:\n{str(e)}")
 
     def _draw_labels(self, painter, printer):
         # Generate flat list of items to print based on quantity
