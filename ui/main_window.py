@@ -10,6 +10,7 @@ from ui.views.registros_view import RegistrosView
 from ui.views.gastos_view import GastosView
 from ui.views.clientes_view import ClientesView
 from ui.views.dashboard_view import DashboardView
+from ui.views.configuracion_view import ConfiguracionView
 from ui.styles import LIGHT_THEME, DARK_THEME
 
 class MainWindow(QMainWindow):
@@ -79,6 +80,9 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.productos_tab, "Productos")
         self.tabs.addTab(self.precios_tab, "Precios")
         self.tabs.addTab(self.proveedores_tab, "Proveedores")
+
+        self.configuracion_view = ConfiguracionView()
+        self.tabs.addTab(self.configuracion_view, "Configuración")
 
         # Dashboard Principal movido al final
         self.tabs.addTab(self.dashboard_view, "Métricas")
