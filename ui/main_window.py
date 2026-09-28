@@ -94,6 +94,22 @@ class MainWindow(QMainWindow):
         # Seleccionar por defecto la pestaña Dashboard
         self.tabs.setCurrentWidget(self.ventas_tab)
 
+
+    def _aplicar_permisos(self, rol, permisos_string):
+        self.rol_actual = rol
+        if rol == 'Administrador':
+            return # Todo visible
+
+        # Si es Mostrador, parseamos los permisos
+        permisos_lista = [p.strip() for p in permisos_string.split(',')]
+
+        for i in range(self.tabs.count()):
+            tab_text = self.tabs.tabText(i)
+            if tab_text == "Configuración":
+                self.tabs.setTabVisible(i, False)
+            elif tab_text not in permisos_lista:
+                self.tabs.setTabVisible(i, False)
+
     def change_theme(self, theme_name: str):
         app = QApplication.instance()
         if app:

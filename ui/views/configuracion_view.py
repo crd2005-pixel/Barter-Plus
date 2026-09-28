@@ -1,9 +1,13 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QSpinBox, QGroupBox, QFormLayout, QMessageBox, QProgressBar
+    QSpinBox, QGroupBox, QFormLayout, QMessageBox, QTabWidget,
+    QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit, QComboBox, QCheckBox, QAbstractItemView
 )
-from PyQt6.QtCore import QTimer, QThreadPool, pyqtSlot
+from PyQt6.QtCore import QTimer, QThreadPool, pyqtSlot, Qt
 from core.backup_manager import BackupWorker, GoogleDriveUploader
+from database.conexion import get_session
+from database.models.usuario import Usuario
+import hashlib
 
 class ConfiguracionView(QWidget):
     def __init__(self):
@@ -12,15 +16,30 @@ class ConfiguracionView(QWidget):
         self.setup_ui()
         self._check_auth_status()
 
-        # Iniciar Timer de Backup
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._run_backup)
         self._update_timer()
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
+        self.tabs = QTabWidget()
 
-        # Grupo Backup
+        # Pestaña 1: Respaldos
+        self.tab_respaldos = QWidget()
+        self._setup_tab_respaldos()
+
+        # Pestaña 2: Accesos
+        self.tab_accesos = QWidget()
+        self._setup_tab_accesos()
+
+        self.tabs.addTab(self.tab_respaldos, "Respaldos (Drive)")
+        self.tabs.addTab(self.tab_accesos, "Gestión de Accesos")
+
+        layout.addWidget(self.tabs)
+
+    def _setup_tab_respaldos(self):
+        layout = QVBoxLayout(self.tab_respaldos)
+
         group_backup = QGroupBox("Google Drive Backup")
         form_backup = QFormLayout()
 
@@ -47,10 +66,205 @@ class ConfiguracionView(QWidget):
         form_backup.addRow("", self.lbl_status)
 
         group_backup.setLayout(form_backup)
-
         layout.addWidget(group_backup)
         layout.addStretch()
 
+    def _setup_tab_accesos(self):
+        layout = QHBoxLayout(self.tab_accesos)
+
+        # Izquierda: Grilla
+        left_panel = QVBoxLayout()
+        self.tabla_usuarios = QTableWidget(0, 3)
+        self.tabla_usuarios.setHorizontalHeaderLabels(["ID", "Usuario", "Rol"])
+        self.tabla_usuarios.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tabla_usuarios.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tabla_usuarios.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.tabla_usuarios.itemSelectionChanged.connect(self._cargar_usuario_seleccionado)
+        left_panel.addWidget(self.tabla_usuarios)
+
+        btn_nuevo = QPushButton("Nuevo Usuario")
+        btn_nuevo.clicked.connect(self._limpiar_form_usuario)
+        left_panel.addWidget(btn_nuevo)
+
+        # Derecha: Formulario
+        right_panel = QVBoxLayout()
+        group_form = QGroupBox("Datos del Usuario")
+        form = QFormLayout()
+
+        self.txt_usr_id = QLineEdit()
+        self.txt_usr_id.setReadOnly(True)
+        self.txt_usr_id.setPlaceholderText("ID (Auto)")
+
+        self.txt_usr_name = QLineEdit()
+        self.txt_usr_pass = QLineEdit()
+        self.txt_usr_pass.setEchoMode(QLineEdit.EchoMode.Password)
+        self.txt_usr_pass.setPlaceholderText("Dejar vacío para no cambiar")
+
+        self.cmb_usr_rol = QComboBox()
+        self.cmb_usr_rol.addItems(["Administrador", "Mostrador"])
+        self.cmb_usr_rol.currentTextChanged.connect(self._on_rol_changed)
+
+        form.addRow("ID:", self.txt_usr_id)
+        form.addRow("Usuario:", self.txt_usr_name)
+        form.addRow("Contraseña:", self.txt_usr_pass)
+        form.addRow("Rol:", self.cmb_usr_rol)
+
+        group_form.setLayout(form)
+        right_panel.addWidget(group_form)
+
+        # Permisos
+        self.group_permisos = QGroupBox("Permisos de Pestañas (Solo Mostrador)")
+        permisos_lay = QVBoxLayout()
+
+        self.chk_dict = {}
+        modulos = ["POS", "Caja", "Egresos", "Taller", "Finanzas", "Clientes", "Productos", "Precios", "Proveedores", "Métricas"]
+        for m in modulos:
+            chk = QCheckBox(m)
+            self.chk_dict[m] = chk
+            permisos_lay.addWidget(chk)
+
+        self.group_permisos.setLayout(permisos_lay)
+        right_panel.addWidget(self.group_permisos)
+
+        # Botones
+        hb_botones = QHBoxLayout()
+        self.btn_guardar_usr = QPushButton("Guardar Cambios")
+        self.btn_guardar_usr.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold;")
+        self.btn_guardar_usr.clicked.connect(self._guardar_usuario)
+
+        self.btn_eliminar_usr = QPushButton("Eliminar Usuario")
+        self.btn_eliminar_usr.setStyleSheet("background-color: #c0392b; color: white;")
+        self.btn_eliminar_usr.clicked.connect(self._eliminar_usuario)
+
+        hb_botones.addWidget(self.btn_guardar_usr)
+        hb_botones.addWidget(self.btn_eliminar_usr)
+        right_panel.addLayout(hb_botones)
+        right_panel.addStretch()
+
+        layout.addLayout(left_panel, 1)
+        layout.addLayout(right_panel, 1)
+
+        self._cargar_grilla_usuarios()
+
+    def _cargar_grilla_usuarios(self):
+        with get_session() as s:
+            usuarios = s.query(Usuario).all()
+            self.tabla_usuarios.setRowCount(len(usuarios))
+            for r, u in enumerate(usuarios):
+                self.tabla_usuarios.setItem(r, 0, QTableWidgetItem(str(u.id)))
+                self.tabla_usuarios.setItem(r, 1, QTableWidgetItem(u.usuario))
+                self.tabla_usuarios.setItem(r, 2, QTableWidgetItem(u.rol))
+
+    def _limpiar_form_usuario(self):
+        self.tabla_usuarios.clearSelection()
+        self.txt_usr_id.clear()
+        self.txt_usr_name.clear()
+        self.txt_usr_pass.clear()
+        self.cmb_usr_rol.setCurrentIndex(1) # Mostrador
+        for chk in self.chk_dict.values():
+            chk.setChecked(False)
+
+    def _cargar_usuario_seleccionado(self):
+        items = self.tabla_usuarios.selectedItems()
+        if not items: return
+        uid = int(items[0].text())
+        with get_session() as s:
+            u = s.get(Usuario, uid)
+            if not u: return
+
+            self.txt_usr_id.setText(str(u.id))
+            self.txt_usr_name.setText(u.usuario)
+            self.txt_usr_pass.clear()
+            self.cmb_usr_rol.setCurrentText(u.rol)
+
+            for chk in self.chk_dict.values():
+                chk.setChecked(False)
+
+            if u.rol == "Administrador":
+                self._on_rol_changed("Administrador")
+            else:
+                self._on_rol_changed("Mostrador")
+                permisos = u.permisos.split(',')
+                for p in permisos:
+                    if p in self.chk_dict:
+                        self.chk_dict[p].setChecked(True)
+
+    def _on_rol_changed(self, rol):
+        if rol == "Administrador":
+            self.group_permisos.setEnabled(False)
+            for chk in self.chk_dict.values():
+                chk.setChecked(True)
+        else:
+            self.group_permisos.setEnabled(True)
+
+    def _guardar_usuario(self):
+        usr = self.txt_usr_name.text().strip()
+        pwd = self.txt_usr_pass.text()
+        rol = self.cmb_usr_rol.currentText()
+
+        if not usr:
+            QMessageBox.warning(self, "Error", "El nombre de usuario no puede estar vacío.")
+            return
+
+        if rol == "Administrador":
+            permisos = "TODOS"
+        else:
+            perm_list = [k for k, v in self.chk_dict.items() if v.isChecked()]
+            permisos = ",".join(perm_list)
+
+        with get_session() as s:
+            if self.txt_usr_id.text():
+                # Edit
+                u = s.get(Usuario, int(self.txt_usr_id.text()))
+                u.usuario = usr
+                u.rol = rol
+                u.permisos = permisos
+                if pwd:
+                    u.password = hashlib.sha256(pwd.encode()).hexdigest()
+            else:
+                # New
+                if not pwd:
+                    QMessageBox.warning(self, "Error", "Debe ingresar una contraseña para el nuevo usuario.")
+                    return
+                # Check exist
+                if s.query(Usuario).filter(Usuario.usuario == usr).count() > 0:
+                    QMessageBox.warning(self, "Error", "El nombre de usuario ya existe.")
+                    return
+
+                u = Usuario(
+                    usuario=usr,
+                    password=hashlib.sha256(pwd.encode()).hexdigest(),
+                    rol=rol,
+                    permisos=permisos
+                )
+                s.add(u)
+            s.commit()
+
+        QMessageBox.information(self, "Éxito", "Usuario guardado.")
+        self._cargar_grilla_usuarios()
+        self._limpiar_form_usuario()
+
+    def _eliminar_usuario(self):
+        if not self.txt_usr_id.text(): return
+        uid = int(self.txt_usr_id.text())
+
+        # Prevent self deletion or last admin deletion
+        with get_session() as s:
+            u = s.get(Usuario, uid)
+            if u.rol == "Administrador":
+                admins = s.query(Usuario).filter(Usuario.rol == "Administrador").count()
+                if admins <= 1:
+                    QMessageBox.warning(self, "Error", "No puede eliminar al último administrador.")
+                    return
+
+            s.delete(u)
+            s.commit()
+
+        QMessageBox.information(self, "Éxito", "Usuario eliminado.")
+        self._cargar_grilla_usuarios()
+        self._limpiar_form_usuario()
+
+    # --- RESPALDOS ---
     def _update_timer(self):
         mins = self.spin_freq.value()
         self.timer.start(mins * 60 * 1000)
