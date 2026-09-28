@@ -1514,92 +1514,22 @@ class DetalleServiceDialog(QDialog):
                 self.lbl_qr.setText("Error QR")
 
     def _imprimir_ticket(self):
-        from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
-        from PyQt6.QtGui import QPainter, QPageSize, QPageLayout, QFont, QPen
-        from PyQt6.QtCore import QSizeF, QMarginsF, Qt, QRect
-        from PyQt6.QtWidgets import QMessageBox
+        from ui.components.dialogs import ConfigEtiquetaServiceDialog
 
-        # Setup Printer EXACTLY like Barcode Labels (Rollo)
-        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        filtros_cortos = self.filtros_str.replace("Combustible", "Comb").replace("Habitáculo", "Habit")
+        datos_lista = [
+            f"Fecha: {self.fecha_str}",
+            f"Veh: {self.marca} {self.modelo}",
+            f"KM: {self.km_actual}",
+            f"Próx: {self.proximo_km}",
+            f"Aceite: {self.aceite}",
+            f"Filtros: {filtros_cortos}"
+        ]
 
-        # Define QPageSize (50x40 mm)
-        w_mm = 50.0
-        h_mm = 40.0
-        size = QPageSize(QSizeF(w_mm, h_mm), QPageSize.Unit.Millimeter)
-        printer.setPageSize(size)
-        printer.setPageMargins(QMarginsF(0.0, 0.0, 0.0, 0.0), QPageLayout.Unit.Millimeter)
-        printer.setFullPage(True) # Force full page drawing for roll printers
+        qr_pixmap = self.lbl_qr.pixmap()
 
-        dialog = QPrintDialog(printer, self)
-        if dialog.exec() == int(QPrintDialog.DialogCode.Accepted):
-            painter = QPainter(printer)
-            if not painter.isActive():
-                QMessageBox.critical(self, "Error", "No se pudo iniciar QPainter sobre la impresora.")
-                return
-
-            dpi = printer.resolution()
-            if dpi <= 0: dpi = 96
-            ppm = dpi / 25.4
-
-            # Use paintRectPixels like the new standard in labels
-            page_rect = printer.pageLayout().paintRectPixels(dpi)
-
-            # Setup Fonts based on HighRes scaling (same as labels)
-            font_title = QFont("Arial")
-            font_title.setPixelSize(int(10 * (dpi / 72.0)))
-            font_title.setBold(True)
-
-            font_text = QFont("Arial")
-            font_text.setPixelSize(int(8 * (dpi / 72.0)))
-
-            # Black pen to avoid microscopic rendering issues
-            pen = QPen(Qt.GlobalColor.black)
-            pen.setWidth(2)
-            pen.setStyle(Qt.PenStyle.SolidLine)
-            painter.setPen(pen)
-
-            # Define Areas
-            w_px = w_mm * ppm
-            h_px = h_mm * ppm
-
-            # Text area (Left ~55%)
-            text_x = int(page_rect.x() + (2 * ppm)) # 2mm margin
-            text_y = int(page_rect.y() + (2 * ppm))
-            text_w = int(w_px * 0.55)
-
-            # QR area (Right ~45%)
-            qr_x = int(text_x + text_w)
-            qr_y = int(page_rect.y() + (5 * ppm)) # Center vertically roughly
-            qr_size = int(h_px - (10 * ppm)) # Keep inside bounds
-
-            # Draw Text
-            painter.setFont(font_title)
-            painter.drawText(text_x, text_y + painter.fontMetrics().ascent(), "BARTER PLUS")
-            text_y += painter.fontMetrics().height() + int(2 * ppm)
-
-            painter.setFont(font_text)
-
-            filtros_cortos = self.filtros_str.replace("Combustible", "Comb").replace("Habitáculo", "Habit")
-            lines = [
-                f"Veh: {self.marca} {self.modelo}",
-                f"KM: {self.km_actual}",
-                f"Próx: {self.proximo_km}",
-                f"Aceite: {self.aceite}",
-                f"Filtros: {filtros_cortos}"
-            ]
-
-            for line in lines:
-                painter.drawText(text_x, text_y + painter.fontMetrics().ascent(), line)
-                text_y += painter.fontMetrics().height() + int(1 * ppm)
-
-            # Draw QR Base64 to Pixmap if not already in memory
-            if self.lbl_qr.pixmap():
-                qr_pix = self.lbl_qr.pixmap().scaled(qr_size, qr_size, Qt.AspectRatioMode.KeepAspectRatio)
-                painter.drawPixmap(qr_x, qr_y, qr_pix)
-
-            painter.end()
-            del painter
-
+        dlg = ConfigEtiquetaServiceDialog(datos_lista, qr_pixmap, self)
+        dlg.exec()
 
     def _exportar_pdf(self):
         from PyQt6.QtPrintSupport import QPrinter
@@ -1639,3 +1569,114 @@ class DetalleServiceDialog(QDialog):
             """
             doc.setHtml(html_ticket)
             doc.print(printer)
+
+
+class ConfigEtiquetaServiceDialog(QDialog):
+    def __init__(self, datos, qr_pixmap, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Impresión Directa Etiqueta 50x40")
+        self.resize(350, 200)
+        self.datos = datos
+        self.qr_pixmap = qr_pixmap
+        self.setup_ui()
+
+    def setup_ui(self):
+        from PyQt6.QtWidgets import QVBoxLayout, QFormLayout, QComboBox, QDoubleSpinBox, QPushButton, QMessageBox
+        from PyQt6.QtPrintSupport import QPrinterInfo
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.combo_impresoras = QComboBox()
+        self.combo_impresoras.addItems(QPrinterInfo.availablePrinterNames())
+
+        self.spin_desfase_x = QDoubleSpinBox()
+        self.spin_desfase_x.setRange(-20.0, 20.0)
+        self.spin_desfase_x.setValue(0.0)
+        self.spin_desfase_x.setSuffix(" mm")
+
+        self.spin_desfase_y = QDoubleSpinBox()
+        self.spin_desfase_y.setRange(-20.0, 20.0)
+        self.spin_desfase_y.setValue(0.0)
+        self.spin_desfase_y.setSuffix(" mm")
+
+        self.spin_escala = QDoubleSpinBox()
+        self.spin_escala.setRange(0.1, 3.0)
+        self.spin_escala.setValue(1.0)
+        self.spin_escala.setSingleStep(0.1)
+
+        form.addRow("Impresora:", self.combo_impresoras)
+        form.addRow("Desfase X:", self.spin_desfase_x)
+        form.addRow("Desfase Y:", self.spin_desfase_y)
+        form.addRow("Escala Fuente:", self.spin_escala)
+
+        layout.addLayout(form)
+
+        self.btn_imprimir = QPushButton("Imprimir Directo")
+        self.btn_imprimir.setStyleSheet("font-weight: bold; background-color: #27ae60; color: white; padding: 10px;")
+        self.btn_imprimir.clicked.connect(self._ejecutar_impresion)
+        layout.addWidget(self.btn_imprimir)
+
+    def _ejecutar_impresion(self):
+        from PyQt6.QtPrintSupport import QPrinter
+        from PyQt6.QtGui import QPageSize, QPageLayout, QPainter, QFont
+        from PyQt6.QtCore import QSizeF, QMarginsF, Qt
+        from PyQt6.QtWidgets import QMessageBox
+
+        printer_name = self.combo_impresoras.currentText()
+        if not printer_name:
+            QMessageBox.warning(self, "Atención", "No hay impresora seleccionada.")
+            return
+
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer.setPrinterName(printer_name)
+        printer.setPageSize(QPageSize(QSizeF(50, 40), QPageSize.Unit.Millimeter))
+        printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
+
+        painter = QPainter()
+        if not painter.begin(printer):
+            QMessageBox.critical(self, "Error", "No se pudo iniciar la impresora seleccionada.")
+            return
+
+        try:
+            # 1. Aplicar Desfases (Conversión mm a pixeles asumiendo HighResolution)
+            dpi_x = printer.logicalDpiX()
+            dpi_y = printer.logicalDpiY()
+            offset_x_px = int((self.spin_desfase_x.value() / 25.4) * dpi_x)
+            offset_y_px = int((self.spin_desfase_y.value() / 25.4) * dpi_y)
+            painter.translate(offset_x_px, offset_y_px)
+
+            # 2. Configurar Fuente y Escala
+            escala = self.spin_escala.value()
+            font_titulo = QFont("Arial", int(8 * escala), QFont.Weight.Bold)
+            font_datos = QFont("Arial", int(6 * escala))
+
+            # 3. Dibujar Textos (Columna Izquierda - Ajustar 'y' según DPI)
+            x_text = int((2 / 25.4) * dpi_x) # 2mm de margen izq
+            y_step = int((4.5 * escala / 25.4) * dpi_y)
+            current_y = int((4 / 25.4) * dpi_y)
+
+            painter.setFont(font_titulo)
+            painter.drawText(x_text, current_y, "BARTER PLUS")
+
+            painter.setFont(font_datos)
+
+            for linea in self.datos:
+                current_y += y_step
+                texto_limpio = linea[:35] if len(linea) > 35 else linea
+                painter.drawText(x_text, current_y, texto_limpio)
+
+            # 4. Dibujar Código QR (Columna Derecha)
+            if self.qr_pixmap:
+                x_qr = int((27 / 25.4) * dpi_x) # QR empieza a los 27mm
+                y_qr = int((5 / 25.4) * dpi_y)
+                qr_size = int((22 / 25.4) * dpi_x) # QR de 22x22mm
+
+                qr_scaled = self.qr_pixmap.scaled(qr_size, qr_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                painter.drawPixmap(x_qr, y_qr, qr_scaled)
+
+        finally:
+            painter.end()
+
+        QMessageBox.information(self, "Éxito", "Ticket enviado a la cola de impresión.")
+        self.accept()

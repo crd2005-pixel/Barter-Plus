@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QSettings, QSizeF, QRectF, QTimer, QMarginsF
 from PyQt6.QtGui import QColor, QPainter, QFont, QPen, QBrush, QPageLayout, QPageSize
-from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
+from PyQt6.QtPrintSupport import QPrinter, QPrintDialog, QPrintPreviewWidget
 
 from database.conexion import get_session
 from database.models.producto import Producto
@@ -137,22 +137,12 @@ class EtiquetasPreviewDialog(QDialog):
 
         left_lay.addLayout(btn_box)
 
-        # --- RIGHT PANEL: Preview (NOW PDF GENERATOR) ---
-        right_widget = QWidget()
-        right_lay = QVBoxLayout(right_widget)
-        lbl_info = QLabel("La vista previa en tiempo real ha sido deshabilitada.\nUse 'Generar Vista Previa PDF' para previsualizar las etiquetas.")
-        lbl_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_info.setStyleSheet("color: #7f8c8d; font-size: 14px; font-weight: bold;")
-
-        self.btn_imprimir_vista_previa = QPushButton("Generar Vista Previa PDF")
-        self.btn_imprimir_vista_previa.setStyleSheet("font-weight:bold; height: 50px; background-color: #3498db; color: white;")
-        self.btn_imprimir_vista_previa.clicked.connect(self._abrir_vista_previa)
-
-        right_lay.addWidget(lbl_info)
-        right_lay.addWidget(self.btn_imprimir_vista_previa)
+        # --- RIGHT PANEL: Preview ---
+        self.preview = QPrintPreviewWidget(self.printer, self)
+        self.preview.paintRequested.connect(self._paint_preview)
 
         splitter.addWidget(left_widget)
-        splitter.addWidget(right_widget)
+        splitter.addWidget(self.preview)
         splitter.setStretchFactor(1, 2) # Give preview more space
 
         # Load Settings
@@ -245,8 +235,7 @@ class EtiquetasPreviewDialog(QDialog):
             self._trigger_update()
 
     def _trigger_update(self):
-        # self.preview.updatePreview()
-        pass
+        self.preview.updatePreview()
 
     def _apply_printer_config(self, printer):
         """Applies page size and margins to the given printer based on UI settings."""
@@ -267,69 +256,22 @@ class EtiquetasPreviewDialog(QDialog):
             printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
             printer.setFullPage(False)
 
-    def _abrir_vista_previa(self):
-        import os
-        import tempfile
+    def _paint_preview(self, printer):
         import traceback
-        import webbrowser
-        from PyQt6.QtWidgets import QMessageBox
-        from PyQt6.QtPrintSupport import QPrinter
-        from PyQt6.QtGui import QPainter
-
         self._save_settings()
+        self._apply_printer_config(printer)
 
+        painter = QPainter()
         try:
-            # 1. Validación de Datos con Aviso Visual
-            # In this context, the dialog already has self.items passed to it.
-            # But wait, what if self.items is empty?
-            if not getattr(self, 'items', None):
-                QMessageBox.warning(self, "Aviso", "No hay ningún producto seleccionado para imprimir.")
-                return
-
-            # Check if any have quantity > 0
-            qty_sum = sum(it.get('cantidad', 1) for it in self.items)
-            if qty_sum <= 0:
-                QMessageBox.warning(self, "Aviso", "La cantidad total de etiquetas a imprimir es 0.")
-                return
-
-            # 2. Rutas
-            temp_dir = tempfile.gettempdir()
-            pdf_path = os.path.join(temp_dir, "vista_previa_barter_plus.pdf")
-
-            # 3. Motor PDF
-            printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-            printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
-            printer.setOutputFileName(pdf_path)
-
-            # Apply user's selected dimensions
-            self._apply_printer_config(printer)
-
-            # 4. Pintado
-            painter = QPainter()
             if not painter.begin(printer):
-                QMessageBox.critical(self, "Error Crítico", "Fallo al inicializar el motor de dibujo PDF de Qt.")
-                return
-
-            try:
-                self._draw_labels(painter, printer)
-            finally:
-                painter.end()
-
-            # 5. Apertura Nativa en Windows
-            if os.path.exists(pdf_path):
-                try:
-                    os.startfile(pdf_path) # Llamada nativa Windows
-                except AttributeError:
-                    webbrowser.open_new(pdf_path) # Fallback
-                except Exception as ex_open:
-                    QMessageBox.critical(self, "Error de Apertura", f"El PDF se creó pero no se pudo abrir:\n{str(ex_open)}\n\nRuta: {pdf_path}")
-            else:
-                QMessageBox.critical(self, "Error", "El proceso terminó pero el archivo PDF no apareció en el disco.")
-
+                raise Exception("Fallo al inicializar QPainter en el QPrinter")
+            self._draw_labels(painter, printer)
         except Exception as e:
-            # 6. CAPTURA FATAL
-            error_msg = traceback.format_exc()
-            QMessageBox.critical(self, "Error Fatal Capturado", f"Excepción durante el proceso:\n{error_msg}")
+            print("ERROR EN DIBUJO ETIQUETAS:")
+            traceback.print_exc()
+        finally:
+            if painter.isActive():
+                painter.end()
 
     def _draw_labels(self, painter, printer):
         # Generate flat list of items to print based on quantity
