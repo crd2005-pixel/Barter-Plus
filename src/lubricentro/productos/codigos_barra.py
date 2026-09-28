@@ -904,10 +904,10 @@ class CodigosBarraTab(QWidget):
                         "precio": p.precio_minorista
                     })
 
-            # The user explicitly asked to pass self as parent to prevent GC issues.
+            # Instanciar Dialog (Anclado a self)
             dlg = EtiquetasPreviewDialog(items, self)
+            dlg.setWindowFlags(Qt.WindowType.Window)
             dlg.exec()
         except Exception as e:
             print("ERROR CRÍTICO EN IMPRESIÓN:")
             traceback.print_exc()
-            QMessageBox.critical(self, "Error de Impresión", f"Ocurrió un error al generar la vista previa:\n{str(e)}")
