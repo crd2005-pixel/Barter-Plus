@@ -257,16 +257,21 @@ class EtiquetasPreviewDialog(QDialog):
             printer.setFullPage(False)
 
     def _paint_preview(self, printer):
-        # Applies to actual print or preview
-        self._save_settings() # Save current UI state to settings so drawing logic can read it if needed, or pass explicitly
-
+        import traceback
+        self._save_settings()
         self._apply_printer_config(printer)
 
-        painter = QPainter(printer)
-        if painter.isActive():
+        painter = QPainter()
+        try:
+            if not painter.begin(printer):
+                raise Exception("Fallo al inicializar QPainter en el QPrinter")
             self._draw_labels(painter, printer)
-            painter.end()
-        del painter
+        except Exception as e:
+            print("ERROR EN DIBUJO ETIQUETAS:")
+            traceback.print_exc()
+        finally:
+            if painter.isActive():
+                painter.end()
 
     def _draw_labels(self, painter, printer):
         # Generate flat list of items to print based on quantity
@@ -854,48 +859,55 @@ class CodigosBarraTab(QWidget):
                 QMessageBox.information(self, "Generar", "No había productos sin código.")
 
     def _open_print_preview(self):
-        ids = self._get_selected_ids()
-        if not ids:
-            QMessageBox.warning(self, "Imprimir", "Seleccione al menos un producto.")
-            return
+        import traceback
+        try:
+            ids = self._get_selected_ids()
+            if not ids:
+                QMessageBox.warning(self, "Imprimir", "Seleccione al menos un producto.")
+                return
 
-        items = []
-        with get_session() as s:
-            if Marca:
-                q = s.query(Producto, Marca.nombre).outerjoin(Marca, Producto.marca_id == Marca.id).filter(Producto.id.in_(ids))
-            else:
-                q = s.query(Producto).filter(Producto.id.in_(ids))
-
-            for row in q.all():
+            items = []
+            with get_session() as s:
                 if Marca:
-                    try:
-                        p, m_nombre = row
-                    except:
-                        try:
-                            p = row[0]
-                            m_nombre = row[1]
-                        except:
-                            p = row
-                            m_nombre = ""
+                    q = s.query(Producto, Marca.nombre).outerjoin(Marca, Producto.marca_id == Marca.id).filter(Producto.id.in_(ids))
                 else:
-                    p = row; m_nombre = ""
+                    q = s.query(Producto).filter(Producto.id.in_(ids))
 
-                if not hasattr(p, 'codigo_barras'):
-                     continue
+                for row in q.all():
+                    if Marca:
+                        try:
+                            p, m_nombre = row
+                        except:
+                            try:
+                                p = row[0]
+                                m_nombre = row[1]
+                            except:
+                                p = row
+                                m_nombre = ""
+                    else:
+                        p = row; m_nombre = ""
 
-                code = (p.codigo_barras or "").strip()
-                if not code: code = f"INT{p.id:06d}"
+                    if not hasattr(p, 'codigo_barras'):
+                         continue
 
-                items.append({
-                    "id": p.id,
-                    "marca": m_nombre,
-                    "nombre": p.nombre,
-                    "code": code,
-                    "equivalencia": p.codigo_equivalencia,
-                    "sku": p.sku,
-                    "cod_prov": p.codigo_proveedor,
-                    "precio": p.precio_minorista
-                })
+                    code = (p.codigo_barras or "").strip()
+                    if not code: code = f"INT{p.id:06d}"
 
-        dlg = EtiquetasPreviewDialog(items, self)
-        dlg.exec()
+                    items.append({
+                        "id": p.id,
+                        "marca": m_nombre,
+                        "nombre": p.nombre,
+                        "code": code,
+                        "equivalencia": p.codigo_equivalencia,
+                        "sku": p.sku,
+                        "cod_prov": p.codigo_proveedor,
+                        "precio": p.precio_minorista
+                    })
+
+            # The user explicitly asked to pass self as parent to prevent GC issues.
+            dlg = EtiquetasPreviewDialog(items, self)
+            dlg.exec()
+        except Exception as e:
+            print("ERROR CRÍTICO EN IMPRESIÓN:")
+            traceback.print_exc()
+            QMessageBox.critical(self, "Error de Impresión", f"Ocurrió un error al generar la vista previa:\n{str(e)}")
