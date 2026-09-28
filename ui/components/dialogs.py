@@ -1574,35 +1574,49 @@ class DetalleServiceDialog(QDialog):
 class ConfigEtiquetaServiceDialog(QDialog):
     def __init__(self, datos, qr_pixmap, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Impresión Directa Etiqueta 50x40")
-        self.resize(350, 200)
+        from PyQt6.QtCore import QSettings
+        self.settings = QSettings("BarterPlus", "TallerEtiquetas")
+        self.setWindowTitle("Configuración y Vista Previa Etiqueta 50x40")
+        self.resize(850, 500)
         self.datos = datos
         self.qr_pixmap = qr_pixmap
         self.setup_ui()
 
     def setup_ui(self):
-        from PyQt6.QtWidgets import QVBoxLayout, QFormLayout, QComboBox, QDoubleSpinBox, QPushButton, QMessageBox
-        from PyQt6.QtPrintSupport import QPrinterInfo
+        from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QFormLayout, QComboBox, QDoubleSpinBox, QPushButton, QMessageBox, QWidget
+        from PyQt6.QtPrintSupport import QPrinterInfo, QPrinter, QPrintPreviewWidget
+        from PyQt6.QtCore import Qt
 
-        layout = QVBoxLayout(self)
+        main_layout = QHBoxLayout(self)
+
+        # --- PANEL IZQUIERDO (Controles) ---
+        left_panel = QWidget()
+        left_panel.setMaximumWidth(300)
+        left_layout = QVBoxLayout(left_panel)
+
         form = QFormLayout()
 
         self.combo_impresoras = QComboBox()
         self.combo_impresoras.addItems(QPrinterInfo.availablePrinterNames())
+        saved_printer = self.settings.value("impresora", "")
+        if saved_printer:
+            idx = self.combo_impresoras.findText(saved_printer)
+            if idx >= 0:
+                self.combo_impresoras.setCurrentIndex(idx)
 
         self.spin_desfase_x = QDoubleSpinBox()
         self.spin_desfase_x.setRange(-20.0, 20.0)
-        self.spin_desfase_x.setValue(0.0)
+        self.spin_desfase_x.setValue(float(self.settings.value("desfase_x", 0.0)))
         self.spin_desfase_x.setSuffix(" mm")
 
         self.spin_desfase_y = QDoubleSpinBox()
         self.spin_desfase_y.setRange(-20.0, 20.0)
-        self.spin_desfase_y.setValue(0.0)
+        self.spin_desfase_y.setValue(float(self.settings.value("desfase_y", 0.0)))
         self.spin_desfase_y.setSuffix(" mm")
 
         self.spin_escala = QDoubleSpinBox()
         self.spin_escala.setRange(0.1, 3.0)
-        self.spin_escala.setValue(1.0)
+        self.spin_escala.setValue(float(self.settings.value("escala", 1.0)))
         self.spin_escala.setSingleStep(0.1)
 
         form.addRow("Impresora:", self.combo_impresoras)
@@ -1610,17 +1624,106 @@ class ConfigEtiquetaServiceDialog(QDialog):
         form.addRow("Desfase Y:", self.spin_desfase_y)
         form.addRow("Escala Fuente:", self.spin_escala)
 
-        layout.addLayout(form)
+        left_layout.addLayout(form)
+        left_layout.addStretch()
+
+        self.btn_guardar_default = QPushButton("Guardar como Predeterminado")
+        self.btn_guardar_default.clicked.connect(self._guardar_default)
+        left_layout.addWidget(self.btn_guardar_default)
 
         self.btn_imprimir = QPushButton("Imprimir Directo")
         self.btn_imprimir.setStyleSheet("font-weight: bold; background-color: #27ae60; color: white; padding: 10px;")
         self.btn_imprimir.clicked.connect(self._ejecutar_impresion)
-        layout.addWidget(self.btn_imprimir)
+        left_layout.addWidget(self.btn_imprimir)
+
+        main_layout.addWidget(left_panel)
+
+        # --- PANEL DERECHO (Vista Previa) ---
+        from PyQt6.QtGui import QPageSize, QPageLayout
+        from PyQt6.QtCore import QSizeF, QMarginsF
+        self.printer_preview = QPrinter(QPrinter.PrinterMode.HighResolution)
+        self.printer_preview.setPageSize(QPageSize(QSizeF(50, 40), QPageSize.Unit.Millimeter))
+        self.printer_preview.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
+        self.printer_preview.setFullPage(True)
+
+        self.preview_widget = QPrintPreviewWidget(self.printer_preview, self)
+        self.preview_widget.paintRequested.connect(self._dibujar_etiqueta)
+        main_layout.addWidget(self.preview_widget, stretch=1)
+
+        # Conectar señales para actualización en tiempo real
+        self.spin_desfase_x.valueChanged.connect(self._actualizar_preview)
+        self.spin_desfase_y.valueChanged.connect(self._actualizar_preview)
+        self.spin_escala.valueChanged.connect(self._actualizar_preview)
+        self.combo_impresoras.currentIndexChanged.connect(self._actualizar_preview)
+
+    def _actualizar_preview(self):
+        self.preview_widget.updatePreview()
+
+    def _guardar_default(self):
+        from PyQt6.QtWidgets import QMessageBox
+        self.settings.setValue("impresora", self.combo_impresoras.currentText())
+        self.settings.setValue("desfase_x", self.spin_desfase_x.value())
+        self.settings.setValue("desfase_y", self.spin_desfase_y.value())
+        self.settings.setValue("escala", self.spin_escala.value())
+        QMessageBox.information(self, "Guardado", "Configuración guardada como predeterminada.")
+
+    def _dibujar_etiqueta(self, printer):
+        import traceback
+        from PyQt6.QtGui import QPainter, QFont
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QMessageBox
+
+        painter = QPainter()
+        try:
+            if not painter.begin(printer):
+                raise Exception("Fallo al inicializar QPainter en la impresora.")
+
+            dpi_x = printer.logicalDpiX()
+            dpi_y = printer.logicalDpiY()
+
+            # Desfases
+            offset_x_px = int((self.spin_desfase_x.value() / 25.4) * dpi_x)
+            offset_y_px = int((self.spin_desfase_y.value() / 25.4) * dpi_y)
+            painter.translate(offset_x_px, offset_y_px)
+
+            # Escalas y fuentes
+            escala = self.spin_escala.value()
+            font_titulo = QFont("Arial", int(8 * escala), QFont.Weight.Bold)
+            font_datos = QFont("Arial", int(6 * escala))
+
+            # Dibujar textos
+            x_text = int((2 / 25.4) * dpi_x)
+            y_step = int((4.5 * escala / 25.4) * dpi_y)
+            current_y = int((4 / 25.4) * dpi_y)
+
+            painter.setFont(font_titulo)
+            painter.drawText(x_text, current_y, "BARTER PLUS")
+
+            painter.setFont(font_datos)
+            for linea in self.datos:
+                current_y += y_step
+                texto_limpio = linea[:35] if len(linea) > 35 else linea
+                painter.drawText(x_text, current_y, texto_limpio)
+
+            # Dibujar QR
+            if self.qr_pixmap:
+                x_qr = int((27 / 25.4) * dpi_x)
+                y_qr = int((5 / 25.4) * dpi_y)
+                qr_size = int((22 / 25.4) * dpi_x)
+
+                qr_scaled = self.qr_pixmap.scaled(qr_size, qr_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                painter.drawPixmap(x_qr, y_qr, qr_scaled)
+
+        except Exception as e:
+            traceback.print_exc()
+        finally:
+            if painter.isActive():
+                painter.end()
 
     def _ejecutar_impresion(self):
         from PyQt6.QtPrintSupport import QPrinter
-        from PyQt6.QtGui import QPageSize, QPageLayout, QPainter, QFont
-        from PyQt6.QtCore import QSizeF, QMarginsF, Qt
+        from PyQt6.QtGui import QPageSize, QPageLayout
+        from PyQt6.QtCore import QSizeF, QMarginsF
         from PyQt6.QtWidgets import QMessageBox
 
         printer_name = self.combo_impresoras.currentText()
@@ -1632,51 +1735,9 @@ class ConfigEtiquetaServiceDialog(QDialog):
         printer.setPrinterName(printer_name)
         printer.setPageSize(QPageSize(QSizeF(50, 40), QPageSize.Unit.Millimeter))
         printer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
+        printer.setFullPage(True)
 
-        painter = QPainter()
-        if not painter.begin(printer):
-            QMessageBox.critical(self, "Error", "No se pudo iniciar la impresora seleccionada.")
-            return
-
-        try:
-            # 1. Aplicar Desfases (Conversión mm a pixeles asumiendo HighResolution)
-            dpi_x = printer.logicalDpiX()
-            dpi_y = printer.logicalDpiY()
-            offset_x_px = int((self.spin_desfase_x.value() / 25.4) * dpi_x)
-            offset_y_px = int((self.spin_desfase_y.value() / 25.4) * dpi_y)
-            painter.translate(offset_x_px, offset_y_px)
-
-            # 2. Configurar Fuente y Escala
-            escala = self.spin_escala.value()
-            font_titulo = QFont("Arial", int(8 * escala), QFont.Weight.Bold)
-            font_datos = QFont("Arial", int(6 * escala))
-
-            # 3. Dibujar Textos (Columna Izquierda - Ajustar 'y' según DPI)
-            x_text = int((2 / 25.4) * dpi_x) # 2mm de margen izq
-            y_step = int((4.5 * escala / 25.4) * dpi_y)
-            current_y = int((4 / 25.4) * dpi_y)
-
-            painter.setFont(font_titulo)
-            painter.drawText(x_text, current_y, "BARTER PLUS")
-
-            painter.setFont(font_datos)
-
-            for linea in self.datos:
-                current_y += y_step
-                texto_limpio = linea[:35] if len(linea) > 35 else linea
-                painter.drawText(x_text, current_y, texto_limpio)
-
-            # 4. Dibujar Código QR (Columna Derecha)
-            if self.qr_pixmap:
-                x_qr = int((27 / 25.4) * dpi_x) # QR empieza a los 27mm
-                y_qr = int((5 / 25.4) * dpi_y)
-                qr_size = int((22 / 25.4) * dpi_x) # QR de 22x22mm
-
-                qr_scaled = self.qr_pixmap.scaled(qr_size, qr_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-                painter.drawPixmap(x_qr, y_qr, qr_scaled)
-
-        finally:
-            painter.end()
+        self._dibujar_etiqueta(printer)
 
         QMessageBox.information(self, "Éxito", "Ticket enviado a la cola de impresión.")
         self.accept()
