@@ -349,13 +349,13 @@ class VentaService:
                 raise e
 
     @staticmethod
-    def anular_venta(venta_id: int):
+    def anular_venta(venta_id: int, motivo: str):
         with get_session() as session:
             try:
                 venta = session.get(Venta, venta_id)
                 if not venta:
                     raise ValueError(f"Venta ID {venta_id} no encontrada.")
-                if venta.estado == "Anulado":
+                if venta.estado == "Anulada":
                     raise ValueError("Esta venta ya se encuentra anulada.")
 
                 # 1. Devolver Stock (solo items de catalogo)
@@ -370,12 +370,13 @@ class VentaService:
 
                 # 2. Revertir Finanzas
                 if venta.metodo_pago == "Efectivo":
-                    caja_activa = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
+                    from services.caja_service import CajaService
+                    caja_activa = CajaService.obtener_caja_activa()
                     if caja_activa:
                         mov = MovimientoCaja(
                             caja_id=caja_activa.id,
                             tipo="Egreso",
-                            concepto=f"Anulación Venta #{venta.id}",
+                            concepto=f"Anulación Venta #{venta.id} - Motivo: {motivo}",
                             monto=venta.total,
                             metodo="Efectivo"
                         )
@@ -387,18 +388,19 @@ class VentaService:
                     saldo_ant = ultimo_mov.saldo if ultimo_mov else 0.0
                     mov_cc = ClienteCuentaCorriente(
                         cliente_id=venta.cliente_id,
-                        concepto=f"Anulación Venta #{venta.id}",
+                        concepto=f"Anulación Venta #{venta.id} - Motivo: {motivo}",
                         debe=0.0,
                         haber=venta.total,
                         saldo=saldo_ant - venta.total
                     )
                     session.add(mov_cc)
+
                 # (Para tarjetas, dependeria del procesador. El sistema local marca la venta como anulada nomas y no acredita el diferido si controlamos eso. Por ahora cancelamos fiscalmente y marcamos.)
                 from database.models.contabilidad import IngresoDiferido
                 if venta.metodo_pago in ["Tarjeta", "Débito"]:
                     difs = session.scalars(select(IngresoDiferido).where(IngresoDiferido.venta_id == venta.id)).all()
                     for d in difs:
-                        d.estado = "Anulado"
+                        d.estado = "Anulada"
 
                 # 3. Impuestos (Revertir Débito Fiscal)
                 if venta.tipo_comprobante.startswith("Factura"):
@@ -407,7 +409,8 @@ class VentaService:
                     for iva in ivas:
                         session.delete(iva)
 
-                venta.estado = "Anulado"
+                venta.estado = "Anulada"
+                venta.motivo_anulacion = motivo
                 session.commit()
             except Exception as e:
                 session.rollback()

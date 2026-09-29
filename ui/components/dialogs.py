@@ -1741,3 +1741,154 @@ class ConfigEtiquetaServiceDialog(QDialog):
 
         QMessageBox.information(self, "Éxito", "Ticket enviado a la cola de impresión.")
         self.accept()
+
+
+class AnularVentaDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Anular / Devolver Venta")
+        self.resize(600, 450)
+        self.venta_actual = None
+        self.setup_ui()
+
+    def setup_ui(self):
+        from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QLabel, QTextEdit, QMessageBox
+        from PyQt6.QtCore import Qt
+
+        layout = QVBoxLayout(self)
+
+        # Búsqueda
+        box_buscar = QHBoxLayout()
+        self.txt_id_venta = QLineEdit()
+        self.txt_id_venta.setPlaceholderText("ID de Venta / Comprobante")
+        self.btn_buscar = QPushButton("Buscar")
+        self.btn_buscar.clicked.connect(self._buscar_venta)
+
+        box_buscar.addWidget(QLabel("Nro. Venta:"))
+        box_buscar.addWidget(self.txt_id_venta)
+        box_buscar.addWidget(self.btn_buscar)
+        layout.addLayout(box_buscar)
+
+        # Detalles
+        self.lbl_estado = QLabel("Estado: Ninguna venta seleccionada")
+        self.lbl_estado.setStyleSheet("font-weight: bold;")
+        layout.addWidget(self.lbl_estado)
+
+        self.tabla = QTableWidget(0, 3)
+        self.tabla.setHorizontalHeaderLabels(["Descripción", "Cantidad", "Subtotal"])
+        self.tabla.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.tabla.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        layout.addWidget(self.tabla)
+
+        # Motivo
+        self.txt_motivo = QTextEdit()
+        self.txt_motivo.setPlaceholderText("Motivo de Anulación / Observación (Obligatorio)...")
+        self.txt_motivo.setMaximumHeight(80)
+        layout.addWidget(QLabel("<b>Motivo Obligatorio:</b>"))
+        layout.addWidget(self.txt_motivo)
+
+        # Botones finales
+        box_botones = QHBoxLayout()
+        self.btn_confirmar = QPushButton("Confirmar Anulación")
+        self.btn_confirmar.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold; padding: 10px;")
+        self.btn_confirmar.setEnabled(False)
+        self.btn_confirmar.clicked.connect(self._confirmar_anulacion)
+
+        self.btn_cancelar = QPushButton("Cancelar")
+        self.btn_cancelar.clicked.connect(self.reject)
+
+        box_botones.addWidget(self.btn_confirmar)
+        box_botones.addWidget(self.btn_cancelar)
+        layout.addLayout(box_botones)
+
+    def _buscar_venta(self):
+        from database.conexion import get_session
+        from database.models import Venta
+        from sqlalchemy.orm import joinedload
+        from PyQt6.QtWidgets import QTableWidgetItem, QMessageBox
+
+        vid_text = self.txt_id_venta.text().strip()
+        if not vid_text.isdigit():
+            QMessageBox.warning(self, "Error", "Ingrese un ID de venta válido.")
+            return
+
+        with get_session() as s:
+            v = s.scalars(s.query(Venta).options(joinedload(Venta.detalles)).filter(Venta.id == int(vid_text))).first()
+            if not v:
+                QMessageBox.warning(self, "No Encontrado", "No se encontró ninguna venta con ese ID.")
+                return
+
+            self.venta_actual = int(vid_text)
+            self.lbl_estado.setText(f"Estado: {v.estado} | Total: ${v.total:.2f}")
+
+            self.tabla.setRowCount(len(v.detalles))
+            for i, d in enumerate(v.detalles):
+                self.tabla.setItem(i, 0, QTableWidgetItem(d.descripcion))
+                self.tabla.setItem(i, 1, QTableWidgetItem(str(d.cantidad)))
+                self.tabla.setItem(i, 2, QTableWidgetItem(f"${d.subtotal:.2f}"))
+
+            if v.estado == 'Completada':
+                self.btn_confirmar.setEnabled(True)
+            else:
+                self.btn_confirmar.setEnabled(False)
+                QMessageBox.information(self, "Atención", f"La venta se encuentra en estado '{v.estado}' y no puede ser anulada.")
+
+    def _confirmar_anulacion(self):
+        from PyQt6.QtWidgets import QMessageBox
+        import datetime as dt
+
+        motivo = self.txt_motivo.toPlainText().strip()
+        if not motivo:
+            QMessageBox.warning(self, "Error Crítico", "El Motivo de Anulación es estrictamente obligatorio para fines de auditoría.")
+            return
+
+        from database.conexion import get_session
+        from database.models import Venta, Producto, MovimientoCaja
+        from services.caja_service import CajaService
+
+        try:
+            with get_session() as s:
+                # Transaccional
+                # 1. Validar Caja Abierta
+                caja_abierta = CajaService.obtener_caja_abierta()
+                if not caja_abierta:
+                    QMessageBox.warning(self, "Error de Caja", "Debe abrir la caja del día para procesar una devolución de dinero.")
+                    return
+
+                # Lock the sale to avoid race conditions
+                v = s.query(Venta).with_for_update().filter(Venta.id == self.venta_actual).first()
+                if not v or v.estado != 'Completada':
+                    raise ValueError("La venta ya no es válida para anulación.")
+
+                # 2. Restaurar Stock
+                for d in v.detalles:
+                    if d.producto_id:
+                        p = s.query(Producto).with_for_update().filter(Producto.id == d.producto_id).first()
+                        if p:
+                            p.stock_actual += d.cantidad
+
+                # 3. Ajuste de Caja (Egreso)
+                # Ensure the return represents a true cash outflow from the registered payment
+                # If they paid with card, it depends on business logic, but per requirements we just create an Egreso.
+                egreso = MovimientoCaja(
+                    caja_id=caja_abierta.id,
+                    fecha=dt.datetime.utcnow(),
+                    descripcion=f"Anulación Venta #{v.id} - Motivo: {motivo}",
+                    monto=v.total,
+                    tipo='Egreso',
+                    metodo_pago='Efectivo'
+                )
+                s.add(egreso)
+
+                # 4. Cambio de Estado
+                v.estado = 'Anulada'
+                v.motivo_anulacion = motivo
+
+                # Delete any LibroIVA record related directly if we had a fiscal module, but we rely on state
+                s.commit()
+
+            QMessageBox.information(self, "Éxito", f"Venta #{self.venta_actual} anulada correctamente.")
+            self.accept()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error Transaccional", f"Ocurrió un error al intentar anular:\n{str(e)}")

@@ -26,6 +26,7 @@ class Venta(Base):
 
     vuelto: Mapped[float] = mapped_column(default=0.0)
     estado: Mapped[str] = mapped_column(String, default="Completada") # Completada, Anulada, Presupuesto
+    motivo_anulacion: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     tipo_comprobante: Mapped[str] = mapped_column(String, default="Remito") # Remito, Factura
     notas: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 

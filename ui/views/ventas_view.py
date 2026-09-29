@@ -104,11 +104,15 @@ class VentasTab(QWidget):
         self.btn_equivalencias = QPushButton("Equivalencia(Web)")
         self.btn_equivalencias.setStyleSheet("padding: 10px; font-weight: bold; background-color: #34495e; color: white;")
 
+        self.btn_anular_venta = QPushButton("Anular / Devolver Venta")
+        self.btn_anular_venta.setStyleSheet("padding: 10px; font-weight: bold; background-color: #c0392b; color: white;")
+
         layout_botones_vertical = QVBoxLayout()
 
         fila_superior = QHBoxLayout()
         fila_superior.addWidget(self.btn_cobrar_cc)
         fila_superior.addWidget(self.btn_sugerir_pedido)
+        fila_superior.addWidget(self.btn_anular_venta)
 
         fila_inferior = QHBoxLayout()
         fila_inferior.addWidget(self.btn_consulta_rapida)
@@ -243,6 +247,7 @@ class VentasTab(QWidget):
         self.btn_nuevo_cliente.clicked.connect(self.crear_cliente_rapido)
         self.btn_cobrar_cc.clicked.connect(self.abrir_cobro_cc)
         self.btn_buscar_presupuesto.clicked.connect(self._abrir_recuperar_dialog)
+        self.btn_anular_venta.clicked.connect(self._abrir_anulacion)
         self.btn_egreso.clicked.connect(self._abrir_egreso_caja)
         self.btn_equivalencias.clicked.connect(self._abrir_buscador_equivalencias)
 
@@ -521,6 +526,11 @@ class VentasTab(QWidget):
     def _abrir_buscador_equivalencias(self):
         from ui.components.dialogs import BuscadorEquivalenciasDialog
         dlg = BuscadorEquivalenciasDialog(self)
+        dlg.exec()
+
+    def _abrir_anulacion(self):
+        from ui.components.dialogs import AnularVentaDialog
+        dlg = AnularVentaDialog(self)
         dlg.exec()
 
     def _abrir_egreso_caja(self):

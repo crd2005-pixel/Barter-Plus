@@ -26,6 +26,11 @@ def main():
                 conn.commit()
             except Exception:
                 pass # Probablemente la columna ya exista
+            try:
+                conn.execute(text("ALTER TABLE ventas ADD COLUMN motivo_anulacion TEXT"))
+                conn.commit()
+            except Exception:
+                pass
 
             try:
                 conn.execute(text("CREATE TABLE IF NOT EXISTS vehiculos (id INTEGER PRIMARY KEY AUTOINCREMENT, cliente_id INTEGER NOT NULL, dominio VARCHAR NOT NULL UNIQUE, marca VARCHAR, modelo VARCHAR, anio INTEGER)"))
