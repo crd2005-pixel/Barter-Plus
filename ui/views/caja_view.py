@@ -159,21 +159,28 @@ class CajaActualTab(QWidget):
 
             self.table.setItem(row, 6, QTableWidgetItem(f"${saldo_parcial:.2f}"))
 
-        # Ocultar columna de saldo parcial para cajeros
+        # MOTOR DE ARQUEO CIEGO: Búsqueda dinámica y ocultamiento de 'Saldo Parcial'
         from ui.main_window import MainWindow
         import sys
-        # To get role cleanly, we can find the active main window or pass it
+
+        # Recuperar el rol desde la ventana principal
         app = __import__("PyQt6.QtWidgets").QtWidgets.QApplication.instance()
-        rol = "Mostrador" # Default safety
+        rol_actual = "Mostrador" # Fallback por seguridad
         for w in app.topLevelWidgets():
             if isinstance(w, MainWindow):
-                rol = getattr(w, 'rol_actual', 'Mostrador')
+                rol_actual = getattr(w, 'rol_actual', 'Mostrador')
                 break
 
-        if rol != 'Administrador':
-            self.table.setColumnHidden(6, True)
+        if rol_actual != 'Administrador':
+            # Escanear las cabeceras para encontrar exactamente cuál es la columna de saldo
+            for col in range(self.table.columnCount()):
+                header_item = self.table.horizontalHeaderItem(col)
+                if header_item and "Saldo Parcial" in header_item.text():
+                    self.table.setColumnHidden(col, True)
         else:
-            self.table.setColumnHidden(6, False)
+            # Si es admin, asegurar que todo esté visible
+            for col in range(self.table.columnCount()):
+                self.table.setColumnHidden(col, False)
 
 
         self.table.scrollToBottom()
