@@ -125,6 +125,20 @@ class CajaActualTab(QWidget):
 
             self.table.setRowCount(0)
 
+    def _aplicar_arqueo_ciego(self):
+        try:
+            rol_actual = getattr(self, 'rol_usuario', 'Mostrador')
+            # Ocultar siempre si no es admin, sin importar la recarga
+            es_admin = (rol_actual == 'Administrador')
+
+            # Buscar la columna por texto para ser a prueba de fallos
+            for col in range(self.table.columnCount()):
+                item = self.table.horizontalHeaderItem(col)
+                if item and "Saldo Parcial" in item.text():
+                    self.table.setColumnHidden(col, not es_admin)
+        except Exception as e:
+            pass
+
     def cargar_movimientos(self):
         if not self.caja_activa:
             return
@@ -159,29 +173,7 @@ class CajaActualTab(QWidget):
 
             self.table.setItem(row, 6, QTableWidgetItem(f"${saldo_parcial:.2f}"))
 
-        # MOTOR DE ARQUEO CIEGO: Búsqueda dinámica y ocultamiento de 'Saldo Parcial'
-        try:
-            from ui.main_window import MainWindow
-            import sys
-            app = __import__("PyQt6.QtWidgets").QtWidgets.QApplication.instance()
-            rol_actual = "Mostrador" # Fallback por seguridad
-            for w in app.topLevelWidgets():
-                if isinstance(w, MainWindow):
-                    rol_actual = getattr(w, 'rol_actual', 'Mostrador')
-                    break
-
-            if rol_actual != 'Administrador':
-                for col in range(self.table.columnCount()):
-                    header_item = self.table.horizontalHeaderItem(col)
-                    if header_item and "Saldo Parcial" in header_item.text():
-                        self.table.setColumnHidden(col, True)
-            else:
-                for col in range(self.table.columnCount()):
-                    self.table.setColumnHidden(col, False)
-        except Exception as e:
-            print(f"Aviso UI: {e}")
-
-
+        self._aplicar_arqueo_ciego()
         self.table.scrollToBottom()
 
     def _abrir_detalle(self, row, col):

@@ -1850,7 +1850,7 @@ class AnularVentaDialog(QDialog):
             with get_session() as s:
                 # Transaccional
                 # 1. Validar Caja Abierta
-                caja_abierta = CajaService.obtener_caja_activa()
+                caja_abierta = CajaService.obtener_caja_activa() # Fallback, pero vamos a reemplazar el método
                 if not caja_abierta:
                     QMessageBox.warning(self, "Error de Caja", "Debe abrir la caja del día para procesar una devolución de dinero.")
                     return
