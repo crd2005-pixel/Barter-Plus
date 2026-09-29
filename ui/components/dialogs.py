@@ -1873,10 +1873,10 @@ class AnularVentaDialog(QDialog):
                 egreso = MovimientoCaja(
                     caja_id=caja_abierta.id,
                     fecha=dt.datetime.utcnow(),
-                    descripcion=f"Anulación Venta #{v.id} - Motivo: {motivo}",
+                    concepto=f"Anulación Venta #{v.id} - Motivo: {motivo}",
                     monto=v.total,
                     tipo='Egreso',
-                    metodo_pago='Efectivo'
+                    metodo='Efectivo'
                 )
                 s.add(egreso)
 
