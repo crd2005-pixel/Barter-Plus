@@ -120,18 +120,40 @@ class MainWindow(QMainWindow):
 
             if not (padre_ok or hijo_ok):
                 self.tabs.setTabVisible(i, False)
-            else:
-                # Nivel 2: Ocultar subpestañas dentro de los módulos
-                widget = self.tabs.widget(i)
-                if hasattr(widget, 'tabs'):
-                    sub_tabs = widget.tabs
-                    for j in range(sub_tabs.count()):
-                        sub_text = sub_tabs.tabText(j)
-                        sub_full = f"{tab_text}:{sub_text}"
-                        if sub_full not in permisos_lista and sub_text not in permisos_lista and not padre_ok:
-                            sub_tabs.setTabVisible(j, False)
 
-        # Seguridad Activa: Seleccionar primera pestaña visible
+        # Nivel 2: Ocultamiento profundo explícito en subpestañas
+        vistas_complejas = {
+            "Caja": getattr(self, 'caja_view', None),
+            "Taller": getattr(self, 'taller_view', None),
+            "Precios": getattr(self, 'precios_view', None)
+        }
+
+        for nombre_padre, vista_instancia in vistas_complejas.items():
+            if vista_instancia:
+                # Buscar el QTabWidget interno de esta vista
+                tab_interno = getattr(vista_instancia, 'tabs', None) or getattr(vista_instancia, 'tabWidget', None)
+
+                if tab_interno:
+                    # If father is OK entirely, then allow. Otherwise strict check.
+                    # Wait, prompt says: "Si el padre está permitido, auditar hijos... Bloqueo por defecto: si no está explícitamente en la lista, se oculta"
+                    padre_ok = nombre_padre in permisos_lista
+                    for i in range(tab_interno.count()):
+                        nombre_hijo = tab_interno.tabText(i)
+                        permiso_compuesto = f"{nombre_padre}:{nombre_hijo}"
+
+                        # Bloqueo por defecto: si no está explícitamente en la lista, se oculta
+                        if permiso_compuesto not in permisos_lista and nombre_hijo not in permisos_lista:
+                            tab_interno.setTabVisible(i, False)
+                        else:
+                            tab_interno.setTabVisible(i, True)
+
+                    # Seguridad de Foco: Evitar que quede seleccionada una pestaña oculta
+                    for i in range(tab_interno.count()):
+                        if tab_interno.isTabVisible(i):
+                            tab_interno.setCurrentIndex(i)
+                            break
+
+        # Seguridad Activa Nivel 1: Seleccionar primera pestaña visible
         for i in range(self.tabs.count()):
             if self.tabs.isTabVisible(i):
                 self.tabs.setCurrentIndex(i)
