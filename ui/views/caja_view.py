@@ -160,27 +160,26 @@ class CajaActualTab(QWidget):
             self.table.setItem(row, 6, QTableWidgetItem(f"${saldo_parcial:.2f}"))
 
         # MOTOR DE ARQUEO CIEGO: Búsqueda dinámica y ocultamiento de 'Saldo Parcial'
-        from ui.main_window import MainWindow
-        import sys
+        try:
+            from ui.main_window import MainWindow
+            import sys
+            app = __import__("PyQt6.QtWidgets").QtWidgets.QApplication.instance()
+            rol_actual = "Mostrador" # Fallback por seguridad
+            for w in app.topLevelWidgets():
+                if isinstance(w, MainWindow):
+                    rol_actual = getattr(w, 'rol_actual', 'Mostrador')
+                    break
 
-        # Recuperar el rol desde la ventana principal
-        app = __import__("PyQt6.QtWidgets").QtWidgets.QApplication.instance()
-        rol_actual = "Mostrador" # Fallback por seguridad
-        for w in app.topLevelWidgets():
-            if isinstance(w, MainWindow):
-                rol_actual = getattr(w, 'rol_actual', 'Mostrador')
-                break
-
-        if rol_actual != 'Administrador':
-            # Escanear las cabeceras para encontrar exactamente cuál es la columna de saldo
-            for col in range(self.table.columnCount()):
-                header_item = self.table.horizontalHeaderItem(col)
-                if header_item and "Saldo Parcial" in header_item.text():
-                    self.table.setColumnHidden(col, True)
-        else:
-            # Si es admin, asegurar que todo esté visible
-            for col in range(self.table.columnCount()):
-                self.table.setColumnHidden(col, False)
+            if rol_actual != 'Administrador':
+                for col in range(self.table.columnCount()):
+                    header_item = self.table.horizontalHeaderItem(col)
+                    if header_item and "Saldo Parcial" in header_item.text():
+                        self.table.setColumnHidden(col, True)
+            else:
+                for col in range(self.table.columnCount()):
+                    self.table.setColumnHidden(col, False)
+        except Exception as e:
+            print(f"Aviso UI: {e}")
 
 
         self.table.scrollToBottom()
