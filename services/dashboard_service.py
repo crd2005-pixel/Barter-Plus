@@ -90,14 +90,26 @@ class DashboardService:
             return deuda_clientes
 
     @staticmethod
-    def obtener_valor_inventario() -> float:
+    def obtener_valor_inventario() -> dict:
         with get_session() as session:
-            # Sumatoria de (costo * stock)
-            valor = session.scalar(
-                select(func.sum(Producto.costo * Producto.stock_actual))
-                .where(Producto.stock_actual > 0)
-            )
-            return valor or 0.0
+            # Extraer ambos totales usando COALESCE para evitar nulos
+            stmt = select(
+                func.sum(func.coalesce(Producto.costo, 0) * Producto.stock_actual).label("capital_invertido"),
+                func.sum(func.coalesce(Producto.precio_minorista, 0) * Producto.stock_actual).label("valor_venta_publico")
+            ).where(Producto.stock_actual > 0)
+
+            res = session.execute(stmt).first()
+            if res:
+                capital_invertido = res.capital_invertido or 0.0
+                valor_venta = res.valor_venta_publico or 0.0
+            else:
+                capital_invertido = 0.0
+                valor_venta = 0.0
+
+            return {
+                "capital_invertido": capital_invertido,
+                "valor_venta_publico": valor_venta
+            }
 
     @staticmethod
     def obtener_top_productos_mes(limite: int = 10) -> list[dict]:
