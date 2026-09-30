@@ -1,5 +1,7 @@
 import sys
 import os
+import ctypes
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from ui.main_window import MainWindow
 
@@ -57,7 +59,29 @@ def main():
     except Exception as e:
         print(f"Error inicializando base de datos: {e}")
 
+    # 1. Forzar a Windows a reconocer la app separada de Python para la barra de tareas
+    try:
+        myappid = 'vertexcubic.barterplus.pos.1.0'
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+    except Exception:
+        pass
+
+    # 2. Resolución de rutas para recursos empaquetados por PyInstaller
+    def resource_path(relative_path):
+        try:
+            # PyInstaller crea una carpeta temporal y almacena la ruta en _MEIPASS
+            base_path = sys._MEIPASS
+        except Exception:
+            base_path = os.path.abspath(".")
+        return os.path.join(base_path, relative_path)
+
     app = QApplication(sys.argv)
+
+    # 3. Asignar el ícono globalmente a todas las ventanas
+    app_icon_path = resource_path('logo.ico')
+    if os.path.exists(app_icon_path):
+        app.setWindowIcon(QIcon(app_icon_path))
+
     app.setStyle("Fusion")
 
     # Login Modal
