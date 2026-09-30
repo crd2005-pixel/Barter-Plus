@@ -1,8 +1,11 @@
 @echo off
-echo Instalando PyInstaller...
-pip install pyinstaller
+echo Limpiando builds anteriores...
+if exist build rmdir /s /q build
+if exist dist rmdir /s /q dist
+
 echo Empaquetando Barter Plus...
-pyinstaller --noconsole --noconfirm --name="Barter Plus" --add-data "core;core" --add-data "database;database" --add-data "services;services" --add-data "src;src" --add-data "ui;ui" --add-data "utils;utils" main.py
+pyinstaller --noconsole --noconfirm --name="Barter Plus" --icon="logo.ico" main.py
+
 echo.
-echo Compilacion terminada. Revisa la carpeta "dist\Barter Plus".
+echo Compilacion terminada.
 pause
