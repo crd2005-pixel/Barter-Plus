@@ -150,6 +150,37 @@ class ProductoService:
             return producto
 
     @staticmethod
+    def listar_todos_filtros(busqueda: str = "", marca_id: int = None, categoria_id: int = None, proveedor_id: int = None) -> List[Producto]:
+        from sqlalchemy.orm import joinedload
+        with get_session() as session:
+            stmt = select(Producto).options(
+                joinedload(Producto.categoria),
+                joinedload(Producto.marca),
+                joinedload(Producto.proveedor)
+            )
+
+            if busqueda:
+                stmt = stmt.where(
+                    (Producto.nombre.icontains(busqueda)) |
+                    (Producto.codigo_barras.icontains(busqueda)) |
+                    (Producto.sku.icontains(busqueda))
+                )
+
+            if marca_id is not None:
+                stmt = stmt.where(Producto.marca_id == marca_id)
+
+            if categoria_id is not None:
+                stmt = stmt.where(Producto.categoria_id == categoria_id)
+
+            if proveedor_id is not None:
+                stmt = stmt.where(Producto.proveedor_id == proveedor_id)
+
+            productos = session.scalars(stmt).all()
+            for p in productos:
+                session.expunge(p)
+            return list(productos)
+
+    @staticmethod
     def listar_todos(busqueda: str = "") -> List[Producto]:
         from sqlalchemy.orm import joinedload
         with get_session() as session:

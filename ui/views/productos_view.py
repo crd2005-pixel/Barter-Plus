@@ -251,10 +251,35 @@ class ProductosTab(QWidget):
 
         # Contenedor superior (Formularios/Filtros)
         self.top_widget = QWidget()
-        from PyQt6.QtWidgets import QSizePolicy
+        from PyQt6.QtWidgets import QSizePolicy, QComboBox
         self.top_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Ignored)
         self.top_layout = QVBoxLayout(self.top_widget)
         self.top_layout.setContentsMargins(0, 0, 0, 0)
+
+        # --- Barra de Filtros ---
+        self.filter_bar = QHBoxLayout()
+
+        self.combo_marca = QComboBox()
+        self.combo_marca.addItem("-- Todas las Marcas --")
+
+        self.combo_rubro = QComboBox()
+        self.combo_rubro.addItem("-- Todos los Rubros --")
+
+        self.combo_proveedor = QComboBox()
+        self.combo_proveedor.addItem("-- Todos los Proveedores --")
+
+        self.btn_limpiar = QPushButton("Limpiar Filtros")
+
+        self.filter_bar.addWidget(QLabel("Marca:"))
+        self.filter_bar.addWidget(self.combo_marca)
+        self.filter_bar.addWidget(QLabel("Rubro:"))
+        self.filter_bar.addWidget(self.combo_rubro)
+        self.filter_bar.addWidget(QLabel("Proveedor:"))
+        self.filter_bar.addWidget(self.combo_proveedor)
+        self.filter_bar.addWidget(self.btn_limpiar)
+        self.filter_bar.addStretch()
+
+        self.top_layout.addLayout(self.filter_bar)
 
         # --- Barra superior (Buscador y Acciones) ---
         self.top_bar = QHBoxLayout()
@@ -324,13 +349,72 @@ class ProductosTab(QWidget):
         # --- Conexiones ---
         self.btn_nuevo.clicked.connect(self.abrir_dialogo_nuevo)
         self.btn_editar.clicked.connect(self.abrir_dialogo_editar)
+        self.btn_limpiar.clicked.connect(self.limpiar_filtros)
 
+        self.combo_marca.currentIndexChanged.connect(self.cargar_datos)
+        self.combo_rubro.currentIndexChanged.connect(self.cargar_datos)
+        self.combo_proveedor.currentIndexChanged.connect(self.cargar_datos)
+
+        # Cargar filtros
+        self.cargar_filtros()
         # Cargar datos iniciales
         self.cargar_datos()
 
+    def limpiar_filtros(self):
+        self.combo_marca.blockSignals(True)
+        self.combo_rubro.blockSignals(True)
+        self.combo_proveedor.blockSignals(True)
+
+        self.combo_marca.setCurrentIndex(0)
+        self.combo_rubro.setCurrentIndex(0)
+        self.combo_proveedor.setCurrentIndex(0)
+        self.search_input.setText("")
+
+        self.combo_marca.blockSignals(False)
+        self.combo_rubro.blockSignals(False)
+        self.combo_proveedor.blockSignals(False)
+
+        self.cargar_datos()
+
+    def cargar_filtros(self):
+        provs, cats, marcas = ProductoService.obtener_diccionarios_relaciones()
+
+        self.combo_marca.blockSignals(True)
+        self.combo_rubro.blockSignals(True)
+        self.combo_proveedor.blockSignals(True)
+
+        self.combo_marca.clear()
+        self.combo_marca.addItem("-- Todas las Marcas --", None)
+        for m in marcas:
+            self.combo_marca.addItem(m["nombre"], m["id"])
+
+        self.combo_rubro.clear()
+        self.combo_rubro.addItem("-- Todos los Rubros --", None)
+        for c in cats:
+            self.combo_rubro.addItem(c["nombre"], c["id"])
+
+        self.combo_proveedor.clear()
+        self.combo_proveedor.addItem("-- Todos los Proveedores --", None)
+        for p in provs:
+            self.combo_proveedor.addItem(p["nombre"], p["id"])
+
+        self.combo_marca.blockSignals(False)
+        self.combo_rubro.blockSignals(False)
+        self.combo_proveedor.blockSignals(False)
+
     def cargar_datos(self):
         busqueda = self.search_input.text().strip()
-        self.productos_db = ProductoService.listar_todos(busqueda)
+
+        marca_id = self.combo_marca.currentData()
+        rubro_id = self.combo_rubro.currentData()
+        proveedor_id = self.combo_proveedor.currentData()
+
+        self.productos_db = ProductoService.listar_todos_filtros(
+            busqueda=busqueda,
+            marca_id=marca_id,
+            categoria_id=rubro_id,
+            proveedor_id=proveedor_id
+        )
         self.paginacion.set_total_items(len(self.productos_db))
 
     def showEvent(self, event):
