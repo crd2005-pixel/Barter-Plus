@@ -24,6 +24,11 @@ class ContentPillar(ContentPillarBase):
 # Post Schemas
 # ==========================================
 
+class PostGenerateRequest(BaseModel):
+    pillar_id: Optional[int] = None
+    format: str
+    extra_topic: Optional[str] = None
+
 class PostBase(BaseModel):
     format: str
     hook: str
