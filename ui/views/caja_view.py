@@ -125,20 +125,6 @@ class CajaActualTab(QWidget):
 
             self.table.setRowCount(0)
 
-    def _aplicar_arqueo_ciego(self):
-        try:
-            rol_actual = getattr(self, 'rol_usuario', 'Mostrador')
-            # Ocultar siempre si no es admin, sin importar la recarga
-            es_admin = (rol_actual == 'Administrador')
-
-            # Buscar la columna por texto para ser a prueba de fallos
-            for col in range(self.table.columnCount()):
-                item = self.table.horizontalHeaderItem(col)
-                if item and "Saldo Parcial" in item.text():
-                    self.table.setColumnHidden(col, not es_admin)
-        except Exception as e:
-            pass
-
     def cargar_movimientos(self):
         if not self.caja_activa:
             return
@@ -173,7 +159,6 @@ class CajaActualTab(QWidget):
 
             self.table.setItem(row, 6, QTableWidgetItem(f"${saldo_parcial:.2f}"))
 
-        self._aplicar_arqueo_ciego()
         self.table.scrollToBottom()
 
     def _abrir_detalle(self, row, col):
@@ -202,20 +187,31 @@ class CajaActualTab(QWidget):
         if not self.caja_activa:
             return
 
-        from ui.components.dialogs import DeclaracionCiegaDialog, PanelArqueoCajaDialog
-        from PyQt6.QtWidgets import QDialog
+        monto_real, ok = QInputDialog.getDouble(
+            self, "Cerrar Caja (Auditoría)",
+            "Atención: Ingrese el MONTO FÍSICO REAL en efectivo que tiene en sus manos.\n\n"
+            "Monto Físico Declarado ($):", 0, 0, 100000000, 2
+        )
+        if ok:
+            try:
+                caja_cerrada = CajaService.cerrar_caja(self.caja_activa.id, monto_real)
 
-        # Etapa 1: Declaracion Ciega
-        dlg_ciega = DeclaracionCiegaDialog(self)
-        if dlg_ciega.exec() != QDialog.DialogCode.Accepted:
-            return
+                if caja_cerrada.diferencia < 0:
+                    QMessageBox.warning(self, "Auditoría de Caja",
+                                      f"Caja cerrada.\n¡ATENCIÓN! Se ha detectado un FALTANTE de ${abs(caja_cerrada.diferencia):.2f}.\n"
+                                      f"El sistema esperaba ${caja_cerrada.saldo_final_esperado:.2f} pero se declararon ${monto_real:.2f}.\n\n"
+                                      "Este movimiento ha quedado registrado de manera inalterable.")
+                elif caja_cerrada.diferencia > 0:
+                    QMessageBox.information(self, "Auditoría de Caja",
+                                      f"Caja cerrada.\nSe ha detectado un SOBRANTE de ${caja_cerrada.diferencia:.2f}.\n"
+                                      f"El sistema esperaba ${caja_cerrada.saldo_final_esperado:.2f} pero se declararon ${monto_real:.2f}.\n\n"
+                                      "Este movimiento ha quedado registrado de manera inalterable.")
+                else:
+                    QMessageBox.information(self, "Caja", "Caja cerrada correctamente. Cuadre exacto.")
 
-        monto_declarado = dlg_ciega.get_monto()
-
-        # Etapa 2: Auditoria y Cierre (Bloqueado)
-        dialog = PanelArqueoCajaDialog(self.caja_activa.id, monto_declarado, self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.parent_view.refresh_all()
+                self.parent_view.refresh_all()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", str(e))
 
     def registrar_ingreso(self):
         dialog = MovimientoDialog("Ingreso", self)
@@ -248,36 +244,12 @@ class HistorialCajaTab(QWidget):
         super().__init__()
         self.setup_ui()
 
-    def _exportar_pdf(self):
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
-        from utils.export_utils import ExportUtils
-
-        filepath, _ = QFileDialog.getSaveFileName(
-            self, "Guardar Reporte PDF", f"Reporte_{self.__class__.__name__}.pdf", "Archivos PDF (*.pdf)"
-        )
-        if filepath:
-            try:
-                ExportUtils.exportar_tabla_a_pdf(self.table, "Historial de Caja - Reporte Oficial", filepath)
-                QMessageBox.information(self, "Éxito", "El PDF se exportó correctamente.")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"No se pudo exportar: {str(e)}")
-
     def setup_ui(self):
         layout = QVBoxLayout(self)
 
-        top_layout = QHBoxLayout()
         self.btn_refresh = QPushButton("Actualizar Historial")
         self.btn_refresh.clicked.connect(self.cargar_historial)
-
-        self.btn_exportar_pdf = QPushButton("Exportar a PDF")
-        self.btn_exportar_pdf.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold;")
-        self.btn_exportar_pdf.clicked.connect(self._exportar_pdf)
-
-        top_layout.addWidget(self.btn_refresh)
-        top_layout.addStretch()
-        top_layout.addWidget(self.btn_exportar_pdf)
-
-        layout.addLayout(top_layout)
+        layout.addWidget(self.btn_refresh)
 
         self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels([

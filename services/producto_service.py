@@ -37,6 +37,8 @@ class ProductoService:
     @staticmethod
     def crear_producto(nombre: str, costo: float, iva: float = 21.0,
                        codigo_barras: Optional[str] = None,
+                       codigo_proveedor: Optional[str] = None,
+                       equivalencias: Optional[str] = None,
                        stock_inicial: float = 0.0,
                        es_granel: bool = False,
                        divisor_granel: float = 1.0,
@@ -89,6 +91,8 @@ class ProductoService:
                     costo=costo,
                     iva=iva,
                     codigo_barras=codigo_barras,
+                    codigo_proveedor=codigo_proveedor,
+                    equivalencias=equivalencias,
                     stock_actual=stock_inicial,
                     stock_minimo=stock_minimo,
                     stock_maximo=stock_maximo,
@@ -148,37 +152,6 @@ class ProductoService:
             if producto:
                 session.expunge(producto)
             return producto
-
-    @staticmethod
-    def listar_todos_filtros(busqueda: str = "", marca_id: int = None, categoria_id: int = None, proveedor_id: int = None) -> List[Producto]:
-        from sqlalchemy.orm import joinedload
-        with get_session() as session:
-            stmt = select(Producto).options(
-                joinedload(Producto.categoria),
-                joinedload(Producto.marca),
-                joinedload(Producto.proveedor)
-            )
-
-            if busqueda:
-                stmt = stmt.where(
-                    (Producto.nombre.icontains(busqueda)) |
-                    (Producto.codigo_barras.icontains(busqueda)) |
-                    (Producto.sku.icontains(busqueda))
-                )
-
-            if marca_id is not None:
-                stmt = stmt.where(Producto.marca_id == marca_id)
-
-            if categoria_id is not None:
-                stmt = stmt.where(Producto.categoria_id == categoria_id)
-
-            if proveedor_id is not None:
-                stmt = stmt.where(Producto.proveedor_id == proveedor_id)
-
-            productos = session.scalars(stmt).all()
-            for p in productos:
-                session.expunge(p)
-            return list(productos)
 
     @staticmethod
     def listar_todos(busqueda: str = "") -> List[Producto]:
@@ -293,7 +266,8 @@ class ProductoService:
                                    margen: float, stock: float, es_granel: bool = False,
                                    divisor_granel: float = 1.0, stock_minimo: float = 0.0,
                                    stock_maximo: float = 0.0, proveedor_nombre: Optional[str] = None,
-                                   categoria_nombre: Optional[str] = None, marca_nombre: Optional[str] = None) -> Optional[Producto]:
+                                   categoria_nombre: Optional[str] = None, marca_nombre: Optional[str] = None,
+                                   codigo_proveedor: Optional[str] = None, equivalencias: Optional[str] = None) -> Optional[Producto]:
         from database.models.producto import Categoria, Marca
         from database.models.proveedor import Proveedor
         with get_session() as session:
@@ -337,6 +311,8 @@ class ProductoService:
 
                 producto.nombre = nombre
                 producto.codigo_barras = codigo_barras if codigo_barras else None
+                producto.codigo_proveedor = codigo_proveedor
+                producto.equivalencias = equivalencias
                 producto.proveedor_id = prov_id
                 producto.categoria_id = cat_id
                 producto.marca_id = mar_id
@@ -372,7 +348,9 @@ class ProductoService:
             ).where(
                 (Producto.codigo_barras == query) |
                 (Producto.sku == query) |
-                (Producto.nombre.icontains(query))
+                (Producto.nombre.icontains(query)) |
+                (Producto.codigo_proveedor == query) |
+                (Producto.equivalencias.icontains(query))
             )
             producto = session.scalars(stmt).first()
             if producto:

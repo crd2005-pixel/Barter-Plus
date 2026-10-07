@@ -2,16 +2,13 @@ from ui.components.dialogs import FastClientDialog, ItemManualDialog, TicketPrev
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit,
     QTableWidget, QTableWidgetItem, QHeaderView, QDateEdit, QLabel, QMessageBox,
-    QComboBox, QFormLayout, QGroupBox, QInputDialog, QSplitter, QSpinBox, QDoubleSpinBox
+    QComboBox, QFormLayout, QGroupBox, QInputDialog, QSplitter, QSpinBox, QDoubleSpinBox, QDialog
 )
-from PyQt6.QtWidgets import QDialog
-
 from PyQt6.QtCore import Qt, QDate, QStringListModel
 from PyQt6.QtGui import QFont, QColor, QBrush, QShortcut, QKeySequence
 from PyQt6.QtWidgets import QCompleter
 from services.producto_service import ProductoService
 from services.cliente_service import ClienteService
-from services.cuenta_corriente_service import CuentaCorrienteService
 from services.venta_service import VentaService
 
 
@@ -56,7 +53,7 @@ class VentasTab(QWidget):
         self.fila_controles_layout = QHBoxLayout()
 
         self.combo_pago = QComboBox()
-        self.combo_pago.addItems(["Efectivo", "Transferencia", "Débito", "Tarjeta", "Cuenta Corriente", "Cheque", "Combinado"])
+        self.combo_pago.addItems(["Efectivo", "Transferencia", "Débito", "Tarjeta", "Cuenta Corriente", "Combinada"])
 
         self.combo_comprobante = QComboBox()
         self.combo_comprobante.addItems(["Remito", "Factura A", "Factura B", "Presupuesto"])
@@ -66,15 +63,16 @@ class VentasTab(QWidget):
         self.form_tarjeta = QFormLayout()
         self.combo_tarjeta = QComboBox()
         self.combo_plan_tarjeta = QComboBox()
-
-        self.lbl_detalle_financiacion = QLabel()
-        self.lbl_detalle_financiacion.setStyleSheet("color: #e67e22; font-weight: bold; font-style: italic;")
-
+        self.txt_lote = QLineEdit()
+        self.txt_lote.setPlaceholderText("Ej: 12345")
+        self.txt_cupon = QLineEdit()
+        self.txt_cupon.setPlaceholderText("Ej: 67890")
         self.combo_tarjeta.currentIndexChanged.connect(self.cargar_planes_tarjeta)
         self.combo_plan_tarjeta.currentIndexChanged.connect(self.actualizar_ui)
         self.form_tarjeta.addRow("Tarjeta:", self.combo_tarjeta)
         self.form_tarjeta.addRow("Plan:", self.combo_plan_tarjeta)
-        self.form_tarjeta.addRow("", self.lbl_detalle_financiacion)
+        self.form_tarjeta.addRow("Nº Lote:", self.txt_lote)
+        self.form_tarjeta.addRow("Nº Cupón:", self.txt_cupon)
         self.widget_tarjeta = QWidget()
         self.widget_tarjeta.setLayout(self.form_tarjeta)
         self.widget_tarjeta.setVisible(False)
@@ -92,37 +90,15 @@ class VentasTab(QWidget):
         self.btn_consulta_rapida = QPushButton("Consultar Precio (F2)")
         self.btn_consulta_rapida.setStyleSheet("padding: 10px; font-weight: bold; background-color: #f39c12; color: white;")
 
-        self.btn_sugerir_pedido = QPushButton("Pedido Sugerido")
+        self.btn_sugerir_pedido = QPushButton("Anotar Pedido Manual")
         self.btn_sugerir_pedido.setStyleSheet("padding: 10px; font-weight: bold; background-color: #8e44ad; color: white;")
 
         self.btn_cobrar_cc = QPushButton("Cobrar Cta. Cte.")
         self.btn_cobrar_cc.setStyleSheet("padding: 10px; font-weight: bold; background-color: #d35400; color: white;")
 
-        self.btn_egreso = QPushButton("Egreso de Caja")
-        self.btn_egreso.setStyleSheet("background-color: #A93226; color: white; font-weight: bold; border-radius: 4px; padding: 6px;")
-
-        self.btn_equivalencias = QPushButton("Equivalencia(Web)")
-        self.btn_equivalencias.setStyleSheet("padding: 10px; font-weight: bold; background-color: #34495e; color: white;")
-
-        self.btn_anular_venta = QPushButton("Anular / Devolver Venta")
-        self.btn_anular_venta.setStyleSheet("padding: 10px; font-weight: bold; background-color: #c0392b; color: white;")
-
-        layout_botones_vertical = QVBoxLayout()
-
-        fila_superior = QHBoxLayout()
-        fila_superior.addWidget(self.btn_cobrar_cc)
-        fila_superior.addWidget(self.btn_sugerir_pedido)
-        fila_superior.addWidget(self.btn_anular_venta)
-
-        fila_inferior = QHBoxLayout()
-        fila_inferior.addWidget(self.btn_consulta_rapida)
-        fila_inferior.addWidget(self.btn_equivalencias)
-        fila_inferior.addWidget(self.btn_egreso)
-
-        layout_botones_vertical.addLayout(fila_superior)
-        layout_botones_vertical.addLayout(fila_inferior)
-
-        self.fila_controles_layout.addLayout(layout_botones_vertical)
+        self.fila_controles_layout.addWidget(self.btn_cobrar_cc)
+        self.fila_controles_layout.addWidget(self.btn_sugerir_pedido)
+        self.fila_controles_layout.addWidget(self.btn_consulta_rapida)
 
         # Ensamblaje
         self.layout_cabecera.addLayout(self.fila_cliente_layout)
@@ -247,9 +223,6 @@ class VentasTab(QWidget):
         self.btn_nuevo_cliente.clicked.connect(self.crear_cliente_rapido)
         self.btn_cobrar_cc.clicked.connect(self.abrir_cobro_cc)
         self.btn_buscar_presupuesto.clicked.connect(self._abrir_recuperar_dialog)
-        self.btn_anular_venta.clicked.connect(self._abrir_anulacion)
-        self.btn_egreso.clicked.connect(self._abrir_egreso_caja)
-        self.btn_equivalencias.clicked.connect(self._abrir_buscador_equivalencias)
 
         # --- ATAJOS DE TECLADO ---
         shortcut_f12 = QShortcut(QKeySequence("F12"), self)
@@ -259,7 +232,6 @@ class VentasTab(QWidget):
         shortcut_f2.activated.connect(self.consultar_precio_rapido)
 
         self.cargar_clientes()
-        self.cargar_tarjetas()
 
 
 
@@ -309,7 +281,7 @@ class VentasTab(QWidget):
         if ok and query.strip():
             prod = ProductoService.buscar_por_query_flexible(query.strip())
             if prod:
-                from PyQt6.QtWidgets import QVBoxLayout, QLabel
+                from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel
                 dialog = QDialog(self)
                 dialog.setWindowTitle("Consulta de Precio Público")
                 dialog.resize(500, 300)
@@ -360,13 +332,12 @@ class VentasTab(QWidget):
             QMessageBox.warning(self, "Atención", "Debe seleccionar un cliente primero.")
             return
 
-        # Fetch using standard service (assuming this exists, or use the exact code that was working)
         saldo_deuda = ClienteService.obtener_deuda(cliente_id)
         if saldo_deuda <= 0:
             QMessageBox.information(self, "Cuenta Corriente", "El cliente no registra deuda actual.")
             return
 
-        from PyQt6.QtWidgets import QVBoxLayout, QFormLayout, QPushButton, QHBoxLayout
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QFormLayout, QPushButton, QHBoxLayout
         dialog = QDialog(self)
         dialog.setWindowTitle("Cobro Cuenta Corriente")
         dialog.resize(350, 200)
@@ -381,7 +352,7 @@ class VentasTab(QWidget):
         txt_monto.setText(f"{saldo_deuda:.2f}")
 
         combo_metodo = QComboBox()
-        combo_metodo.addItems(["Efectivo", "Transferencia", "Tarjeta", "Cheque"])
+        combo_metodo.addItems(["Efectivo", "Transferencia", "Tarjeta"])
 
         form.addRow("Deuda Total Actual:", lbl_deuda)
         form.addRow("Monto a Pagar ($):", txt_monto)
@@ -399,26 +370,14 @@ class VentasTab(QWidget):
         btn_ok.clicked.connect(dialog.accept)
         btn_cancel.clicked.connect(dialog.reject)
 
-        if dialog.exec() == int(QDialog.DialogCode.Accepted):
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             try:
                 monto = float(txt_monto.text().replace(',', '.'))
                 if monto <= 0 or monto > saldo_deuda:
                     QMessageBox.warning(self, "Error", "Monto inválido.")
                     return
 
-                metodo_cc = combo_metodo.currentText()
-                datos_cheque = None
-
-                if metodo_cc.lower() == "cheque":
-                    from ui.components.dialogs import CargarChequeDialog
-                    dlg_cheque = CargarChequeDialog(monto, self)
-                    if dlg_cheque.exec() == int(QDialog.DialogCode.Accepted):
-                        datos_cheque = dlg_cheque.get_data()
-                    else:
-                        return  # User cancelled cheque entry
-
-                ClienteService.registrar_pago_cc(cliente_id, monto, metodo_cc)
-
+                ClienteService.registrar_pago_cc(cliente_id, monto, combo_metodo.currentText()) # El servicio ya lo inyecta en Caja si está abierta
                 QMessageBox.information(self, "Éxito", f"Se registró el pago por $ {monto:.2f}.")
             except ValueError:
                 QMessageBox.warning(self, "Error", "Debe ingresar un número válido.")
@@ -523,34 +482,6 @@ class VentasTab(QWidget):
         self.txt_cantidad.setText("1")
         self.txt_codigo.setFocus()
 
-    def _abrir_buscador_equivalencias(self):
-        from ui.components.dialogs import BuscadorEquivalenciasDialog
-        dlg = BuscadorEquivalenciasDialog(self)
-        dlg.exec()
-
-    def _abrir_anulacion(self):
-        from ui.components.dialogs import AnularVentaDialog
-        dlg = AnularVentaDialog(self)
-        dlg.exec()
-
-    def _abrir_egreso_caja(self):
-        from ui.components.dialogs import EgresoCajaDialog
-        from services.caja_service import CajaService
-        from PyQt6.QtWidgets import QDialog
-
-        dialog = EgresoCajaDialog(self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            datos = dialog.get_datos()
-            exito, msj = CajaService.registrar_egreso(
-                monto=datos["monto"],
-                concepto=datos["concepto"],
-                metodo=datos["metodo"]
-            )
-            if exito:
-                QMessageBox.information(self, "Éxito", "Egreso registrado correctamente.")
-            else:
-                QMessageBox.critical(self, "Error", msj)
-
     def agregar_item_manual(self):
         dialog = ItemManualDialog(self)
         if dialog.exec() and dialog.data_item:
@@ -576,7 +507,7 @@ class VentasTab(QWidget):
             pass
         finally:
             self.combo_tarjeta.blockSignals(False)
-            self.cargar_planes_tarjeta()
+            self.cargar_tarjetas()
 
     def cargar_planes_tarjeta(self):
         from database.conexion import get_session
@@ -677,44 +608,7 @@ class VentasTab(QWidget):
         self.lbl_total_valor.setText(f"$ {total_final:.2f}")
         self.btn_cobrar.setEnabled(len(self.carrito) > 0)
 
-        self._actualizar_calculo_tarjeta()
-
         self.tabla.itemChanged.connect(self.modificar_cantidad_grid)
-
-    def _actualizar_calculo_tarjeta(self):
-        metodo = self.combo_pago.currentText().strip()
-        if metodo not in ['Tarjeta', 'Débito']:
-            self.lbl_detalle_financiacion.setText("")
-            return
-
-        total_base = 0.0
-        for item in self.carrito:
-            precio_unitario = item['precio_base'] * 0.9 if self.cliente_vip else item['precio_base']
-            precio_neto = precio_unitario - item['descuento_unit']
-            if precio_neto < 0: precio_neto = 0.0
-            total_base += item['cantidad'] * precio_neto
-
-        total_base -= self.descuento_global
-
-        if total_base <= 0:
-            self.lbl_detalle_financiacion.setText("")
-            return
-
-        plan_id = self.combo_plan_tarjeta.currentData()
-        if plan_id and hasattr(self, 'planes_data') and plan_id in self.planes_data:
-            p = self.planes_data[plan_id]
-            tasa = p['interes']
-            cuotas = p['cuotas']
-
-            total_financiado = total_base * (1 + (tasa / 100))
-
-            if cuotas > 1:
-                valor_cuota = total_financiado / cuotas
-                self.lbl_detalle_financiacion.setText(f"Total a pasar por Posnet: ${total_financiado:.2f} ({cuotas} cuotas de ${valor_cuota:.2f})")
-            else:
-                self.lbl_detalle_financiacion.setText(f"Total a pasar por Posnet: ${total_financiado:.2f}")
-        else:
-            self.lbl_detalle_financiacion.setText("")
 
     def modificar_cantidad_grid(self, item):
         col = item.column()
@@ -787,52 +681,14 @@ class VentasTab(QWidget):
         total_txt = self.lbl_total_valor.text().replace('$ ', '').replace(',', '.')
         total_float = float(total_txt)
 
-        metodo = self.combo_pago.currentText().strip()
-        tipo_comprobante = self.combo_comprobante.currentText().strip()
+        metodo = self.combo_pago.currentText()
+        tipo_comprobante = self.combo_comprobante.currentText()
         cliente_id = self.combo_clientes.currentData()
-
-        desglose_pagos = None
-        datos_cheque_extra = None
-
-        if metodo.lower() == "combinado":
-            from ui.components.dialogs import CobroCombinadoDialog
-
-            dialogo = CobroCombinadoDialog(total_float, self)
-            if dialogo.exec() == int(QDialog.DialogCode.Accepted):
-                desglose_pagos = dialogo.get_datos()
-                datos_cheque_extra = desglose_pagos.pop("datos_cheque", None)
-
-                monto_credito = desglose_pagos.get("Tarjeta de Crédito", 0)
-                if monto_credito > 0 and "datos_tarjeta" in desglose_pagos:
-                    # In order to calculate the surcharge, we parse the text from the dialog's combo box inside `datos_tarjeta`
-                    # The dialog returns: "tarjeta" and "plan". However, we need the exact `tasa` from the DB.
-                    # The prompt says: # Calcular recargo de esa porción si es necesario, o usar el monto base
-                    # If we don't have the explicit tasa here easily, we pass the base monto_credito.
-                    from ui.components.dialogs import ConfirmacionPosnetDialog
-                    dialog_posnet = ConfirmacionPosnetDialog(monto_credito, self)
-                    if dialog_posnet.exec() == int(QDialog.DialogCode.Accepted):
-                        datos_posnet = dialog_posnet.get_datos()
-                        desglose_pagos["datos_tarjeta"]["lote"] = datos_posnet["lote"]
-                        desglose_pagos["datos_tarjeta"]["cupon"] = datos_posnet["cupon"]
-                    else:
-                        return # Aborta toda la venta combinada si falla el posnet
-            else:
-                return # Aborta la venta
-
 
         # Validar si es Cta Cte
         if metodo == "Cuenta Corriente" and not cliente_id:
             QMessageBox.warning(self, "Error", "Debe seleccionar un Cliente válido para pagos en Cuenta Corriente.")
             return
-
-        if metodo.lower() == "cheque":
-            from ui.components.dialogs import CargarChequeDialog
-
-            dlg_cheque = CargarChequeDialog(total_float, self)
-            if dlg_cheque.exec() == int(QDialog.DialogCode.Accepted):
-                datos_cheque_extra = dlg_cheque.get_data()
-            else:
-                return # Aborta la venta si el cajero cancela la carga del cheque
 
         # Modal rápido de pago efectivo
         monto_abonado = total_float
@@ -868,29 +724,24 @@ class VentasTab(QWidget):
                 # Pass extra data for deferred income
                 datos_tarjeta = None
                 if metodo in ['Tarjeta', 'Débito']:
+                    lote = self.txt_lote.text().strip()
+                    cupon = self.txt_cupon.text().strip()
+
+                    if not lote or not cupon:
+                        QMessageBox.warning(self, "Error", "El número de Lote y Cupón son obligatorios para pagos con Tarjeta.")
+                        return
+
                     plan_id = self.combo_plan_tarjeta.currentData()
                     if plan_id and hasattr(self, 'planes_data') and plan_id in self.planes_data:
                         p = self.planes_data[plan_id]
-
-                        # 1. Calcular el total real con recargo para esta venta
-                        tasa = p['interes']
-                        total_financiado = total_float * (1 + (tasa / 100))
-
-                        # 2. Invocar la intercepción
-                        from ui.components.dialogs import ConfirmacionPosnetDialog
-                        dialog = ConfirmacionPosnetDialog(total_financiado, self)
-                        if dialog.exec() == int(QDialog.DialogCode.Accepted):
-                            datos_posnet = dialog.get_datos() # {lote, cupon}
-                            datos_tarjeta = {
-                                'banco': p['banco'],
-                                'cuotas': p['cuotas'],
-                                'interes': tasa,
-                                'plazo_dias': p['dias'],
-                                'lote': datos_posnet['lote'],
-                                'cupon': datos_posnet['cupon']
-                            }
-                        else:
-                            return # Aborta si la tarjeta fue rechazada en el aparato físico
+                        datos_tarjeta = {
+                            'banco': p['banco'],
+                            'cuotas': p['cuotas'],
+                            'interes': p['interes'],
+                            'plazo_dias': p['dias'],
+                            'lote': lote,
+                            'cupon': cupon
+                        }
                     else:
                         QMessageBox.warning(self, "Error", "Seleccione un plan de tarjeta válido.")
                         return
@@ -914,9 +765,7 @@ class VentasTab(QWidget):
                         descuento_global=self.descuento_global,
                         tipo_comprobante=tipo_comprobante,
                         datos_tarjeta=datos_tarjeta,
-                        presupuesto_id=getattr(self, 'presupuesto_activo_id', None),
-                        datos_cheque=datos_cheque_extra,
-                        desglose_pagos=desglose_pagos
+                        presupuesto_id=getattr(self, 'presupuesto_activo_id', None)
                     )
 
                 vuelto = venta.vuelto
@@ -946,6 +795,8 @@ class VentasTab(QWidget):
                 self.cliente_vip = False
                 self.presupuesto_activo_id = None
                 self.txt_codigo.clear()
+                if hasattr(self, 'txt_lote'): self.txt_lote.clear()
+                if hasattr(self, 'txt_cupon'): self.txt_cupon.clear()
                 self.combo_clientes.setCurrentIndex(0)
                 self.actualizar_ui()
                 self.txt_codigo.setFocus()

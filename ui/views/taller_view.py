@@ -18,81 +18,73 @@ class DialogoQR(QDialog):
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
-        self.lbl_qr = QLabel()
-        self.lbl_qr.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        qimg = QImage.fromData(self.img_bytes)
-        pix = QPixmap.fromImage(qimg)
-        self.lbl_qr.setPixmap(pix.scaled(300, 300, Qt.AspectRatioMode.KeepAspectRatio))
-        layout.addWidget(self.lbl_qr)
+        lbl_qr = QLabel()
+        lbl_qr.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        image = QImage.fromData(self.img_bytes)
+        pixmap = QPixmap.fromImage(image)
+        lbl_qr.setPixmap(pixmap.scaled(300, 300, Qt.AspectRatioMode.KeepAspectRatio))
+
+        layout.addWidget(lbl_qr)
 
         btn_cerrar = QPushButton("Cerrar")
         btn_cerrar.clicked.connect(self.accept)
         layout.addWidget(btn_cerrar)
 
 class NuevoVehiculoDialog(QDialog):
-    def __init__(self, cliente_id=None, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Nuevo Vehículo")
-        self.cliente_id = cliente_id
+        self.setWindowTitle("Registrar Nuevo Vehículo")
         self.setup_ui()
 
     def setup_ui(self):
-        layout = QVBoxLayout(self)
-        form = QFormLayout()
+        layout = QFormLayout(self)
 
         self.combo_cliente = QComboBox()
-        from database.conexion import get_session
-        from database.models.cliente import Cliente
-        from sqlalchemy import select
-        with get_session() as s:
-            clientes = s.scalars(select(Cliente).order_by(Cliente.nombre)).all()
-            for c in clientes:
-                self.combo_cliente.addItem(c.nombre, c.id)
+        for c in ClienteService.listar_todos():
+            self.combo_cliente.addItem(c.nombre, c.id)
 
-        if self.cliente_id:
-            idx = self.combo_cliente.findData(self.cliente_id)
-            if idx >= 0:
-                self.combo_cliente.setCurrentIndex(idx)
-            self.combo_cliente.setEnabled(False)
-
-        self.txt_patente = QLineEdit()
+        self.txt_dominio = QLineEdit()
         self.txt_marca = QLineEdit()
         self.txt_modelo = QLineEdit()
-        self.spin_anio = QSpinBox()
-        self.spin_anio.setRange(1900, 2100)
-        self.spin_anio.setValue(QDate.currentDate().year())
+        self.txt_anio = QSpinBox()
+        self.txt_anio.setRange(1950, QDate.currentDate().year() + 1)
+        self.txt_anio.setValue(2015)
 
-        form.addRow("Cliente:", self.combo_cliente)
-        form.addRow("Patente:", self.txt_patente)
-        form.addRow("Marca:", self.txt_marca)
-        form.addRow("Modelo:", self.txt_modelo)
-        form.addRow("Año:", self.spin_anio)
+        layout.addRow("Cliente Dueño:", self.combo_cliente)
+        layout.addRow("Dominio/Patente (*):", self.txt_dominio)
+        layout.addRow("Marca:", self.txt_marca)
+        layout.addRow("Modelo:", self.txt_modelo)
+        layout.addRow("Año:", self.txt_anio)
 
-        layout.addLayout(form)
-
-        btn_box = QHBoxLayout()
+        btn_layout = QHBoxLayout()
         btn_guardar = QPushButton("Guardar")
         btn_guardar.clicked.connect(self.guardar)
         btn_cancelar = QPushButton("Cancelar")
         btn_cancelar.clicked.connect(self.reject)
-        btn_box.addWidget(btn_guardar)
-        btn_box.addWidget(btn_cancelar)
-        layout.addLayout(btn_box)
+        btn_layout.addWidget(btn_guardar)
+        btn_layout.addWidget(btn_cancelar)
+        layout.addRow(btn_layout)
 
     def guardar(self):
-        c_id = self.combo_cliente.currentData()
-        patente = self.txt_patente.text().strip().upper()
-        if not c_id or not patente:
-            QMessageBox.warning(self, "Error", "Debe seleccionar un cliente y escribir la patente.")
+        dom = self.txt_dominio.text().strip()
+        if not dom:
+            QMessageBox.warning(self, "Error", "El dominio es obligatorio.")
             return
 
         try:
-            TallerService.crear_vehiculo(c_id, patente, self.txt_marca.text(), self.txt_modelo.text(), self.spin_anio.value())
-            QMessageBox.information(self, "Éxito", "Vehículo registrado.")
+            TallerService.crear_vehiculo(
+                cliente_id=self.combo_cliente.currentData(),
+                dominio=dom,
+                marca=self.txt_marca.text().strip(),
+                modelo=self.txt_modelo.text().strip(),
+                anio=self.txt_anio.value()
+            )
             self.accept()
         except Exception as e:
-            QMessageBox.critical(self, "Error", str(e))
+            QMessageBox.critical(self, "Error", f"No se pudo guardar: {e}")
+
 
 class GarantiasTab(QWidget):
     def __init__(self):
@@ -102,38 +94,19 @@ class GarantiasTab(QWidget):
     def setup_ui(self):
         layout = QVBoxLayout(self)
 
-        # Selector de Cliente y Vehículo Superior
-        header_lay = QVBoxLayout()
-
-        # Cliente
-        lay_cli = QHBoxLayout()
-        self.combo_cliente = QComboBox()
-        self.btn_recargar_c = QPushButton("Actualizar Clientes")
-        self.btn_recargar_c.clicked.connect(self.cargar_clientes)
-        lay_cli.addWidget(QLabel("Cliente:"))
-        lay_cli.addWidget(self.combo_cliente)
-        lay_cli.addWidget(self.btn_recargar_c)
-        header_lay.addLayout(lay_cli)
-
-        # Vehículo
-        lay_veh = QHBoxLayout()
+        # Selector de Vehículo Superior
+        header_lay = QHBoxLayout()
         self.combo_vehiculos = QComboBox()
-        self.combo_vehiculos.setEnabled(False)
         self.btn_recargar_v = QPushButton("Actualizar Lista")
-        self.btn_recargar_v.clicked.connect(self._filtrar_vehiculos_por_cliente)
+        self.btn_recargar_v.clicked.connect(self.cargar_vehiculos)
         self.btn_nuevo_v = QPushButton("+ Vehículo")
         self.btn_nuevo_v.clicked.connect(self.nuevo_vehiculo)
 
-        lay_veh.addWidget(QLabel("Vehículo:"))
-        lay_veh.addWidget(self.combo_vehiculos)
-        lay_veh.addWidget(self.btn_recargar_v)
-        lay_veh.addWidget(self.btn_nuevo_v)
-        header_lay.addLayout(lay_veh)
-
+        header_lay.addWidget(QLabel("Vehículo:"))
+        header_lay.addWidget(self.combo_vehiculos)
+        header_lay.addWidget(self.btn_recargar_v)
+        header_lay.addWidget(self.btn_nuevo_v)
         layout.addLayout(header_lay)
-
-        # Conectar Cliente -> Vehículo
-        self.combo_cliente.currentIndexChanged.connect(self._filtrar_vehiculos_por_cliente)
 
         # Formulario de Registro
         form_lay = QFormLayout()
@@ -172,14 +145,10 @@ class GarantiasTab(QWidget):
         # Grilla de Historial
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels([
-            "ID", "Vehículo (Patente)", "Batería", "Fecha Instalación", "Vencimiento", "Acción"
+            "ID", "Fecha Instalación", "Batería", "Vencimiento", "Código", "Acción"
         ])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self.table)
-
-        self.btn_exportar_pdf_grilla = QPushButton("Exportar Historial a PDF")
-        self.btn_exportar_pdf_grilla.clicked.connect(self._exportar_pdf)
-        layout.addWidget(self.btn_exportar_pdf_grilla)
 
         self.combo_vehiculos.currentIndexChanged.connect(self.cargar_historial)
 
@@ -193,63 +162,23 @@ class GarantiasTab(QWidget):
         else:
             QMessageBox.warning(self, "No encontrado", "No se encontró la batería.")
 
-    def _exportar_pdf(self):
-        from utils.export_utils import ExportUtils
-        import os
-        from PyQt6.QtWidgets import QFileDialog
-
-        c_id = self.combo_cliente.currentData()
-        if not c_id:
-            QMessageBox.warning(self, "Error", "Seleccione un cliente primero.")
-            return
-
-        path, _ = QFileDialog.getSaveFileName(self, "Exportar PDF", f"Historial_Cliente_{c_id}.pdf", "PDF Files (*.pdf)")
-        if path:
-            ExportUtils.exportar_tabla_a_pdf(self.table, f"Historial - Cliente ID: {c_id}", path)
-            QMessageBox.information(self, "Éxito", "Historial exportado correctamente.")
-
-    def cargar_clientes(self):
-        from database.conexion import get_session
-        from database.models.cliente import Cliente
-        from sqlalchemy import select
-        self.combo_cliente.blockSignals(True)
-        self.combo_cliente.clear()
-        self.combo_cliente.addItem("Seleccione un Cliente...", None)
-        with get_session() as s:
-            clientes = s.scalars(select(Cliente).order_by(Cliente.nombre)).all()
-            for c in clientes:
-                self.combo_cliente.addItem(c.nombre, c.id)
-        self.combo_cliente.blockSignals(False)
-        self._filtrar_vehiculos_por_cliente()
-
-    def _filtrar_vehiculos_por_cliente(self):
-        c_id = self.combo_cliente.currentData()
+    def cargar_vehiculos(self):
         self.combo_vehiculos.blockSignals(True)
         self.combo_vehiculos.clear()
-
-        if not c_id:
-            self.combo_vehiculos.setEnabled(False)
-            self.combo_vehiculos.blockSignals(False)
-            self.cargar_historial()
-            return
-
-        self.combo_vehiculos.setEnabled(True)
-        from services.taller_service import TallerService
-        vehiculos = TallerService.obtener_vehiculos_por_cliente(c_id)
-        for v in vehiculos:
-            self.combo_vehiculos.addItem(f"{v.dominio} - {v.marca} {v.modelo}", v.id)
-
+        from database.conexion import get_session
+        from database.models.taller import Vehiculo
+        from sqlalchemy import select
+        with get_session() as session:
+            vehiculos = session.scalars(select(Vehiculo)).all()
+            for v in vehiculos:
+                self.combo_vehiculos.addItem(f"{v.dominio} - {v.marca} {v.modelo}", v.id)
         self.combo_vehiculos.blockSignals(False)
         self.cargar_historial()
 
     def nuevo_vehiculo(self):
-        c_id = self.combo_cliente.currentData()
-        if not c_id:
-            QMessageBox.warning(self, "Error", "Seleccione un cliente primero.")
-            return
-        d = NuevoVehiculoDialog(c_id, self)
+        d = NuevoVehiculoDialog(self)
         if d.exec() == QDialog.DialogCode.Accepted:
-            self._filtrar_vehiculos_por_cliente()
+            self.cargar_vehiculos()
 
     def guardar_garantia(self):
         v_id = self.combo_vehiculos.currentData()
@@ -305,35 +234,16 @@ class AceiteTab(QWidget):
     def setup_ui(self):
         layout = QVBoxLayout(self)
 
-        # Selector de Cliente y Vehículo Superior
-        header_lay = QVBoxLayout()
-
-        # Cliente
-        lay_cli = QHBoxLayout()
-        self.combo_cliente = QComboBox()
-        self.btn_recargar_c = QPushButton("Actualizar Clientes")
-        self.btn_recargar_c.clicked.connect(self.cargar_clientes)
-        lay_cli.addWidget(QLabel("Cliente:"))
-        lay_cli.addWidget(self.combo_cliente)
-        lay_cli.addWidget(self.btn_recargar_c)
-        header_lay.addLayout(lay_cli)
-
-        # Vehículo
-        lay_veh = QHBoxLayout()
+        # Selector de Vehículo Superior
+        header_lay = QHBoxLayout()
         self.combo_vehiculos = QComboBox()
-        self.combo_vehiculos.setEnabled(False)
         self.btn_recargar_v = QPushButton("Actualizar Lista")
-        self.btn_recargar_v.clicked.connect(self._filtrar_vehiculos_por_cliente)
+        self.btn_recargar_v.clicked.connect(self.cargar_vehiculos)
 
-        lay_veh.addWidget(QLabel("Vehículo:"))
-        lay_veh.addWidget(self.combo_vehiculos)
-        lay_veh.addWidget(self.btn_recargar_v)
-        header_lay.addLayout(lay_veh)
-
+        header_lay.addWidget(QLabel("Vehículo:"))
+        header_lay.addWidget(self.combo_vehiculos)
+        header_lay.addWidget(self.btn_recargar_v)
         layout.addLayout(header_lay)
-
-        # Conectar Cliente -> Vehículo
-        self.combo_cliente.currentIndexChanged.connect(self._filtrar_vehiculos_por_cliente)
 
         # Formulario
         form_lay = QFormLayout()
@@ -380,71 +290,20 @@ class AceiteTab(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self.table)
 
-        self.btn_exportar_pdf_grilla = QPushButton("Exportar Historial a PDF")
-        self.btn_exportar_pdf_grilla.clicked.connect(self._exportar_pdf)
-        layout.addWidget(self.btn_exportar_pdf_grilla)
-
         self.combo_vehiculos.currentIndexChanged.connect(self.cargar_historial)
-        self.table.itemDoubleClicked.connect(self._abrir_detalle_service)
 
-    def _exportar_pdf(self):
-        from utils.export_utils import ExportUtils
-        import os
-        from PyQt6.QtWidgets import QFileDialog
-
-        c_id = self.combo_cliente.currentData()
-        if not c_id:
-            QMessageBox.warning(self, "Error", "Seleccione un cliente primero.")
-            return
-
-        path, _ = QFileDialog.getSaveFileName(self, "Exportar PDF", f"Historial_Cliente_{c_id}.pdf", "PDF Files (*.pdf)")
-        if path:
-            ExportUtils.exportar_tabla_a_pdf(self.table, f"Historial - Cliente ID: {c_id}", path)
-            QMessageBox.information(self, "Éxito", "Historial exportado correctamente.")
-
-    def cargar_clientes(self):
-        from database.conexion import get_session
-        from database.models.cliente import Cliente
-        from sqlalchemy import select
-        self.combo_cliente.blockSignals(True)
-        self.combo_cliente.clear()
-        self.combo_cliente.addItem("Seleccione un Cliente...", None)
-        with get_session() as s:
-            clientes = s.scalars(select(Cliente).order_by(Cliente.nombre)).all()
-            for c in clientes:
-                self.combo_cliente.addItem(c.nombre, c.id)
-        self.combo_cliente.blockSignals(False)
-        self._filtrar_vehiculos_por_cliente()
-
-    def _filtrar_vehiculos_por_cliente(self):
-        c_id = self.combo_cliente.currentData()
+    def cargar_vehiculos(self):
         self.combo_vehiculos.blockSignals(True)
         self.combo_vehiculos.clear()
-
-        if not c_id:
-            self.combo_vehiculos.setEnabled(False)
-            self.combo_vehiculos.blockSignals(False)
-            self.cargar_historial()
-            return
-
-        self.combo_vehiculos.setEnabled(True)
-        from services.taller_service import TallerService
-        vehiculos = TallerService.obtener_vehiculos_por_cliente(c_id)
-        for v in vehiculos:
-            self.combo_vehiculos.addItem(f"{v.dominio} - {v.marca} {v.modelo}", v.id)
-
+        from database.conexion import get_session
+        from database.models.taller import Vehiculo
+        from sqlalchemy import select
+        with get_session() as session:
+            vehiculos = session.scalars(select(Vehiculo)).all()
+            for v in vehiculos:
+                self.combo_vehiculos.addItem(f"{v.dominio} - {v.marca} {v.modelo}", v.id)
         self.combo_vehiculos.blockSignals(False)
         self.cargar_historial()
-
-    def _abrir_detalle_service(self, item):
-        row = item.row()
-        c_id_str = self.table.item(row, 0).text()
-        if not c_id_str.isdigit(): return
-
-        c_id = int(c_id_str)
-        from ui.components.dialogs import DetalleServiceDialog
-        dlg = DetalleServiceDialog(c_id, self)
-        dlg.exec()
 
     def guardar_service(self):
         v_id = self.combo_vehiculos.currentData()
@@ -529,5 +388,5 @@ class TallerView(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        self.tab_garantias.cargar_clientes()
-        self.tab_aceite.cargar_clientes()
+        self.tab_garantias.cargar_vehiculos()
+        self.tab_aceite.cargar_vehiculos()

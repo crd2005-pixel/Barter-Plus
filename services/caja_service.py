@@ -44,40 +44,6 @@ class CajaService:
             return nueva_caja
 
     @staticmethod
-    def registrar_egreso(monto: float, concepto: str, metodo: str) -> tuple[bool, str]:
-        with get_session() as session:
-            try:
-                caja_activa = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
-                if not caja_activa:
-                    return False, "No hay una caja abierta."
-
-                mov = MovimientoCaja(
-                    caja_id=caja_activa.id,
-                    tipo="Egreso",
-                    concepto=f"Egreso: {concepto}",
-                    monto=monto, # Guardo en positivo, el tipo "Egreso" se usa para restar lógicamente en sumatorias
-                    metodo=metodo
-                )
-                session.add(mov)
-
-                if metodo == "Transferencia":
-                    from database.models.contabilidad import AsientoDiario
-                    asiento_banco = AsientoDiario(
-                        fecha=dt.datetime.utcnow(),
-                        cuenta="Cuenta Bancaria",
-                        debe=0.0,
-                        haber=monto,
-                        descripcion=f"Egreso Caja: {concepto}"
-                    )
-                    session.add(asiento_banco)
-
-                session.commit()
-                return True, "Ok"
-            except Exception as e:
-                session.rollback()
-                return False, str(e)
-
-    @staticmethod
     def registrar_movimiento(caja_id: int, tipo: str, concepto: str, monto: float, metodo: str, venta_id: Optional[int] = None) -> MovimientoCaja:
         with get_session() as session:
             try:
@@ -141,7 +107,7 @@ class CajaService:
             return saldo
 
     @staticmethod
-    def cerrar_caja(caja_id: int, saldo_real: float, observaciones: str = "") -> Caja:
+    def cerrar_caja(caja_id: int, saldo_real: float) -> Caja:
         with get_session() as session:
             try:
                 caja = session.get(Caja, caja_id)
@@ -187,7 +153,6 @@ class CajaService:
                 caja.diferencia = diferencia
                 caja.estado = "Cerrada"
                 caja.fecha_cierre = dt.datetime.utcnow()
-                caja.notas = observaciones
 
                 session.commit()
                 session.refresh(caja)

@@ -21,6 +21,8 @@ class ProductoDialog(QDialog):
         self.sku_input = QLineEdit()
         self.nombre_input = QLineEdit()
         self.codigo_input = QLineEdit()
+        self.cod_prov_input = QLineEdit()
+        self.equivalencias_input = QLineEdit()
 
         self.combo_proveedor = QComboBox()
         self.combo_proveedor.setEditable(True)
@@ -69,8 +71,10 @@ class ProductoDialog(QDialog):
         self.precio_final_label.setStyleSheet("font-weight: bold; font-size: 14px;")
 
         self.layout.addRow("SKU Interno:", self.sku_input)
-        self.layout.addRow("Nombre:", self.nombre_input)
         self.layout.addRow("Código de Barras (EAN):", self.codigo_input)
+        self.layout.addRow("Código Proveedor:", self.cod_prov_input)
+        self.layout.addRow("Equivalencias (separadas por coma):", self.equivalencias_input)
+        self.layout.addRow("Nombre:", self.nombre_input)
 
         self.layout.addRow("Proveedor:", self.combo_proveedor)
         self.layout.addRow("Categoría/Rubro:", self.combo_rubro)
@@ -163,6 +167,8 @@ class ProductoDialog(QDialog):
 
             self.nombre_input.setText(self.producto.nombre)
             self.codigo_input.setText(self.producto.codigo_barras or "")
+            self.cod_prov_input.setText(self.producto.codigo_proveedor or "")
+            self.equivalencias_input.setText(self.producto.equivalencias or "")
 
             # Combos
             if self.producto.proveedor_id and self.producto.proveedor:
@@ -188,6 +194,8 @@ class ProductoDialog(QDialog):
         sku = self.sku_input.text().strip()
         nombre = self.nombre_input.text().strip()
         codigo = self.codigo_input.text().strip()
+        cod_prov = self.cod_prov_input.text().strip()
+        equiv = self.equivalencias_input.text().strip()
         prov_nombre = self.combo_proveedor.currentText()
         rubro_nombre = self.combo_rubro.currentText()
         marca_nombre = self.combo_marca.currentText()
@@ -210,6 +218,8 @@ class ProductoDialog(QDialog):
                     nombre=nombre,
                     costo=costo,
                     codigo_barras=codigo if codigo else None,
+                    codigo_proveedor=cod_prov if cod_prov else None,
+                    equivalencias=equiv if equiv else None,
                     stock_inicial=stock,
                     es_granel=es_granel,
                     divisor_granel=divisor,
@@ -225,6 +235,8 @@ class ProductoDialog(QDialog):
                     producto_id=self.producto_id,
                     nombre=nombre,
                     codigo_barras=codigo,
+                    codigo_proveedor=cod_prov if cod_prov else None,
+                    equivalencias=equiv if equiv else None,
                     costo=costo,
                     margen=margen,
                     stock=stock,
@@ -251,35 +263,10 @@ class ProductosTab(QWidget):
 
         # Contenedor superior (Formularios/Filtros)
         self.top_widget = QWidget()
-        from PyQt6.QtWidgets import QSizePolicy, QComboBox
+        from PyQt6.QtWidgets import QSizePolicy
         self.top_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Ignored)
         self.top_layout = QVBoxLayout(self.top_widget)
         self.top_layout.setContentsMargins(0, 0, 0, 0)
-
-        # --- Barra de Filtros ---
-        self.filter_bar = QHBoxLayout()
-
-        self.combo_marca = QComboBox()
-        self.combo_marca.addItem("-- Todas las Marcas --")
-
-        self.combo_rubro = QComboBox()
-        self.combo_rubro.addItem("-- Todos los Rubros --")
-
-        self.combo_proveedor = QComboBox()
-        self.combo_proveedor.addItem("-- Todos los Proveedores --")
-
-        self.btn_limpiar = QPushButton("Limpiar Filtros")
-
-        self.filter_bar.addWidget(QLabel("Marca:"))
-        self.filter_bar.addWidget(self.combo_marca)
-        self.filter_bar.addWidget(QLabel("Rubro:"))
-        self.filter_bar.addWidget(self.combo_rubro)
-        self.filter_bar.addWidget(QLabel("Proveedor:"))
-        self.filter_bar.addWidget(self.combo_proveedor)
-        self.filter_bar.addWidget(self.btn_limpiar)
-        self.filter_bar.addStretch()
-
-        self.top_layout.addLayout(self.filter_bar)
 
         # --- Barra superior (Buscador y Acciones) ---
         self.top_bar = QHBoxLayout()
@@ -315,8 +302,8 @@ class ProductosTab(QWidget):
         self.bottom_layout.setContentsMargins(0, 0, 0, 0)
 
         # --- Tabla de Productos ---
-        self.tabla = QTableWidget(0, 7)
-        self.tabla.setHorizontalHeaderLabels(["ID", "SKU", "Cód. Barras", "Nombre", "Stock", "Costo", "Precio Final"])
+        self.tabla = QTableWidget(0, 8)
+        self.tabla.setHorizontalHeaderLabels(["ID", "SKU", "Cód. Barras", "Cód. Prov.", "Nombre", "Stock", "Costo", "Precio Final"])
 
         # Ergonomía Global: Columnas redimensionables interactivamente
         self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -349,72 +336,13 @@ class ProductosTab(QWidget):
         # --- Conexiones ---
         self.btn_nuevo.clicked.connect(self.abrir_dialogo_nuevo)
         self.btn_editar.clicked.connect(self.abrir_dialogo_editar)
-        self.btn_limpiar.clicked.connect(self.limpiar_filtros)
 
-        self.combo_marca.currentIndexChanged.connect(self.cargar_datos)
-        self.combo_rubro.currentIndexChanged.connect(self.cargar_datos)
-        self.combo_proveedor.currentIndexChanged.connect(self.cargar_datos)
-
-        # Cargar filtros
-        self.cargar_filtros()
         # Cargar datos iniciales
         self.cargar_datos()
 
-    def limpiar_filtros(self):
-        self.combo_marca.blockSignals(True)
-        self.combo_rubro.blockSignals(True)
-        self.combo_proveedor.blockSignals(True)
-
-        self.combo_marca.setCurrentIndex(0)
-        self.combo_rubro.setCurrentIndex(0)
-        self.combo_proveedor.setCurrentIndex(0)
-        self.search_input.setText("")
-
-        self.combo_marca.blockSignals(False)
-        self.combo_rubro.blockSignals(False)
-        self.combo_proveedor.blockSignals(False)
-
-        self.cargar_datos()
-
-    def cargar_filtros(self):
-        provs, cats, marcas = ProductoService.obtener_diccionarios_relaciones()
-
-        self.combo_marca.blockSignals(True)
-        self.combo_rubro.blockSignals(True)
-        self.combo_proveedor.blockSignals(True)
-
-        self.combo_marca.clear()
-        self.combo_marca.addItem("-- Todas las Marcas --", None)
-        for m in marcas:
-            self.combo_marca.addItem(m["nombre"], m["id"])
-
-        self.combo_rubro.clear()
-        self.combo_rubro.addItem("-- Todos los Rubros --", None)
-        for c in cats:
-            self.combo_rubro.addItem(c["nombre"], c["id"])
-
-        self.combo_proveedor.clear()
-        self.combo_proveedor.addItem("-- Todos los Proveedores --", None)
-        for p in provs:
-            self.combo_proveedor.addItem(p["nombre"], p["id"])
-
-        self.combo_marca.blockSignals(False)
-        self.combo_rubro.blockSignals(False)
-        self.combo_proveedor.blockSignals(False)
-
     def cargar_datos(self):
         busqueda = self.search_input.text().strip()
-
-        marca_id = self.combo_marca.currentData()
-        rubro_id = self.combo_rubro.currentData()
-        proveedor_id = self.combo_proveedor.currentData()
-
-        self.productos_db = ProductoService.listar_todos_filtros(
-            busqueda=busqueda,
-            marca_id=marca_id,
-            categoria_id=rubro_id,
-            proveedor_id=proveedor_id
-        )
+        self.productos_db = ProductoService.listar_todos(busqueda)
         self.paginacion.set_total_items(len(self.productos_db))
 
     def showEvent(self, event):
@@ -435,10 +363,11 @@ class ProductosTab(QWidget):
             self.tabla.setItem(row, 0, QTableWidgetItem(str(prod.id)))
             self.tabla.setItem(row, 1, QTableWidgetItem(prod.sku or ""))
             self.tabla.setItem(row, 2, QTableWidgetItem(prod.codigo_barras or ""))
-            self.tabla.setItem(row, 3, QTableWidgetItem(prod.nombre))
-            self.tabla.setItem(row, 4, QTableWidgetItem(f"{prod.stock_actual:.2f}"))
-            self.tabla.setItem(row, 5, QTableWidgetItem(f"$ {prod.costo:.2f}"))
-            self.tabla.setItem(row, 6, QTableWidgetItem(f"$ {prod.precio_minorista:.2f}"))
+            self.tabla.setItem(row, 3, QTableWidgetItem(prod.codigo_proveedor or ""))
+            self.tabla.setItem(row, 4, QTableWidgetItem(prod.nombre))
+            self.tabla.setItem(row, 5, QTableWidgetItem(f"{prod.stock_actual:.2f}"))
+            self.tabla.setItem(row, 6, QTableWidgetItem(f"$ {prod.costo:.2f}"))
+            self.tabla.setItem(row, 7, QTableWidgetItem(f"$ {prod.precio_minorista:.2f}"))
 
             # Guardamos el ID en el item para facilitar la edición
             self.tabla.item(row, 0).setData(Qt.ItemDataRole.UserRole, prod.id)

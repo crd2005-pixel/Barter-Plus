@@ -12,20 +12,6 @@ class GastosView(QWidget):
         self.setup_ui()
         self.cargar_datos()
 
-    def _exportar_pdf(self):
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
-        from utils.export_utils import ExportUtils
-
-        filepath, _ = QFileDialog.getSaveFileName(
-            self, "Guardar Reporte PDF", "Reporte_Gastos.pdf", "Archivos PDF (*.pdf)"
-        )
-        if filepath:
-            try:
-                ExportUtils.exportar_tabla_a_pdf(self.table, "Reporte de Egresos/Gastos - Barter Plus", filepath)
-                QMessageBox.information(self, "Éxito", "PDF exportado correctamente.")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Fallo al exportar: {str(e)}")
-
     def setup_ui(self):
         layout = QVBoxLayout(self)
 
@@ -63,18 +49,9 @@ class GastosView(QWidget):
         layout.addLayout(form_lay)
 
         # Historial del Mes
-        hist_lay = QHBoxLayout()
         lbl_historial = QLabel("Historial de Gastos del Mes Actual")
         lbl_historial.setStyleSheet("font-weight: bold; margin-top: 15px;")
-
-        self.btn_exportar = QPushButton("Exportar a PDF")
-        self.btn_exportar.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold; margin-top: 15px;")
-        self.btn_exportar.clicked.connect(self._exportar_pdf)
-
-        hist_lay.addWidget(lbl_historial)
-        hist_lay.addStretch()
-        hist_lay.addWidget(self.btn_exportar)
-        layout.addLayout(hist_lay)
+        layout.addWidget(lbl_historial)
 
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(["Fecha", "Categoría", "Origen Fondos", "Descripción", "Monto Extraído"])
