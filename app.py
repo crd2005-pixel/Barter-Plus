@@ -267,22 +267,41 @@ def generate_sku(proveedor, codigo_proveedor, marca, descripcion):
 
 
 def get_master_lookup(df_master):
-    lookup = {}
+    lookup_cod = {}
+    lookup_desc = {}
     if df_master is not None and not df_master.empty:
-        # Intentar detectar columnas
         desc_col = next((c for c in df_master.columns if 'descripci' in c.lower() or 'nombre' in c.lower()), None)
-        code_col = next((c for c in df_master.columns if 'codigo' in c.lower() or 'sku' in c.lower()), None)
+        sku_col = next((c for c in df_master.columns if ('codigo' in c.lower() or 'sku' in c.lower()) and 'proveedor' not in c.lower()), None)
 
-        if desc_col and code_col:
+        # Buscar explícitamente codigo_proveedor
+        prov_col = next((c for c in df_master.columns if 'codigo_proveedor' in c.lower()), None)
+        # Si no lo encuentra, intentar con algo que tenga proveedor pero que parezca código
+        if not prov_col:
+            prov_col = next((c for c in df_master.columns if 'proveedor' in c.lower() and 'cod' in c.lower()), None)
+
+        if sku_col:
             for _, row in df_master.iterrows():
-                norm_desc = normalize_text(str(row[desc_col]))
-                if norm_desc:
-                    lookup[norm_desc] = str(row[code_col])
-    return lookup
+                sku_val = str(row[sku_col])
 
-def process_and_unify(json_data, proveedor, marca_default='', master_lookup=None):
-    if master_lookup is None:
-        master_lookup = {}
+                # Cargar por codigo de proveedor (prioridad)
+                if prov_col and pd.notna(row[prov_col]):
+                    norm_cod = normalize_text(str(row[prov_col]))
+                    if norm_cod:
+                        lookup_cod[norm_cod] = sku_val
+
+                # Cargar por descripcion (respaldo)
+                if desc_col and pd.notna(row[desc_col]):
+                    norm_desc = normalize_text(str(row[desc_col]))
+                    if norm_desc:
+                        lookup_desc[norm_desc] = sku_val
+
+    return lookup_cod, lookup_desc
+
+def process_and_unify(json_data, proveedor, marca_default='', master_lookup_cod=None, master_lookup_desc=None):
+    if master_lookup_cod is None:
+        master_lookup_cod = {}
+    if master_lookup_desc is None:
+        master_lookup_desc = {}
 
     try:
         conn = get_connection()
@@ -324,7 +343,13 @@ def process_and_unify(json_data, proveedor, marca_default='', master_lookup=None
                 logging.warning(f"Advertencia: Producto procesado con precio 0. Datos crudos: {item}")
 
             norm_desc = normalize_text(desc)
-            target_sku = master_lookup.get(norm_desc)
+            norm_cod = normalize_text(cod_prov)
+
+            target_sku = None
+            if norm_cod and norm_cod in master_lookup_cod:
+                target_sku = master_lookup_cod[norm_cod]
+            elif norm_desc in master_lookup_desc:
+                target_sku = master_lookup_desc[norm_desc]
 
             if target_sku:
                 final_sku = target_sku
@@ -337,7 +362,9 @@ def process_and_unify(json_data, proveedor, marca_default='', master_lookup=None
                     counter += 1
 
             used_skus.add(final_sku)
-            master_lookup[norm_desc] = final_sku
+            if norm_cod:
+                master_lookup_cod[norm_cod] = final_sku
+            master_lookup_desc[norm_desc] = final_sku
 
             c.execute('''INSERT INTO productos_maestro
                          (proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion, sku_interno)
@@ -385,7 +412,8 @@ def main():
 
     master_db_mode = st.radio("Fuente de Base Maestra", ["Conexión Local (barterplus.db)", "Subir Archivo (Excel/CSV)"])
     df_master = None
-    master_lookup = {}
+    master_lookup_cod = {}
+    master_lookup_desc = {}
 
     if master_db_mode == "Conexión Local (barterplus.db)":
         APP_DIR = os.environ.get('APPDATA', os.path.expanduser('~/AppData/Roaming'))
@@ -394,10 +422,10 @@ def main():
             st.success(f"Base de datos local detectada: {db_path}")
             try:
                 conn_bp = sqlite3.connect(db_path)
-                df_master = pd.read_sql_query("SELECT id as codigo, nombre as descripcion FROM productos", conn_bp)
+                df_master = pd.read_sql_query("SELECT id as codigo, nombre as descripcion, codigo_proveedor FROM productos", conn_bp)
                 conn_bp.close()
                 st.write(f"✓ {len(df_master)} productos cargados para matching.")
-                master_lookup = get_master_lookup(df_master)
+                master_lookup_cod, master_lookup_desc = get_master_lookup(df_master)
             except Exception as e:
                 st.error(f"Error leyendo base local: {e}")
         else:
@@ -411,7 +439,7 @@ def main():
                 else:
                     df_master = pd.read_excel(master_file)
                 st.write(f"✓ {len(df_master)} productos cargados para matching.")
-                master_lookup = get_master_lookup(df_master)
+                master_lookup_cod, master_lookup_desc = get_master_lookup(df_master)
             except Exception as e:
                 st.error(f"Error leyendo el archivo: {e}")
 
@@ -475,7 +503,7 @@ def main():
                     with st.spinner(f"[{file.name}] Cotejando y unificando resultados..."):
 
                         marca_def = file_marcas[file.name]
-                        ins, upd = process_and_unify(master_json_list, proveedor, marca_def, master_lookup)
+                        ins, upd = process_and_unify(master_json_list, proveedor, marca_def, master_lookup_cod, master_lookup_desc)
                         all_inserts += ins
                         all_updates += upd
 
