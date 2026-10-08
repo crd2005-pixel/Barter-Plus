@@ -567,6 +567,13 @@ class CodigosBarraTab(QWidget):
         self.lay_filtros.addWidget(QLabel("Subrubro:"))
         self.lay_filtros.addWidget(self.cmb_subrubro)
         self.lay_filtros.addWidget(self.chk_recientes)
+
+        # Inyectar buscador por SKU / Codigo de Barras
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Buscar por código o nombre...")
+        self.search_input.setMinimumWidth(200)
+        self.lay_filtros.addWidget(self.search_input)
+
         self.lay_filtros.addStretch()
 
         layout.addLayout(self.lay_filtros)
@@ -575,6 +582,7 @@ class CodigosBarraTab(QWidget):
         self.cmb_rubro.currentIndexChanged.connect(self._aplicar_filtros)
         self.cmb_subrubro.currentIndexChanged.connect(self._aplicar_filtros)
         self.chk_recientes.stateChanged.connect(self._aplicar_filtros)
+        self.search_input.textChanged.connect(self._aplicar_filtros)
 
         bar.addStretch()
 
@@ -740,6 +748,7 @@ class CodigosBarraTab(QWidget):
         f_rubro = self.cmb_rubro.currentText()
         f_subrubro = self.cmb_subrubro.currentText()
         f_reciente = self.chk_recientes.isChecked()
+        f_busqueda = self.search_input.text().strip().lower()
 
         hoy = dt.datetime.now().date()
 
@@ -751,6 +760,14 @@ class CodigosBarraTab(QWidget):
             if f_subrubro != "Todos" and f_subrubro != "" and d.get("subrubro") != f_subrubro: mostrar = False
             if f_reciente:
                 if d.get("creado_en") is None or d.get("creado_en").date() != hoy: mostrar = False
+
+            if f_busqueda:
+                nombre = str(d.get("nombre") or "").lower()
+                cb = str(d.get("cb") or "").lower()
+                cod = str(d.get("codigo") or "").lower()
+                cod_prov = str(d.get("cod_prov") or "").lower()
+                if f_busqueda not in nombre and f_busqueda not in cb and f_busqueda not in cod and f_busqueda not in cod_prov:
+                    mostrar = False
 
             if mostrar:
                 self._filtered_indices.append(i)
