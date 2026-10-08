@@ -14,11 +14,16 @@ import logging
 import sys
 import traceback
 
-logging.basicConfig(
-    filename='error_log.txt',
-    level=logging.ERROR,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+try:
+    log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'error_log.txt')
+    logging.basicConfig(
+        filename=log_path,
+        filemode='a',
+        level=logging.ERROR,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
+except Exception:
+    pass
 
 def global_exception_handler(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, KeyboardInterrupt):
