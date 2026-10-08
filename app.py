@@ -10,6 +10,23 @@ import PyPDF2
 import re
 import os
 import shutil
+import logging
+import sys
+import traceback
+
+logging.basicConfig(
+    filename='error_log.txt',
+    level=logging.ERROR,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
+def global_exception_handler(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    logging.error("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+
+sys.excepthook = global_exception_handler
 
 def run_migration_barterplus():
     APP_DIR = os.environ.get('APPDATA', os.path.expanduser('~/AppData/Roaming'))
@@ -110,6 +127,7 @@ def extract_raw_text(uploaded_file, batch_size=50):
                 text_chunks.append(chunk_context)
 
     except Exception as e:
+        logging.error(f"Error extrayendo texto del archivo {filename}: {e}\n{traceback.format_exc()}")
         st.error(f"Error extrayendo texto del archivo: {e}")
 
     return text_chunks
@@ -175,11 +193,13 @@ def call_gemini_engine(text_data, api_key, batch_num):
             data = json.loads(raw_output)
             return data
 
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            logging.error(f"Error JSONDecodeError en Lote {batch_num}: {e}")
             st.warning(f"Error: La IA no devolvió un JSON válido en el Lote {batch_num} (Truncamiento). Reintentando en 10 segundos...")
             time.sleep(10)
             continue
         except Exception as e:
+            logging.error(f"Error llamando a Gemini API en Lote {batch_num}: {e}\n{traceback.format_exc()}")
             st.warning(f"Error llamando a la API de Gemini (REST) en el Lote {batch_num}: {e}. Reintentando en 10 segundos...")
             time.sleep(10)
             continue
@@ -256,84 +276,91 @@ def process_and_unify(json_data, proveedor, marca_default='', master_lookup=None
     if master_lookup is None:
         master_lookup = {}
 
-    conn = get_connection()
-    c = conn.cursor()
+    try:
+        conn = get_connection()
+        c = conn.cursor()
 
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    inserts = 0
-    updates = 0
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        inserts = 0
+        updates = 0
 
-    known_brands = ['WEGA', 'BOSCH', 'MANN', 'FRAM', 'MAHLE', 'SHELL', 'YPF', 'CASTROL', 'TOTAL', 'ELF', 'MOTUL', 'VALVOLINE', 'PETRONAS', 'LIQUI MOLY']
+        known_brands = ['WEGA', 'BOSCH', 'MANN', 'FRAM', 'MAHLE', 'SHELL', 'YPF', 'CASTROL', 'TOTAL', 'ELF', 'MOTUL', 'VALVOLINE', 'PETRONAS', 'LIQUI MOLY']
 
-    # Pre-cargar SKUs existentes en memoria para evitar colisiones
-    c.execute("SELECT sku_interno FROM productos_maestro")
-    used_skus = {row[0] for row in c.fetchall() if row[0]}
+        # Pre-cargar SKUs existentes en memoria para evitar colisiones
+        c.execute("SELECT sku_interno FROM productos_maestro")
+        used_skus = {row[0] for row in c.fetchall() if row[0]}
 
-    for item in json_data:
-        cod_prov = str(item.get('codigo_proveedor', '')).strip()
-        desc = str(item.get('descripcion', '')).strip()
-        marca = str(item.get('marca', '')).strip().upper()
+        for item in json_data:
+            cod_prov = str(item.get('codigo_proveedor', '')).strip()
+            desc = str(item.get('descripcion', '')).strip()
+            marca = str(item.get('marca', '')).strip().upper()
 
-        if not marca or marca == 'GENERICA':
-            if marca_default:
-                marca = marca_default.upper()
+            if not marca or marca == 'GENERICA':
+                if marca_default:
+                    marca = marca_default.upper()
+                else:
+                    marca = 'GENERICA'
+                    for b in known_brands:
+                        if re.search(r'\b' + re.escape(b) + r'\b', desc, re.IGNORECASE):
+                            marca = b
+                            break
+
+            costo = limpiar_precio_argentino(item.get('costo_neto', '0'))
+            caja = str(item.get('contenido_caja', '1')).strip()
+
+            if not desc:
+                continue
+
+            norm_desc = normalize_text(desc)
+            target_sku = master_lookup.get(norm_desc)
+
+            c.execute("SELECT id, sku_interno FROM productos_maestro WHERE proveedor = ? AND codigo_proveedor = ?", (proveedor, cod_prov))
+            existing = c.fetchone()
+
+            if existing:
+                matched_id = existing[0]
+                existing_sku = existing[1]
+                final_sku = target_sku if target_sku else existing_sku
+                master_lookup[norm_desc] = final_sku
+                used_skus.add(final_sku)
+
+                c.execute('''UPDATE productos_maestro
+                             SET costo_neto = ?, fecha_actualizacion = ?, sku_interno = ?, descripcion = ?, marca = ?
+                             WHERE id = ?''', (costo, now, final_sku, desc, marca, matched_id))
+                updates += 1
             else:
-                marca = 'GENERICA'
-                for b in known_brands:
-                    if re.search(r'\b' + re.escape(b) + r'\b', desc, re.IGNORECASE):
-                        marca = b
-                        break
+                if target_sku:
+                    final_sku = target_sku
+                else:
+                    base_sku = generate_sku(proveedor, cod_prov, marca, desc)
+                    final_sku = base_sku
+                    counter = 1
+                    while final_sku in used_skus:
+                        final_sku = f"{base_sku}-{counter}"
+                        counter += 1
 
-        costo = limpiar_precio_argentino(item.get('costo_neto', '0'))
-        caja = str(item.get('contenido_caja', '1')).strip()
+                used_skus.add(final_sku)
+                master_lookup[norm_desc] = final_sku
 
-        if not desc:
-            continue
+                c.execute('''INSERT INTO productos_maestro
+                             (proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion, sku_interno)
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                             ON CONFLICT(sku_interno) DO UPDATE SET
+                             costo_neto=excluded.costo_neto,
+                             fecha_actualizacion=excluded.fecha_actualizacion,
+                             proveedor=excluded.proveedor,
+                             codigo_proveedor=excluded.codigo_proveedor''',
+                             (proveedor, cod_prov, desc, marca, costo, caja, now, final_sku))
+                inserts += 1
 
-        norm_desc = normalize_text(desc)
-        target_sku = master_lookup.get(norm_desc)
+        conn.commit()
+    except Exception as e:
+        logging.error(f"Error fatal en process_and_unify: {e}\n{traceback.format_exc()}")
+        raise
+    finally:
+        if 'conn' in locals() and conn:
+            conn.close()
 
-        c.execute("SELECT id, sku_interno FROM productos_maestro WHERE proveedor = ? AND codigo_proveedor = ?", (proveedor, cod_prov))
-        existing = c.fetchone()
-
-        if existing:
-            matched_id = existing[0]
-            existing_sku = existing[1]
-            final_sku = target_sku if target_sku else existing_sku
-            master_lookup[norm_desc] = final_sku
-            used_skus.add(final_sku)
-
-            c.execute('''UPDATE productos_maestro
-                         SET costo_neto = ?, fecha_actualizacion = ?, sku_interno = ?, descripcion = ?, marca = ?
-                         WHERE id = ?''', (costo, now, final_sku, desc, marca, matched_id))
-            updates += 1
-        else:
-            if target_sku:
-                final_sku = target_sku
-            else:
-                base_sku = generate_sku(proveedor, cod_prov, marca, desc)
-                final_sku = base_sku
-                counter = 1
-                while final_sku in used_skus:
-                    final_sku = f"{base_sku}-{counter}"
-                    counter += 1
-
-            used_skus.add(final_sku)
-            master_lookup[norm_desc] = final_sku
-
-            c.execute('''INSERT INTO productos_maestro
-                         (proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion, sku_interno)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                         ON CONFLICT(sku_interno) DO UPDATE SET
-                         costo_neto=excluded.costo_neto,
-                         fecha_actualizacion=excluded.fecha_actualizacion,
-                         proveedor=excluded.proveedor,
-                         codigo_proveedor=excluded.codigo_proveedor''',
-                         (proveedor, cod_prov, desc, marca, costo, caja, now, final_sku))
-            inserts += 1
-
-    conn.commit()
-    conn.close()
     return inserts, updates
 
 def to_excel(df):
