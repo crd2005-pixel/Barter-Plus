@@ -265,6 +265,10 @@ def process_and_unify(json_data, proveedor, marca_default='', master_lookup=None
 
     known_brands = ['WEGA', 'BOSCH', 'MANN', 'FRAM', 'MAHLE', 'SHELL', 'YPF', 'CASTROL', 'TOTAL', 'ELF', 'MOTUL', 'VALVOLINE', 'PETRONAS', 'LIQUI MOLY']
 
+    # Pre-cargar SKUs existentes en memoria para evitar colisiones
+    c.execute("SELECT sku_interno FROM productos_maestro")
+    used_skus = {row[0] for row in c.fetchall() if row[0]}
+
     for item in json_data:
         cod_prov = str(item.get('codigo_proveedor', '')).strip()
         desc = str(item.get('descripcion', '')).strip()
@@ -281,37 +285,50 @@ def process_and_unify(json_data, proveedor, marca_default='', master_lookup=None
                         break
 
         costo = limpiar_precio_argentino(item.get('costo_neto', '0'))
-
         caja = str(item.get('contenido_caja', '1')).strip()
 
         if not desc:
             continue
 
         norm_desc = normalize_text(desc)
+        target_sku = master_lookup.get(norm_desc)
 
         c.execute("SELECT id, sku_interno FROM productos_maestro WHERE proveedor = ? AND codigo_proveedor = ?", (proveedor, cod_prov))
         existing = c.fetchone()
 
-        # Regla: Si existe en maestro local, actualizamos, pero si hay match en maestro BarterPlus, forzamos ese SKU.
-        target_sku = master_lookup.get(norm_desc)
-
         if existing:
             matched_id = existing[0]
             existing_sku = existing[1]
-
-            # Si el SKU master es diferente al existente (y existe en master), lo respetamos
             final_sku = target_sku if target_sku else existing_sku
+            master_lookup[norm_desc] = final_sku
+            used_skus.add(final_sku)
 
             c.execute('''UPDATE productos_maestro
-                         SET costo_neto = ?, fecha_actualizacion = ?, sku_interno = ?
-                         WHERE id = ?''', (costo, now, final_sku, matched_id))
+                         SET costo_neto = ?, fecha_actualizacion = ?, sku_interno = ?, descripcion = ?, marca = ?
+                         WHERE id = ?''', (costo, now, final_sku, desc, marca, matched_id))
             updates += 1
         else:
-            final_sku = target_sku if target_sku else generate_sku(proveedor, cod_prov, marca, desc)
+            if target_sku:
+                final_sku = target_sku
+            else:
+                base_sku = generate_sku(proveedor, cod_prov, marca, desc)
+                final_sku = base_sku
+                counter = 1
+                while final_sku in used_skus:
+                    final_sku = f"{base_sku}-{counter}"
+                    counter += 1
+
+            used_skus.add(final_sku)
+            master_lookup[norm_desc] = final_sku
 
             c.execute('''INSERT INTO productos_maestro
                          (proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion, sku_interno)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                         ON CONFLICT(sku_interno) DO UPDATE SET
+                         costo_neto=excluded.costo_neto,
+                         fecha_actualizacion=excluded.fecha_actualizacion,
+                         proveedor=excluded.proveedor,
+                         codigo_proveedor=excluded.codigo_proveedor''',
                          (proveedor, cod_prov, desc, marca, costo, caja, now, final_sku))
             inserts += 1
 
