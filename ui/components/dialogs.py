@@ -241,12 +241,24 @@ class TicketPreviewDialog(QDialog):
         self.btn_config.setStyleSheet("background-color: #f39c12; color: white; font-weight: bold; height: 35px;")
         self.btn_config.clicked.connect(self.open_config)
 
+        from PyQt6.QtPrintSupport import QPrinterInfo
+        from PyQt6.QtWidgets import QComboBox, QLabel
+        self.cmb_printer = QComboBox()
+        self.cmb_printer.addItems([p.printerName() for p in QPrinterInfo.availablePrinters()])
+        saved_printer = self.settings.value("printer_name", "")
+        if saved_printer:
+            idx = self.cmb_printer.findText(saved_printer)
+            if idx >= 0:
+                self.cmb_printer.setCurrentIndex(idx)
+
         self.btn_imprimir = QPushButton("Imprimir Ticket")
         self.btn_imprimir.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; height: 35px;")
         self.btn_imprimir.clicked.connect(self.imprimir)
 
         toolbar.addWidget(self.btn_config)
         toolbar.addStretch()
+        toolbar.addWidget(QLabel("Impresora:"))
+        toolbar.addWidget(self.cmb_printer)
         toolbar.addWidget(self.btn_imprimir)
 
         main_layout.addLayout(toolbar)
@@ -449,20 +461,18 @@ class TicketPreviewDialog(QDialog):
             painter.end()
 
     def imprimir(self):
-        from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
+        from PyQt6.QtPrintSupport import QPrinter
         from PyQt6.QtWidgets import QMessageBox
         print_job = QPrinter(QPrinter.PrinterMode.ScreenResolution)
         print_job.setOutputFormat(QPrinter.OutputFormat.NativeFormat)
-        printer_name = self.settings.value("printer_name", "")
+        printer_name = self.cmb_printer.currentText()
         if printer_name:
             print_job.setPrinterName(printer_name)
 
-        dlg = QPrintDialog(print_job, self)
-        if dlg.exec() == int(QDialog.DialogCode.Accepted):
-            self.settings.setValue("printer_name", print_job.printerName())
-            self.paint_preview(print_job)
-            QMessageBox.information(self, "Impresión", "Ticket enviado a la impresora.")
-            self.accept()
+        self.settings.setValue("printer_name", printer_name)
+        self.paint_preview(print_job)
+        QMessageBox.information(self, "Impresión", "Ticket enviado a la impresora.")
+        self.accept()
 
 class DetalleVentaDialog(QDialog):
     def __init__(self, venta_id, parent=None, es_presupuesto=False):
