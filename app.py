@@ -219,6 +219,12 @@ def limpiar_precio_argentino(valor_crudo):
 
 import hashlib
 
+def normalize_text(text):
+    if not isinstance(text, str): return ""
+    text = text.upper()
+    text = re.sub(r'[^A-Z0-9\s]', '', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
 def generate_sku(proveedor, codigo_proveedor, marca, descripcion):
     prov_prefix = str(proveedor)[:3].upper() if len(str(proveedor)) >= 3 else str(proveedor).upper().ljust(3, 'X')
 
@@ -232,7 +238,24 @@ def generate_sku(proveedor, codigo_proveedor, marca, descripcion):
         return f"{prov_prefix}-{md5_hash}"
 
 
-def process_and_unify(json_data, proveedor, marca_default=''):
+def get_master_lookup(df_master):
+    lookup = {}
+    if df_master is not None and not df_master.empty:
+        # Intentar detectar columnas
+        desc_col = next((c for c in df_master.columns if 'descripci' in c.lower() or 'nombre' in c.lower()), None)
+        code_col = next((c for c in df_master.columns if 'codigo' in c.lower() or 'sku' in c.lower()), None)
+
+        if desc_col and code_col:
+            for _, row in df_master.iterrows():
+                norm_desc = normalize_text(str(row[desc_col]))
+                if norm_desc:
+                    lookup[norm_desc] = str(row[code_col])
+    return lookup
+
+def process_and_unify(json_data, proveedor, marca_default='', master_lookup=None):
+    if master_lookup is None:
+        master_lookup = {}
+
     conn = get_connection()
     c = conn.cursor()
 
@@ -264,23 +287,32 @@ def process_and_unify(json_data, proveedor, marca_default=''):
         if not desc:
             continue
 
-        c.execute("SELECT id FROM productos_maestro WHERE proveedor = ? AND codigo_proveedor = ?", (proveedor, cod_prov))
+        norm_desc = normalize_text(desc)
+
+        c.execute("SELECT id, sku_interno FROM productos_maestro WHERE proveedor = ? AND codigo_proveedor = ?", (proveedor, cod_prov))
         existing = c.fetchone()
+
+        # Regla: Si existe en maestro local, actualizamos, pero si hay match en maestro BarterPlus, forzamos ese SKU.
+        target_sku = master_lookup.get(norm_desc)
 
         if existing:
             matched_id = existing[0]
+            existing_sku = existing[1]
+
+            # Si el SKU master es diferente al existente (y existe en master), lo respetamos
+            final_sku = target_sku if target_sku else existing_sku
+
             c.execute('''UPDATE productos_maestro
-                         SET descripcion = ?, costo_neto = ?, contenido_caja = ?, marca = ?, fecha_actualizacion = ?
-                         WHERE id = ?''', (desc, costo, caja, marca, now, matched_id))
+                         SET costo_neto = ?, fecha_actualizacion = ?, sku_interno = ?
+                         WHERE id = ?''', (costo, now, final_sku, matched_id))
             updates += 1
         else:
+            final_sku = target_sku if target_sku else generate_sku(proveedor, cod_prov, marca, desc)
+
             c.execute('''INSERT INTO productos_maestro
-                         (proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion)
-                         VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                         (proveedor, cod_prov, desc, marca, costo, caja, now))
-            new_id = c.lastrowid
-            sku = generate_sku(proveedor, cod_prov, marca, desc)
-            c.execute("UPDATE productos_maestro SET sku_interno = ? WHERE id = ?", (sku, new_id))
+                         (proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion, sku_interno)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                         (proveedor, cod_prov, desc, marca, costo, caja, now, final_sku))
             inserts += 1
 
     conn.commit()
@@ -305,8 +337,44 @@ def main():
 
     st.title("Sistema de Extracción IA Dual y Unificación (Barter Plus)")
 
-    st.subheader("1. Embudo de Extracción Masiva Multimarca (Excel y PDF)")
-    st.info("Sube uno o múltiples archivos (Excel o PDF). La Inteligencia Artificial extraerá y deducirá la marca automáticamente.")
+    st.subheader("1. Configuración de Base Maestra (Barter Plus)")
+    st.info("Selecciona la Base de Datos Maestra para evitar duplicados y proteger códigos internos.")
+
+    master_db_mode = st.radio("Fuente de Base Maestra", ["Conexión Local (barterplus.db)", "Subir Archivo (Excel/CSV)"])
+    df_master = None
+    master_lookup = {}
+
+    if master_db_mode == "Conexión Local (barterplus.db)":
+        APP_DIR = os.environ.get('APPDATA', os.path.expanduser('~/AppData/Roaming'))
+        db_path = os.path.join(APP_DIR, 'BarterPlus', 'barterplus.db')
+        if os.path.exists(db_path):
+            st.success(f"Base de datos local detectada: {db_path}")
+            try:
+                conn_bp = sqlite3.connect(db_path)
+                df_master = pd.read_sql_query("SELECT id as codigo, nombre as descripcion FROM productos", conn_bp)
+                conn_bp.close()
+                st.write(f"✓ {len(df_master)} productos cargados para matching.")
+                master_lookup = get_master_lookup(df_master)
+            except Exception as e:
+                st.error(f"Error leyendo base local: {e}")
+        else:
+            st.warning("No se encontró barterplus.db localmente. Procede sin matching o sube un archivo.")
+    else:
+        master_file = st.file_uploader("Sube la Base Maestra (Excel o CSV)", type=["xlsx", "csv"])
+        if master_file:
+            try:
+                if master_file.name.endswith('.csv'):
+                    df_master = pd.read_csv(master_file)
+                else:
+                    df_master = pd.read_excel(master_file)
+                st.write(f"✓ {len(df_master)} productos cargados para matching.")
+                master_lookup = get_master_lookup(df_master)
+            except Exception as e:
+                st.error(f"Error leyendo el archivo: {e}")
+
+    st.write("---")
+    st.subheader("2. Embudo de Extracción Masiva Multimarca (Excel y PDF)")
+    st.info("Sube uno o múltiples archivos (Excel o PDF). La Inteligencia Artificial extraerá y cotejará la información.")
 
     uploaded_files = st.file_uploader("Sube Listas de Proveedores", type=["xlsx", "xls", "pdf"], accept_multiple_files=True)
 
@@ -358,17 +426,17 @@ def main():
                         time.sleep(4)
 
                 if master_json_list:
-                    with st.spinner(f"[{file.name}] Unificando e insertando resultados en la Base Maestra..."):
+                    with st.spinner(f"[{file.name}] Cotejando y unificando resultados..."):
 
                         marca_def = file_marcas[file.name]
-                        ins, upd = process_and_unify(master_json_list, proveedor, marca_def)
+                        ins, upd = process_and_unify(master_json_list, proveedor, marca_def, master_lookup)
                         all_inserts += ins
                         all_updates += upd
 
-            st.success(f"✅ ¡Proceso de Embudo IA finalizado! Productos Nuevos (Creados): {all_inserts} | Productos Actualizados: {all_updates}")
+            st.success(f"✅ ¡Proceso de Embudo IA finalizado! Productos Nuevos (Creados): {all_inserts} | Productos Actualizados (Matching): {all_updates}")
 
     st.write("---")
-    st.subheader("2. Inventario Maestro (Exportación Final)")
+    st.subheader("3. Inventario Maestro (Exportación Final)")
 
     conn = get_connection()
     df_maestro = pd.read_sql_query("SELECT sku_interno, proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion FROM productos_maestro", conn)
