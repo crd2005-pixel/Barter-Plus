@@ -107,6 +107,7 @@ def extract_raw_text(uploaded_file, batch_size=50):
             for sheet in xl.sheet_names:
                 df = pd.read_excel(xl, sheet_name=sheet, header=None)
                 df = df.dropna(how='all')
+                df = df.fillna('')
 
                 for start_idx in range(0, len(df), batch_size):
                     df_chunk = df.iloc[start_idx:start_idx + batch_size]
@@ -139,7 +140,7 @@ def extract_raw_text(uploaded_file, batch_size=50):
 
 def call_gemini_engine(text_data, api_key, batch_num):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key={api_key}"
-    prompt = "Extrae los productos con sus precios exactos, respetando estrictamente el orden secuencial del texto. Devuelve ÚNICAMENTE un JSON. Para la clave 'marca', debes deducirla del contexto, títulos o descripción. Si es imposible deducirla, pon 'GENERICA'. Extrae el precio (costo_neto) como string sin alterar su formato original.\n\nTexto sucio:\n"
+    prompt = "Extrae los productos con sus precios exactos, respetando estrictamente el orden secuencial del texto. ES CRÍTICO QUE NO TRUNQUES LA LISTA: debes devolver el 100% de los ítems encontrados en el texto sin omitir ninguno. Devuelve ÚNICAMENTE un JSON. Para la clave 'marca', debes deducirla del contexto, títulos o descripción. Si es imposible deducirla, pon 'GENERICA'. Extrae el precio (costo_neto) como string sin alterar su formato original.\n\nTexto sucio:\n"
 
     payload = {
         "contents": [
@@ -246,8 +247,9 @@ import hashlib
 
 def normalize_text(text):
     if not isinstance(text, str): return ""
-    text = text.upper()
-    text = re.sub(r'[^A-Z0-9\s]', '', text)
+    text = text.lower()
+    text = text.replace('-', ' ').replace('_', ' ').replace('/', ' ')
+    text = re.sub(r'[^a-z0-9\s]', '', text)
     return re.sub(r'\s+', ' ', text).strip()
 
 def generate_sku(proveedor, codigo_proveedor, marca, descripcion):
@@ -314,7 +316,11 @@ def process_and_unify(json_data, proveedor, marca_default='', master_lookup=None
             caja = str(item.get('contenido_caja', '1')).strip()
 
             if not desc:
+                logging.warning(f"Fila saltada por falta de descripcion. Datos crudos: {item}")
                 continue
+
+            if costo == 0.0:
+                logging.warning(f"Advertencia: Producto procesado con precio 0. Datos crudos: {item}")
 
             norm_desc = normalize_text(desc)
             target_sku = master_lookup.get(norm_desc)
