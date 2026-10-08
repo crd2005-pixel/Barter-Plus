@@ -8,6 +8,42 @@ import time
 from datetime import datetime
 import PyPDF2
 import re
+import os
+import shutil
+
+def run_migration_barterplus():
+    APP_DIR = os.environ.get('APPDATA', os.path.expanduser('~/AppData/Roaming'))
+    APP_DIR = os.path.join(APP_DIR, 'BarterPlus')
+    os.makedirs(APP_DIR, exist_ok=True)
+    db_path = os.path.join(APP_DIR, 'barterplus.db')
+    backup_path = os.path.join(APP_DIR, 'barterplus_backup.db')
+
+    if os.path.exists(db_path):
+        try:
+            shutil.copy2(db_path, backup_path)
+
+            if os.path.exists(backup_path):
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+
+                try:
+                    cursor.execute("PRAGMA table_info(productos)")
+                    columns = [info[1] for info in cursor.fetchall()]
+
+                    if "codigo_proveedor" not in columns:
+                        cursor.execute("ALTER TABLE productos ADD COLUMN codigo_proveedor TEXT;")
+                    if "equivalencias" not in columns:
+                        cursor.execute("ALTER TABLE productos ADD COLUMN equivalencias TEXT;")
+
+                    conn.commit()
+                except Exception as e:
+                    pass
+                finally:
+                    conn.close()
+        except Exception as e:
+            pass
+
+run_migration_barterplus()
 
 DB_NAME = "inventario_barter.db"
 
