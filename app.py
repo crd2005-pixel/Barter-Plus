@@ -139,6 +139,7 @@ def extract_raw_text(uploaded_file, batch_size=50):
     return text_chunks
 
 def call_gemini_engine(text_data, api_key, batch_num):
+    # API Stateless execution constraint: The HTTP REST architecture natively isolates every request, preventing cross-chunk memory bleeding.
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key={api_key}"
     prompt = "Extrae los productos con sus precios exactos, respetando estrictamente el orden secuencial del texto. ES CRÍTICO QUE NO TRUNQUES LA LISTA: debes devolver el 100% de los ítems encontrados en el texto sin omitir ninguno. Devuelve ÚNICAMENTE un JSON. Para la clave 'marca', debes deducirla del contexto, títulos o descripción. Si es imposible deducirla, pon 'GENERICA'. Extrae el precio (costo_neto) como string sin alterar su formato original.\n\nTexto sucio:\n"
 
@@ -325,44 +326,31 @@ def process_and_unify(json_data, proveedor, marca_default='', master_lookup=None
             norm_desc = normalize_text(desc)
             target_sku = master_lookup.get(norm_desc)
 
-            c.execute("SELECT id, sku_interno FROM productos_maestro WHERE proveedor = ? AND codigo_proveedor = ?", (proveedor, cod_prov))
-            existing = c.fetchone()
-
-            if existing:
-                matched_id = existing[0]
-                existing_sku = existing[1]
-                final_sku = target_sku if target_sku else existing_sku
-                master_lookup[norm_desc] = final_sku
-                used_skus.add(final_sku)
-
-                c.execute('''UPDATE productos_maestro
-                             SET costo_neto = ?, fecha_actualizacion = ?, sku_interno = ?, descripcion = ?, marca = ?
-                             WHERE id = ?''', (costo, now, final_sku, desc, marca, matched_id))
-                updates += 1
+            if target_sku:
+                final_sku = target_sku
             else:
-                if target_sku:
-                    final_sku = target_sku
-                else:
-                    base_sku = generate_sku(proveedor, cod_prov, marca, desc)
-                    final_sku = base_sku
-                    counter = 1
-                    while final_sku in used_skus:
-                        final_sku = f"{base_sku}-{counter}"
-                        counter += 1
+                base_sku = generate_sku(proveedor, cod_prov, marca, desc)
+                final_sku = base_sku
+                counter = 1
+                while final_sku in used_skus:
+                    final_sku = f"{base_sku}-{counter}"
+                    counter += 1
 
-                used_skus.add(final_sku)
-                master_lookup[norm_desc] = final_sku
+            used_skus.add(final_sku)
+            master_lookup[norm_desc] = final_sku
 
-                c.execute('''INSERT INTO productos_maestro
-                             (proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion, sku_interno)
-                             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                             ON CONFLICT(sku_interno) DO UPDATE SET
-                             costo_neto=excluded.costo_neto,
-                             fecha_actualizacion=excluded.fecha_actualizacion,
-                             proveedor=excluded.proveedor,
-                             codigo_proveedor=excluded.codigo_proveedor''',
-                             (proveedor, cod_prov, desc, marca, costo, caja, now, final_sku))
-                inserts += 1
+            c.execute('''INSERT INTO productos_maestro
+                         (proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion, sku_interno)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                         ON CONFLICT(sku_interno) DO UPDATE SET
+                         costo_neto=excluded.costo_neto,
+                         fecha_actualizacion=excluded.fecha_actualizacion,
+                         proveedor=excluded.proveedor,
+                         codigo_proveedor=excluded.codigo_proveedor,
+                         descripcion=excluded.descripcion,
+                         marca=excluded.marca''',
+                         (proveedor, cod_prov, desc, marca, costo, caja, now, final_sku))
+            inserts += 1
 
         conn.commit()
     except Exception as e:
@@ -455,6 +443,10 @@ def main():
             progress_bar = st.progress(0)
 
             for i, file in enumerate(uploaded_files):
+                # Flush Memory for each file explicitly
+                master_json_list = []
+                text_chunks = []
+
                 proveedor = file_proveedores[file.name]
                 if not proveedor:
                     st.warning(f"Saltando {file.name}: No se especificó el proveedor.")
@@ -463,7 +455,6 @@ def main():
                 with st.spinner(f"[{file.name}] Extrayendo texto crudo y separando en lotes..."):
                     text_chunks = extract_raw_text(file, batch_size=50)
 
-                master_json_list = []
                 total_chunks = len(text_chunks)
 
                 for idx, chunk in enumerate(text_chunks):
