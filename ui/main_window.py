@@ -52,16 +52,12 @@ class MainWindow(QMainWindow):
         self.setup_tabs()
 
     def setup_tabs(self):
-        # Placeholder para otras pestañas
-
-
         # Pestañas reales
         self.ventas_tab = VentasTab()
         self.productos_tab = ProductosTab()
         self.precios_tab = PreciosTab()
         self.proveedores_tab = ProveedoresView()
         self.dashboard_view = DashboardView()
-        self.configuracion_view = ConfiguracionView()
 
         # Añadir pestañas al QTabWidget
         self.tabs.addTab(self.ventas_tab, "POS")
@@ -72,7 +68,6 @@ class MainWindow(QMainWindow):
         self.gastos_view = GastosView()
         self.tabs.addTab(self.gastos_view, "Egresos")
 
-
         self.taller_view = TallerView()
         self.tabs.addTab(self.taller_view, "Taller")
 
@@ -82,19 +77,21 @@ class MainWindow(QMainWindow):
         self.clientes_view = ClientesView()
         self.tabs.addTab(self.clientes_view, "Clientes")
 
-
         self.tabs.addTab(self.productos_tab, "Productos")
         self.tabs.addTab(self.precios_tab, "Precios")
         self.tabs.addTab(self.proveedores_tab, "Proveedores")
 
+        self.configuracion_view = ConfiguracionView()
         self.tabs.addTab(self.configuracion_view, "Configuración")
+
+        # Dashboard Principal movido al final
         self.tabs.addTab(self.dashboard_view, "Métricas")
 
 
 # Hacer las pestañas movibles
         self.tabs.setMovable(True)
 
-        # Seleccionar por defecto la pestaña Ventas
+        # Seleccionar por defecto la pestaña Dashboard
         self.tabs.setCurrentWidget(self.ventas_tab)
 
 
@@ -161,6 +158,8 @@ class MainWindow(QMainWindow):
             if self.tabs.isTabVisible(i):
                 self.tabs.setCurrentIndex(i)
                 break
+            elif tab_text not in permisos_lista:
+                self.tabs.setTabVisible(i, False)
 
     def change_theme(self, theme_name: str):
         app = QApplication.instance()
