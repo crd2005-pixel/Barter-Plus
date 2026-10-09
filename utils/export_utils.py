@@ -44,3 +44,43 @@ class ExportUtils:
             QMessageBox.information(parent, "Éxito", f"Datos exportados correctamente a:\n{file_path}")
         except Exception as e:
             QMessageBox.critical(parent, "Error de Exportación", f"No se pudo exportar el archivo:\n{str(e)}")
+
+    @staticmethod
+    def exportar_tabla_a_pdf(tabla: QTableWidget, titulo_reporte: str, filepath: str):
+        from PyQt6.QtPrintSupport import QPrinter
+        from PyQt6.QtGui import QTextDocument, QPageSize
+        from datetime import datetime
+
+        html = f"""
+        <html><head><style>
+            body {{ font-family: sans-serif; color: black; }}
+            h2 {{ text-align: center; color: #333; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 10px; }}
+            th, td {{ border: 1px solid #aaa; padding: 5px; text-align: left; }}
+            th {{ background-color: #f0f0f0; font-weight: bold; }}
+        </style></head><body>
+        <h2>{titulo_reporte}</h2>
+        <p>Generado el: {datetime.now().strftime('%d/%m/%Y %H:%M')}</p>
+        <table><thead><tr>
+        """
+        for col in range(tabla.columnCount()):
+            item = tabla.horizontalHeaderItem(col)
+            html += f"<th>{item.text() if item else ''}</th>"
+        html += "</tr></thead><tbody>"
+
+        for row in range(tabla.rowCount()):
+            html += "<tr>"
+            for col in range(tabla.columnCount()):
+                item = tabla.item(row, col)
+                html += f"<td>{item.text() if item else ''}</td>"
+            html += "</tr>"
+        html += "</tbody></table></body></html>"
+
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+        printer.setOutputFileName(filepath)
+        printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+
+        doc = QTextDocument()
+        doc.setHtml(html)
+        doc.print(printer)

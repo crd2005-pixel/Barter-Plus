@@ -31,6 +31,7 @@ class GarantiaBateria(Base):
     meses_garantia: Mapped[int] = mapped_column(Integer, nullable=False)
     fecha_vencimiento: Mapped[dt.date] = mapped_column(Date, nullable=False)
     codigo_garantia: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    qr_token: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     # Relaciones
     vehiculo: Mapped['Vehiculo'] = relationship(back_populates='garantias')
@@ -52,6 +53,7 @@ class CambioAceite(Base):
     filtro_combustible: Mapped[bool] = mapped_column(default=False)
     filtro_habitaculo: Mapped[bool] = mapped_column(default=False)
     observaciones: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    qr_token: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     # Relaciones
     vehiculo: Mapped['Vehiculo'] = relationship(back_populates='cambios_aceite')

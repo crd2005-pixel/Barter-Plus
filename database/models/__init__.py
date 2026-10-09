@@ -10,3 +10,7 @@ from .taller import Vehiculo, GarantiaBateria, CambioAceite
 from .configuracion_tarjetas import ConfiguracionTarjeta
 
 from .presupuestos import Presupuesto, DetallePresupuesto
+
+from .cheques import Cheque
+
+from .usuario import Usuario

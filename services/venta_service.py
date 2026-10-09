@@ -26,7 +26,8 @@ class VentaService:
                        metodo_pago: str = "Efectivo", monto_abonado: float = 0.0,
                        descuento_global: float = 0.0, recargo_global: float = 0.0,
                        tipo_comprobante: str = "Remito", datos_tarjeta: Optional[Dict] = None,
-                       presupuesto_id: Optional[int] = None) -> Venta:
+                       presupuesto_id: Optional[int] = None, datos_cheque: Optional[Dict] = None,
+                       desglose_pagos: Optional[Dict] = None) -> Venta:
         """
         Procesa una venta completa.
         `detalles` es una lista de diccionarios: {'producto_id': int, 'cantidad': float, 'precio_unitario': float, 'descuento_unitario': float}
@@ -166,7 +167,9 @@ class VentaService:
                     session.add(libro_iva)
 
 # --- INTEGRACIÓN CON CUENTA CORRIENTE Y CAJA ---
-                if metodo_pago == "Cuenta Corriente":
+                if metodo_pago == "Combinado":
+                    pass # Handled below in the desglose loop
+                elif metodo_pago == "Cuenta Corriente":
                     if not cliente_id:
                         raise ValueError("Debe especificar un cliente para ventas en Cuenta Corriente.")
 
@@ -187,25 +190,31 @@ class VentaService:
                         venta_id=nueva_venta.id
                     )
                     session.add(mov_cc)
-                elif metodo_pago in ["Tarjeta", "Débito"]:
-                    if not datos_tarjeta or not datos_tarjeta.get('lote') or not datos_tarjeta.get('cupon'):
+                elif metodo_pago in ["Tarjeta", "Débito"] or (metodo_pago == "Combinado" and desglose_pagos and desglose_pagos.get("Tarjeta de Crédito", 0) > 0):
+                    # We might have `datos_tarjeta` directly (normal flow) or inside the desglose.
+                    tarjeta_metadata = datos_tarjeta if metodo_pago != "Combinado" else desglose_pagos.get("datos_tarjeta")
+                    monto_cred_neto = total_final if metodo_pago != "Combinado" else desglose_pagos.get("Tarjeta de Crédito", 0)
+                    monto_cred_bruto = monto_cred_neto # By default
+
+                    if not tarjeta_metadata or not tarjeta_metadata.get('lote') or not tarjeta_metadata.get('cupon'):
                         raise ValueError("El número de Lote y Cupón son obligatorios para pagos con Tarjeta.")
 
-                    # Registramos el Ingreso Diferido, no toca caja física
-                    dias_habiles = datos_tarjeta.get('plazo_dias', 0)
+                    dias_habiles = tarjeta_metadata.get('plazo_dias', 0)
                     fecha_acred = VentaService._calcular_fecha_habil(dias_habiles)
+                    tasa = tarjeta_metadata.get('interes', 0.0)
+                    monto_cred_bruto = monto_cred_neto * (1 + (tasa/100))
 
                     ingreso_dif = IngresoDiferido(
                         venta_id=nueva_venta.id,
                         fecha_venta=nueva_venta.fecha,
                         fecha_acreditacion=fecha_acred,
-                        banco_tarjeta=datos_tarjeta.get('banco', 'No Especificado'),
-                        cuotas=datos_tarjeta.get('cuotas', 1),
-                        monto_original=subtotal_venta - descuento_global,
-                        interes_aplicado=datos_tarjeta.get('interes', 0.0),
-                        monto_acreditar=total_final,
-                        lote=datos_tarjeta.get('lote'),
-                        cupon=datos_tarjeta.get('cupon'),
+                        banco_tarjeta=tarjeta_metadata.get('banco', 'No Especificado'),
+                        cuotas=tarjeta_metadata.get('cuotas', 1),
+                        monto_original=monto_cred_neto,
+                        interes_aplicado=tasa,
+                        monto_acreditar=monto_cred_bruto,
+                        lote=tarjeta_metadata.get('lote'),
+                        cupon=tarjeta_metadata.get('cupon'),
                         cuenta_destino="Banco Central / Adquirente",
                         estado="Pendiente"
                     )
@@ -221,23 +230,106 @@ class VentaService:
                         venta_id=nueva_venta.id
                     )
                     session.add(asiento_banco)
+                elif metodo_pago == "Cheque":
+                    if not datos_cheque:
+                        raise ValueError("Los datos del cheque son obligatorios si el método de pago es 'Cheque'.")
+
+                    from database.models.cheques import Cheque
+                    nuevo_cheque = Cheque(
+                        venta_id=nueva_venta.id,
+                        banco=datos_cheque.get('banco', ''),
+                        numero_cheque=datos_cheque.get('numero_cheque', ''),
+                        fecha_conformacion=datos_cheque.get('fecha_conformacion'),
+                        fecha_vencimiento=datos_cheque.get('fecha_vencimiento'),
+                        tipo_cheque=datos_cheque.get('tipo_cheque', ''),
+                        nombre_emisor=datos_cheque.get('nombre_emisor', ''),
+                        cuit=datos_cheque.get('cuit', ''),
+                        endoso=datos_cheque.get('endoso', ''),
+                        monto=datos_cheque.get('monto', total_final),
+                        estado="Pendiente"
+                    )
+                    session.add(nuevo_cheque)
+
 
                 # REGLA: Toda venta genera un movimiento de caja (sea efectivo, tarjeta o cuenta corriente)
-                # Transferencias bancarias podrían exclurse de la caja física, pero la regla solicitada:
-                # "TODA venta, sin importar el método de pago, DEBE generar un registro en movimientos_caja."
                 caja_activa = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
                 if not caja_activa:
                     raise ValueError("No hay una caja abierta. Debe abrir la caja antes de procesar ventas.")
 
-                mov_caja = MovimientoCaja(
-                    caja_id=caja_activa.id,
-                    tipo="Ingreso",
-                    concepto=f"Venta #{nueva_venta.id} - {tipo_comprobante}",
-                    monto=total_final,
-                    metodo=metodo_pago,
-                    venta_id=nueva_venta.id
-                )
-                session.add(mov_caja)
+                concepto_caja = f"Venta #{nueva_venta.id} - {tipo_comprobante}"
+
+                if desglose_pagos:
+                    # Extraer metadata anidada si existe
+                    datos_cheque_comb = desglose_pagos.pop('datos_cheque', datos_cheque)
+                    datos_tarjeta_comb = desglose_pagos.pop('datos_tarjeta', None)
+
+                    # PERSISTENCIA DEL CHEQUE FÍSICO EN COMBINADO (CRÍTICO)
+                    if datos_cheque_comb:
+                        from database.models.cheques import Cheque
+                        nuevo_cheque_comb = Cheque(
+                            venta_id=nueva_venta.id,
+                            banco=datos_cheque_comb.get("banco", ""),
+                            numero_cheque=datos_cheque_comb.get("numero_cheque", ""),
+                            fecha_conformacion=datos_cheque_comb.get("fecha_conformacion"),
+                            fecha_vencimiento=datos_cheque_comb.get("fecha_vencimiento"),
+                            tipo_cheque=datos_cheque_comb.get("tipo_cheque", ""),
+                            nombre_emisor=datos_cheque_comb.get("nombre_emisor", ""),
+                            cuit=datos_cheque_comb.get("cuit", ""),
+                            endoso=datos_cheque_comb.get("endoso", ""),
+                            monto=datos_cheque_comb.get("monto", desglose_pagos.get("Cheque", 0.0)),
+                            estado="Pendiente"
+                        )
+                        session.add(nuevo_cheque_comb)
+
+                    for metodo, monto in desglose_pagos.items():
+                        if isinstance(monto, (int, float)) and monto > 0:
+                            concepto_extra = concepto_caja
+                            metodo_final = "Tarjeta" if metodo == "Tarjeta de Crédito" else metodo
+
+                            if metodo == "Cheque" and datos_cheque_comb:
+                                concepto_extra += f" (Cheque {datos_cheque_comb.get('numero_cheque', '')})"
+
+                            if metodo == "Tarjeta de Crédito":
+                                metodo_final = "Tarjeta" # Normalizar para reportes
+                                if datos_tarjeta_comb:
+                                    concepto_extra += f" ({datos_tarjeta_comb.get('tarjeta', '')} - {datos_tarjeta_comb.get('plan', '')}) Lote: {datos_tarjeta_comb.get('lote', '')} Cupón: {datos_tarjeta_comb.get('cupon', '')}"
+
+                            # Si es CC combinada, generar la deuda para esa parte
+                            if metodo == "Cuenta Corriente":
+                                if not cliente_id:
+                                    raise ValueError("Debe especificar un cliente para cobrar con Cuenta Corriente.")
+                                ultimo_mov = session.query(ClienteCuentaCorriente).filter_by(cliente_id=cliente_id).order_by(ClienteCuentaCorriente.id.desc()).first()
+                                saldo_anterior = ultimo_mov.saldo if ultimo_mov else 0.0
+                                nuevo_saldo = saldo_anterior + monto
+                                mov_cc = ClienteCuentaCorriente(
+                                    cliente_id=cliente_id, concepto=f"Venta #{nueva_venta.id} (Combinado)",
+                                    debe=monto, haber=0.0, saldo=nuevo_saldo, venta_id=nueva_venta.id
+                                )
+                                session.add(mov_cc)
+
+                            mov_caja = MovimientoCaja(
+                                caja_id=caja_activa.id,
+                                tipo="Ingreso",
+                                concepto=concepto_extra,
+                                monto=monto,
+                                metodo=metodo_final,
+                                venta_id=nueva_venta.id
+                            )
+                            session.add(mov_caja)
+                else:
+                    # Flujo estándar único
+                    if metodo_pago == "Cheque" and datos_cheque:
+                        concepto_caja += f" (Cheque {datos_cheque.get('numero_cheque', '')})"
+
+                    mov_caja = MovimientoCaja(
+                        caja_id=caja_activa.id,
+                        tipo="Ingreso",
+                        concepto=concepto_caja,
+                        monto=total_final,
+                        metodo=metodo_pago,
+                        venta_id=nueva_venta.id
+                    )
+                    session.add(mov_caja)
                 # -----------------------------------------------
 
                 # Cerrar Presupuesto si se originó de uno
@@ -257,13 +349,13 @@ class VentaService:
                 raise e
 
     @staticmethod
-    def anular_venta(venta_id: int):
+    def anular_venta(venta_id: int, motivo: str):
         with get_session() as session:
             try:
                 venta = session.get(Venta, venta_id)
                 if not venta:
                     raise ValueError(f"Venta ID {venta_id} no encontrada.")
-                if venta.estado == "Anulado":
+                if venta.estado == "Anulada":
                     raise ValueError("Esta venta ya se encuentra anulada.")
 
                 # 1. Devolver Stock (solo items de catalogo)
@@ -278,12 +370,13 @@ class VentaService:
 
                 # 2. Revertir Finanzas
                 if venta.metodo_pago == "Efectivo":
-                    caja_activa = session.scalars(select(Caja).where(Caja.estado == "Abierta")).first()
+                    from services.caja_service import CajaService
+                    caja_activa = CajaService.obtener_caja_activa()
                     if caja_activa:
                         mov = MovimientoCaja(
                             caja_id=caja_activa.id,
                             tipo="Egreso",
-                            concepto=f"Anulación Venta #{venta.id}",
+                            concepto=f"Anulación Venta #{venta.id} - Motivo: {motivo}",
                             monto=venta.total,
                             metodo="Efectivo"
                         )
@@ -295,18 +388,19 @@ class VentaService:
                     saldo_ant = ultimo_mov.saldo if ultimo_mov else 0.0
                     mov_cc = ClienteCuentaCorriente(
                         cliente_id=venta.cliente_id,
-                        concepto=f"Anulación Venta #{venta.id}",
+                        concepto=f"Anulación Venta #{venta.id} - Motivo: {motivo}",
                         debe=0.0,
                         haber=venta.total,
                         saldo=saldo_ant - venta.total
                     )
                     session.add(mov_cc)
+
                 # (Para tarjetas, dependeria del procesador. El sistema local marca la venta como anulada nomas y no acredita el diferido si controlamos eso. Por ahora cancelamos fiscalmente y marcamos.)
                 from database.models.contabilidad import IngresoDiferido
                 if venta.metodo_pago in ["Tarjeta", "Débito"]:
                     difs = session.scalars(select(IngresoDiferido).where(IngresoDiferido.venta_id == venta.id)).all()
                     for d in difs:
-                        d.estado = "Anulado"
+                        d.estado = "Anulada"
 
                 # 3. Impuestos (Revertir Débito Fiscal)
                 if venta.tipo_comprobante.startswith("Factura"):
@@ -315,7 +409,8 @@ class VentaService:
                     for iva in ivas:
                         session.delete(iva)
 
-                venta.estado = "Anulado"
+                venta.estado = "Anulada"
+                venta.motivo_anulacion = motivo
                 session.commit()
             except Exception as e:
                 session.rollback()

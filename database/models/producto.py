@@ -38,7 +38,6 @@ class Producto(Base):
     proveedor_id: Mapped[Optional[int]] = mapped_column(ForeignKey('proveedores.id'), nullable=True)
     codigo_proveedor: Mapped[Optional[str]] = mapped_column(String, index=True, nullable=True)
     codigo_equivalencia: Mapped[Optional[str]] = mapped_column(String, index=True, nullable=True)
-    equivalencias: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     # Precios y Costos
     costo: Mapped[float] = mapped_column(default=0.0)

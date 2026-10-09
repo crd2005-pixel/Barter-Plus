@@ -91,9 +91,12 @@ class RegistrosService:
             else:
                 efectivo_fuerte = 0.0
 
-            # 2. Valores a Cobrar (Tarjetas Pendientes)
+            # 2. Valores a Cobrar (Tarjetas Pendientes + Cheques Netos)
+            from database.models.cheques import Cheque
             pendientes = session.scalars(select(IngresoDiferido).where(IngresoDiferido.estado == "Pendiente")).all()
-            total_tarjetas = sum(p.monto_acreditar for p in pendientes)
+            cheques = session.scalars(select(Cheque).where(Cheque.estado.notin_(["Cobrado", "Rechazado"]))).all()
+
+            total_tarjetas = sum(p.monto_original for p in pendientes) + sum(c.monto for c in cheques)
 
             # 3. Bancos (Calculado desde Asientos Diarios)
             # Todo el debe a "Cuenta Bancaria" - Todo el haber de "Cuenta Bancaria"
@@ -106,26 +109,62 @@ class RegistrosService:
                 "bancos": total_bancos
             }
 
+
     @staticmethod
-    def obtener_ingresos_diferidos_pendientes() -> List[dict]:
-        from database.models.contabilidad import IngresoDiferido
+    def obtener_proximas_acreditaciones() -> list[dict]:
+        from database.models.caja import MovimientoCaja
+        from database.models.venta import Venta
+        from database.models.cheques import Cheque
+        import datetime as dt
+        from sqlalchemy import select, or_
+        from datetime import timedelta
+
         with get_session() as session:
-            ingresos = session.scalars(
-                select(IngresoDiferido)
-                .where(IngresoDiferido.estado == "Pendiente")
-                .order_by(IngresoDiferido.fecha_acreditacion.asc())
+            # 1. Tarjetas (Neto extraido de MovimientoCaja directo)
+            movimientos_tarjeta = session.scalars(
+                select(MovimientoCaja)
+                .join(Venta, MovimientoCaja.venta_id == Venta.id)
+                .where(
+                    MovimientoCaja.tipo == "Ingreso",
+                    or_(
+                        MovimientoCaja.metodo.ilike('%Tarjeta%'),
+                        MovimientoCaja.metodo.ilike('%Crédito%')
+                    )
+                )
             ).all()
 
-            # Convert to dict to avoid detached instance issues since we don't strictly need relationships here
+            # 2. Cheques en cartera
+            cheques = session.scalars(
+                select(Cheque)
+                .where(Cheque.estado.notin_(["Cobrado", "Rechazado"]))
+            ).all()
+
             resultado = []
-            for i in ingresos:
+
+            for mov in movimientos_tarjeta:
+                venta_asociada = session.get(Venta, mov.venta_id) if mov.venta_id else None
+                fecha_base = venta_asociada.fecha if venta_asociada else mov.fecha
+                fecha_acreditacion = fecha_base + timedelta(days=14)
+
+                concepto = mov.concepto or ""
+
                 resultado.append({
-                    "id": i.id,
-                    "fecha_venta": i.fecha_venta,
-                    "fecha_acreditacion": i.fecha_acreditacion,
-                    "banco": i.banco_tarjeta,
-                    "cuotas": i.cuotas,
-                    "monto": i.monto_acreditar,
-                    "destino": i.cuenta_destino
+                    "fecha": fecha_acreditacion.date() if isinstance(fecha_acreditacion, dt.datetime) else fecha_acreditacion,
+                    "origen": "[BANCARIO] Tarjeta",
+                    "cuotas": concepto,
+                    "monto_neto": mov.monto,
+                    "estado": "Pendiente"
                 })
+
+            for c in cheques:
+                resultado.append({
+                    "fecha": c.fecha_vencimiento if c.fecha_vencimiento else (c.fecha_conformacion or dt.date.today()),
+                    "origen": "Físico - Cheque Circulante",
+                    "tipo": "Cheque",
+                    "monto_neto": c.monto,
+                    "estado": c.estado
+                })
+
+            # Sort by ascending date
+            resultado.sort(key=lambda x: x["fecha"])
             return resultado

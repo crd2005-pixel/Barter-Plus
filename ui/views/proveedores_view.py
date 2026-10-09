@@ -2,7 +2,7 @@ import pandas as pd
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QInputDialog, QDialog,
-    QFormLayout, QLineEdit, QComboBox, QTabWidget, QSpinBox, QDateEdit, QCompleter, QDoubleSpinBox, QFileDialog, QGroupBox, QSplitter, QCheckBox
+    QFormLayout, QLineEdit, QComboBox, QTabWidget, QSpinBox, QDateEdit, QCompleter, QDoubleSpinBox, QFileDialog, QGroupBox, QSplitter, QCheckBox, QTextBrowser
 )
 from PyQt6.QtCore import Qt, QDate, QStringListModel
 from PyQt6.QtGui import QFont, QBrush, QColor
@@ -40,7 +40,7 @@ class SugerenciasTab(QWidget):
 
         # Grilla
         self.table = QTableWidget(0, 7)
-        self.table.setHorizontalHeaderLabels(["Pedir", "SKU", "Cód. Prov.", "Proveedor", "Producto", "Stock Act.", "Stock Mín.", "Cant. a Pedir"])
+        self.table.setHorizontalHeaderLabels(["Pedir", "SKU", "Proveedor", "Producto", "Stock Act.", "Stock Mín.", "Cant. a Pedir"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         layout.addWidget(self.table)
@@ -80,21 +80,19 @@ class SugerenciasTab(QWidget):
 
             if es_manual:
                 i_sku = QTableWidgetItem("MANUAL")
-                i_cod_prov = QTableWidgetItem("")
                 i_prov = QTableWidgetItem("Variado/Sin Especificar")
                 i_nom = QTableWidgetItem(s['detalle_manual'])
                 i_act = QTableWidgetItem("-")
                 i_min = QTableWidgetItem("-")
 
                 color_manual = QBrush(QColor(230, 126, 34, 50)) # Naranja para manuales
-                for i in [i_sku, i_cod_prov, i_prov, i_nom, i_act, i_min]:
+                for i in [i_sku, i_prov, i_nom, i_act, i_min]:
                     i.setBackground(color_manual)
             else:
                 p = s['producto']
                 prov_nom = p.proveedor.nombre if p.proveedor else "Sin Proveedor"
 
                 i_sku = QTableWidgetItem(p.sku or "-")
-                i_cod_prov = QTableWidgetItem(p.codigo_proveedor or "")
                 i_prov = QTableWidgetItem(prov_nom)
                 i_nom = QTableWidgetItem(p.nombre)
 
@@ -104,7 +102,7 @@ class SugerenciasTab(QWidget):
 
                 i_min = QTableWidgetItem(str(p.stock_minimo))
 
-            for i in [i_sku, i_cod_prov, i_prov, i_nom, i_act, i_min]:
+            for i in [i_sku, i_prov, i_nom, i_act, i_min]:
                 i.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
 
             i_sug = QTableWidgetItem(str(cant))
@@ -114,12 +112,11 @@ class SugerenciasTab(QWidget):
             i_sug.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsEditable)
 
             self.table.setItem(row, 1, i_sku)
-            self.table.setItem(row, 2, i_cod_prov)
-            self.table.setItem(row, 3, i_prov)
-            self.table.setItem(row, 4, i_nom)
-            self.table.setItem(row, 5, i_act)
-            self.table.setItem(row, 6, i_min)
-            self.table.setItem(row, 7, i_sug)
+            self.table.setItem(row, 2, i_prov)
+            self.table.setItem(row, 3, i_nom)
+            self.table.setItem(row, 4, i_act)
+            self.table.setItem(row, 5, i_min)
+            self.table.setItem(row, 6, i_sug)
 
     def exportar_pdf(self):
         filas = self.table.rowCount()
@@ -135,9 +132,8 @@ class SugerenciasTab(QWidget):
                 if chk and chk.isChecked():
                     datos_pdf.append({
                         'sku': self.table.item(r, 1).text(),
-                        'codigo_proveedor': self.table.item(r, 2).text(),
-                        'nombre': self.table.item(r, 4).text(),
-                        'cantidad': self.table.item(r, 7).text()
+                        'nombre': self.table.item(r, 3).text(),
+                        'cantidad': self.table.item(r, 6).text()
                     })
 
         if not datos_pdf:
@@ -639,6 +635,10 @@ class EstadoCuentaProveedorTab(QWidget):
         self.btn_ver = QPushButton("Ver Estado de Cuenta")
         self.btn_ver.clicked.connect(self.cargar_datos)
 
+        self.btn_exportar_pdf = QPushButton("Exportar a PDF")
+        self.btn_exportar_pdf.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold;")
+        self.btn_exportar_pdf.clicked.connect(self._exportar_pdf_cuenta)
+
         self.btn_pago = QPushButton("Registrar Pago")
         self.btn_pago.setStyleSheet("background-color: #f39c12; color: white; font-weight: bold;")
         self.btn_pago.clicked.connect(self.registrar_pago)
@@ -647,6 +647,7 @@ class EstadoCuentaProveedorTab(QWidget):
         header_lay.addWidget(self.combo_proveedor)
         header_lay.addWidget(self.btn_ver)
         header_lay.addStretch()
+        header_lay.addWidget(self.btn_exportar_pdf)
         header_lay.addWidget(self.btn_pago)
         layout.addLayout(header_lay)
 
@@ -661,7 +662,91 @@ class EstadoCuentaProveedorTab(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.itemDoubleClicked.connect(self._ver_detalles_movimiento)
         layout.addWidget(self.table)
+
+    def _ver_detalles_movimiento(self, item):
+        row = item.row()
+        item_0 = self.table.item(row, 0)
+        if not item_0: return
+        datos = item_0.data(Qt.ItemDataRole.UserRole)
+        if not datos: return
+
+        fecha_str = self.table.item(row, 0).text()
+
+        texto_info = f"<b>Fecha:</b> {fecha_str}<br>"
+        texto_info += f"<b>Concepto/Observaciones:</b> {datos.get('concepto', '')}<br><br>"
+        texto_info += f"<b>Debe (Pago que le hicimos):</b> ${datos.get('debe', 0.0):.2f}<br>"
+        texto_info += f"<b>Haber (Factura que nos hizo):</b> ${datos.get('haber', 0.0):.2f}<br>"
+        texto_info += f"<b>Saldo Resultante:</b> ${datos.get('saldo', 0.0):.2f}<br>"
+
+        venc = datos.get('fecha_vencimiento')
+        if venc:
+            texto_info += f"<br><b>Vencimiento:</b> {venc}"
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Detalles del Movimiento")
+        dlg.resize(400, 300)
+        dlg_layout = QVBoxLayout(dlg)
+
+        visor = QTextBrowser()
+        visor.setHtml(f"<h1>Detalle de Movimiento</h1><p>{texto_info}</p>")
+        dlg_layout.addWidget(visor)
+
+        btn_lay = QHBoxLayout()
+        btn_exportar_detalle = QPushButton("Exportar PDF")
+        btn_exportar_detalle.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold;")
+
+        btn_cerrar = QPushButton("Cerrar")
+        btn_cerrar.clicked.connect(dlg.accept)
+
+        def _exportar_detalle_pdf():
+            from PyQt6.QtWidgets import QFileDialog, QMessageBox
+            from PyQt6.QtPrintSupport import QPrinter
+            from PyQt6.QtGui import QTextDocument, QPageSize
+
+            filepath, _ = QFileDialog.getSaveFileName(
+                dlg, "Guardar Detalle PDF", "Detalle_Movimiento_Proveedor.pdf", "Archivos PDF (*.pdf)"
+            )
+            if filepath:
+                try:
+                    printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+                    printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+                    printer.setOutputFileName(filepath)
+                    printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+
+                    doc = QTextDocument()
+                    doc.setHtml(f"<h1>Detalle de Movimiento</h1><p>{texto_info}</p>")
+                    doc.print(printer)
+
+                    QMessageBox.information(dlg, "Éxito", "Detalle exportado correctamente.")
+                except Exception as e:
+                    QMessageBox.critical(dlg, "Error", f"Fallo al exportar detalle: {str(e)}")
+
+        btn_exportar_detalle.clicked.connect(_exportar_detalle_pdf)
+
+        btn_lay.addWidget(btn_exportar_detalle)
+        btn_lay.addWidget(btn_cerrar)
+        dlg_layout.addLayout(btn_lay)
+
+        dlg.exec()
+
+    def _exportar_pdf_cuenta(self):
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from utils.export_utils import ExportUtils
+
+        prov_nombre = self.combo_proveedor.currentText()
+        if not prov_nombre: prov_nombre = "General"
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Guardar Reporte PDF", f"Estado_de_Cuenta_{prov_nombre}.pdf", "Archivos PDF (*.pdf)"
+        )
+        if filepath:
+            try:
+                ExportUtils.exportar_tabla_a_pdf(self.table, f"Estado de Cuenta - {prov_nombre}", filepath)
+                QMessageBox.information(self, "Éxito", "El PDF se exportó correctamente.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo exportar: {str(e)}")
 
     def cargar_proveedores(self):
         from database.conexion import get_session
@@ -690,19 +775,37 @@ class EstadoCuentaProveedorTab(QWidget):
         hoy = dt.datetime.utcnow().date()
 
         for row, m in enumerate(movs):
-            self.table.setItem(row, 0, QTableWidgetItem(m.fecha.strftime("%Y-%m-%d")))
-            self.table.setItem(row, 1, QTableWidgetItem(m.concepto))
-            self.table.setItem(row, 2, QTableWidgetItem(f"${m.debe:.2f}"))
-            self.table.setItem(row, 3, QTableWidgetItem(f"${m.haber:.2f}"))
-            self.table.setItem(row, 4, QTableWidgetItem(f"${m.saldo:.2f}"))
+            fecha = m.get('fecha')
+            if isinstance(fecha, str):
+                fecha_str = fecha
+            else:
+                fecha_str = fecha.strftime("%Y-%m-%d") if fecha else ""
+
+            item_fecha = QTableWidgetItem(fecha_str)
+            item_fecha.setData(Qt.ItemDataRole.UserRole, m)
+
+            self.table.setItem(row, 0, item_fecha)
+            self.table.setItem(row, 1, QTableWidgetItem(m.get('concepto', '')))
+            self.table.setItem(row, 2, QTableWidgetItem(f"${m.get('debe', 0.0):.2f}"))
+            self.table.setItem(row, 3, QTableWidgetItem(f"${m.get('haber', 0.0):.2f}"))
+            self.table.setItem(row, 4, QTableWidgetItem(f"${m.get('saldo', 0.0):.2f}"))
 
             i_venc = QTableWidgetItem("-")
-            if m.fecha_vencimiento:
-                venc_date = m.fecha_vencimiento.date()
-                i_venc.setText(venc_date.strftime("%Y-%m-%d"))
+            fecha_vencimiento = m.get('fecha_vencimiento')
+            if fecha_vencimiento:
+                if isinstance(fecha_vencimiento, str):
+                    try:
+                        venc_date = dt.datetime.strptime(fecha_vencimiento, "%Y-%m-%d").date()
+                    except ValueError:
+                        # Fallback for full datetime string formats
+                        venc_date = dt.datetime.strptime(fecha_vencimiento[:10], "%Y-%m-%d").date()
+                    i_venc.setText(fecha_vencimiento[:10])
+                else:
+                    venc_date = fecha_vencimiento.date() if hasattr(fecha_vencimiento, 'date') else fecha_vencimiento
+                    i_venc.setText(venc_date.strftime("%Y-%m-%d"))
 
                 # Reglas visuales (Semáforo)
-                if m.debe == 0 and m.haber > 0: # Es una deuda sin cancelar en su propia linea (aprox)
+                if m.get('debe', 0) == 0 and m.get('haber', 0) > 0: # Es una deuda sin cancelar en su propia linea (aprox)
                     dias_restantes = (venc_date - hoy).days
                     if dias_restantes < 0:
                         for c in range(6): self.table.item(row, c).setBackground(QBrush(QColor(74, 28, 28))) # Rojo Oscuro
@@ -712,7 +815,7 @@ class EstadoCuentaProveedorTab(QWidget):
                         for c in range(6): self.table.item(row, c).setForeground(Qt.GlobalColor.white)
 
             self.table.setItem(row, 5, i_venc)
-            saldo_actual = m.saldo
+            saldo_actual = m.get('saldo', 0.0)
 
         self.lbl_saldo.setText(f"Deuda Total: ${saldo_actual:.2f}")
         if saldo_actual > 0:
@@ -733,11 +836,15 @@ class EstadoCuentaProveedorTab(QWidget):
             QMessageBox.information(self, "Aviso", "No se registra deuda con este proveedor.")
             return
 
-        monto, ok = QInputDialog.getDouble(self, "Registrar Pago", f"Deuda actual: ${deuda:.2f}\n\nMonto a Pagar:", deuda, 0, deuda, 2)
-        if ok and monto > 0:
+        from ui.components.dialogs import PagoProveedorDialog
+        from PyQt6.QtWidgets import QDialog
+
+        dialog = PagoProveedorDialog(deuda, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            datos_pago = dialog.get_datos()
             try:
-                ProveedorService.registrar_pago(prov_id, monto)
-                QMessageBox.information(self, "Éxito", f"Pago de ${monto:.2f} registrado. Se descontó de la Caja Activa.")
+                ProveedorService.registrar_pago(prov_id, datos_pago)
+                QMessageBox.information(self, "Éxito", f"Pago de ${datos_pago['monto']:.2f} registrado exitosamente.")
                 self.cargar_datos()
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Fallo al registrar pago:\n{e}")

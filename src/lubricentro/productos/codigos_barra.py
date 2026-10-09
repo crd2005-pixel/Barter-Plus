@@ -138,7 +138,7 @@ class EtiquetasPreviewDialog(QDialog):
         left_lay.addLayout(btn_box)
 
         # --- RIGHT PANEL: Preview ---
-        self.preview = QPrintPreviewWidget(self.printer)
+        self.preview = QPrintPreviewWidget(self.printer, self)
         self.preview.paintRequested.connect(self._paint_preview)
 
         splitter.addWidget(left_widget)
@@ -178,6 +178,12 @@ class EtiquetasPreviewDialog(QDialog):
         self.chk_equivalencia.setChecked(self.settings.value("show_equivalencia", False, type=bool))
         self.chk_sku.setChecked(self.settings.value("show_sku", False, type=bool))
         self.chk_precio.setChecked(self.settings.value("show_precio", False, type=bool))
+
+        saved_printer = self.settings.value("printer_name", "")
+        if saved_printer:
+            idx = self.cmb_printer.findText(saved_printer)
+            if idx >= 0:
+                self.cmb_printer.setCurrentIndex(idx)
 
     def _save_settings(self):
         self.settings.setValue("printer_name", self.cmb_printer.currentText())
@@ -251,16 +257,21 @@ class EtiquetasPreviewDialog(QDialog):
             printer.setFullPage(False)
 
     def _paint_preview(self, printer):
-        # Applies to actual print or preview
-        self._save_settings() # Save current UI state to settings so drawing logic can read it if needed, or pass explicitly
-
+        import traceback
+        self._save_settings()
         self._apply_printer_config(printer)
 
-        painter = QPainter(printer)
-        if painter.isActive():
+        painter = QPainter()
+        try:
+            if not painter.begin(printer):
+                raise Exception("Fallo al inicializar QPainter en el QPrinter")
             self._draw_labels(painter, printer)
-            painter.end()
-        del painter
+        except Exception as e:
+            print("ERROR EN DIBUJO ETIQUETAS:")
+            traceback.print_exc()
+        finally:
+            if painter.isActive():
+                painter.end()
 
     def _draw_labels(self, painter, printer):
         # Generate flat list of items to print based on quantity
@@ -504,7 +515,7 @@ class EtiquetasPreviewDialog(QDialog):
         print_job = QPrinter(QPrinter.PrinterMode.HighResolution)
         print_job.setOutputFormat(QPrinter.OutputFormat.NativeFormat)
         dlg = QPrintDialog(print_job, self)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
+        if dlg.exec() == int(QDialog.DialogCode.Accepted):
             self._apply_printer_config(print_job)
             painter = QPainter(print_job)
             if painter.isActive():
@@ -567,13 +578,6 @@ class CodigosBarraTab(QWidget):
         self.lay_filtros.addWidget(QLabel("Subrubro:"))
         self.lay_filtros.addWidget(self.cmb_subrubro)
         self.lay_filtros.addWidget(self.chk_recientes)
-
-        # Inyectar buscador por SKU / Codigo de Barras
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Buscar por código o nombre...")
-        self.search_input.setMinimumWidth(200)
-        self.lay_filtros.addWidget(self.search_input)
-
         self.lay_filtros.addStretch()
 
         layout.addLayout(self.lay_filtros)
@@ -582,7 +586,6 @@ class CodigosBarraTab(QWidget):
         self.cmb_rubro.currentIndexChanged.connect(self._aplicar_filtros)
         self.cmb_subrubro.currentIndexChanged.connect(self._aplicar_filtros)
         self.chk_recientes.stateChanged.connect(self._aplicar_filtros)
-        self.search_input.textChanged.connect(self._aplicar_filtros)
 
         bar.addStretch()
 
@@ -605,8 +608,8 @@ class CodigosBarraTab(QWidget):
 
         # Tabla
         self.tbl = QTableWidget()
-        self.tbl.setColumnCount(6)
-        self.tbl.setHorizontalHeaderLabels(["Sel.", "ID", "Marca", "Cód. Prov.", "Producto", "Código Barras"])
+        self.tbl.setColumnCount(5)
+        self.tbl.setHorizontalHeaderLabels(["Sel.", "ID", "Marca", "Producto", "Código Barras"])
         self.tbl.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.tbl.setColumnWidth(0, 40)
         self.tbl.setColumnWidth(1, 60)
@@ -687,8 +690,7 @@ class CodigosBarraTab(QWidget):
                     "rubro": rubro,
                     "subrubro": subrubro,
                     "creado_en": creado_en,
-                    "precio": pr,
-                    "cod_prov": getattr(p, "codigo_proveedor", "") or ""
+                    "precio": pr
                 })
 
         self._actualizar_combos_filtro()
@@ -748,7 +750,6 @@ class CodigosBarraTab(QWidget):
         f_rubro = self.cmb_rubro.currentText()
         f_subrubro = self.cmb_subrubro.currentText()
         f_reciente = self.chk_recientes.isChecked()
-        f_busqueda = self.search_input.text().strip().lower()
 
         hoy = dt.datetime.now().date()
 
@@ -760,14 +761,6 @@ class CodigosBarraTab(QWidget):
             if f_subrubro != "Todos" and f_subrubro != "" and d.get("subrubro") != f_subrubro: mostrar = False
             if f_reciente:
                 if d.get("creado_en") is None or d.get("creado_en").date() != hoy: mostrar = False
-
-            if f_busqueda:
-                nombre = str(d.get("nombre") or "").lower()
-                cb = str(d.get("cb") or "").lower()
-                cod = str(d.get("codigo") or "").lower()
-                cod_prov = str(d.get("cod_prov") or "").lower()
-                if f_busqueda not in nombre and f_busqueda not in cb and f_busqueda not in cod and f_busqueda not in cod_prov:
-                    mostrar = False
 
             if mostrar:
                 self._filtered_indices.append(i)
@@ -812,20 +805,16 @@ class CodigosBarraTab(QWidget):
             it_marca.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
             self.tbl.setItem(page_row, 2, it_marca)
 
-            it_cod_prov = QTableWidgetItem(d.get("cod_prov") or "")
-            it_cod_prov.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-            self.tbl.setItem(page_row, 3, it_cod_prov)
-
             it_nombre = QTableWidgetItem(d.get("nombre") or "")
             it_nombre.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-            self.tbl.setItem(page_row, 4, it_nombre)
+            self.tbl.setItem(page_row, 3, it_nombre)
 
             it_cb = QTableWidgetItem(d.get("cb") or "")
             it_cb.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-            self.tbl.setItem(page_row, 5, it_cb)
+            self.tbl.setItem(page_row, 4, it_cb)
 
         self.tbl.resizeColumnsToContents()
-        self.tbl.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        self.tbl.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.tbl.setUpdatesEnabled(True)
         self.tbl.setSortingEnabled(True)
         self.tbl.itemChanged.connect(self._on_item_changed)
@@ -844,6 +833,7 @@ class CodigosBarraTab(QWidget):
 
 
     def _abrir_config_ticket(self):
+        from ui.components.dialogs import ConfiguracionTicketDialog
         dlg = ConfiguracionTicketDialog(self)
         dlg.exec()
 
@@ -869,48 +859,55 @@ class CodigosBarraTab(QWidget):
                 QMessageBox.information(self, "Generar", "No había productos sin código.")
 
     def _open_print_preview(self):
-        ids = self._get_selected_ids()
-        if not ids:
-            QMessageBox.warning(self, "Imprimir", "Seleccione al menos un producto.")
-            return
+        import traceback
+        try:
+            ids = self._get_selected_ids()
+            if not ids:
+                QMessageBox.warning(self, "Imprimir", "Seleccione al menos un producto.")
+                return
 
-        items = []
-        with get_session() as s:
-            if Marca:
-                q = s.query(Producto, Marca.nombre).outerjoin(Marca, Producto.marca_id == Marca.id).filter(Producto.id.in_(ids))
-            else:
-                q = s.query(Producto).filter(Producto.id.in_(ids))
-
-            for row in q.all():
+            items = []
+            with get_session() as s:
                 if Marca:
-                    try:
-                        p, m_nombre = row
-                    except:
-                        try:
-                            p = row[0]
-                            m_nombre = row[1]
-                        except:
-                            p = row
-                            m_nombre = ""
+                    q = s.query(Producto, Marca.nombre).outerjoin(Marca, Producto.marca_id == Marca.id).filter(Producto.id.in_(ids))
                 else:
-                    p = row; m_nombre = ""
+                    q = s.query(Producto).filter(Producto.id.in_(ids))
 
-                if not hasattr(p, 'codigo_barras'):
-                     continue
+                for row in q.all():
+                    if Marca:
+                        try:
+                            p, m_nombre = row
+                        except:
+                            try:
+                                p = row[0]
+                                m_nombre = row[1]
+                            except:
+                                p = row
+                                m_nombre = ""
+                    else:
+                        p = row; m_nombre = ""
 
-                code = (p.codigo_barras or "").strip()
-                if not code: code = f"INT{p.id:06d}"
+                    if not hasattr(p, 'codigo_barras'):
+                         continue
 
-                items.append({
-                    "id": p.id,
-                    "marca": m_nombre,
-                    "nombre": p.nombre,
-                    "code": code,
-                    "equivalencia": p.codigo_equivalencia,
-                    "sku": p.sku,
-                    "cod_prov": p.codigo_proveedor,
-                    "precio": p.precio_minorista
-                })
+                    code = (p.codigo_barras or "").strip()
+                    if not code: code = f"INT{p.id:06d}"
 
-        dlg = EtiquetasPreviewDialog(items, self)
-        dlg.exec()
+                    items.append({
+                        "id": p.id,
+                        "marca": m_nombre,
+                        "nombre": p.nombre,
+                        "code": code,
+                        "equivalencia": p.codigo_equivalencia,
+                        "sku": p.sku,
+                        "cod_prov": p.codigo_proveedor,
+                        "precio": p.precio_minorista
+                    })
+
+            # Instanciar Dialog (Anclado a self)
+            dlg = EtiquetasPreviewDialog(items, self)
+            dlg.setWindowFlags(Qt.WindowType.Window)
+            dlg.exec()
+        except Exception as e:
+            print("ERROR CRÍTICO EN IMPRESIÓN:")
+            traceback.print_exc()

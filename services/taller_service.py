@@ -166,18 +166,26 @@ class TallerService:
             if not g:
                 raise ValueError("Garantía no encontrada.")
 
-            texto_qr = (
-                f"--- GARANTÍA BATERÍA ---\n"
-                f"Cliente: {g.vehiculo.cliente.nombre}\n"
-                f"Vehículo: {g.vehiculo.dominio} ({g.vehiculo.marca} {g.vehiculo.modelo})\n"
-                f"Batería: {g.producto.nombre}\n"
-                f"Instalación: {g.fecha_instalacion.strftime('%d/%m/%Y')}\n"
-                f"Vencimiento: {g.fecha_vencimiento.strftime('%d/%m/%Y')}\n"
+            t_lines = [
+                "--- GARANTÍA BATERÍA ---",
+                f"Cliente: {g.vehiculo.cliente.nombre}",
+                f"Vehículo: {g.vehiculo.dominio} ({g.vehiculo.marca} {g.vehiculo.modelo})",
+                f"Batería: {g.producto.nombre}",
+                f"Instalación: {g.fecha_instalacion.strftime('%d/%m/%Y')}",
+                f"Vencimiento: {g.fecha_vencimiento.strftime('%d/%m/%Y')}",
                 f"Código Único: {g.codigo_garantia}"
-            )
+            ]
+            texto_qr = "\n".join(t_lines)
+
+            if not getattr(g, 'qr_token', None):
+                try:
+                    g.qr_token = texto_qr
+                    session.commit()
+                except Exception:
+                    pass
 
             qr = qrcode.QRCode(version=1, box_size=10, border=4)
-            qr.add_data(texto_qr)
+            qr.add_data(getattr(g, 'qr_token', texto_qr) or texto_qr)
             qr.make(fit=True)
             img = qr.make_image(fill_color="black", back_color="white")
 
@@ -206,18 +214,23 @@ class TallerService:
             if c.filtro_habitaculo: filtros.append("Habitáculo")
             filtros_str = ", ".join(filtros) if filtros else "Ninguno"
 
-            texto_qr = (
-                f"--- SERVICE LUBRICENTRO ---\n"
-                f"Vehículo: {c.vehiculo.dominio} ({c.vehiculo.marca} {c.vehiculo.modelo})\n"
-                f"Fecha: {c.fecha.strftime('%d/%m/%Y')}\n"
-                f"Km Actual: {c.km_actual}\n"
-                f"Próximo Km: {c.proximo_km}\n"
-                f"Aceite: {c.aceite_utilizado}\n"
-                f"Filtros Cambiados: {filtros_str}"
-            )
+            t_lines = [
+                "Barter Plus - Service",
+                f"Patente: {c.vehiculo.dominio}",
+                f"Prox Cambio: {c.proximo_km} KM",
+                f"Aceite: {c.aceite_utilizado}"
+            ]
+            texto_qr = "\n".join(t_lines)
+
+            if not getattr(c, 'qr_token', None):
+                try:
+                    c.qr_token = texto_qr
+                    session.commit()
+                except Exception:
+                    pass
 
             qr = qrcode.QRCode(version=1, box_size=10, border=4)
-            qr.add_data(texto_qr)
+            qr.add_data(getattr(c, 'qr_token', texto_qr) or texto_qr)
             qr.make(fit=True)
             img = qr.make_image(fill_color="black", back_color="white")
 
