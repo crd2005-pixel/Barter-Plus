@@ -14,8 +14,13 @@ import logging
 import sys
 import traceback
 
+if getattr(sys, 'frozen', False):
+    INSTALL_DIR = os.path.dirname(sys.executable)
+else:
+    INSTALL_DIR = os.path.dirname(os.path.abspath(__file__))
+
 try:
-    log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'error_log.txt')
+    log_path = os.path.join(INSTALL_DIR, 'error_log.txt')
     logging.basicConfig(
         filename=log_path,
         filemode='a',
@@ -67,7 +72,7 @@ def run_migration_barterplus():
 
 run_migration_barterplus()
 
-DB_NAME = "inventario_barter.db"
+DB_NAME = os.path.join(INSTALL_DIR, "inventario_barter.db")
 
 @st.cache_resource
 def init_db():
@@ -399,9 +404,18 @@ def main():
     st.set_page_config(page_title="Embudo IA Dual (Barter Plus)", layout="wide")
     init_db()
 
+    api_key_default = ""
+    api_key_path = os.path.join(INSTALL_DIR, 'api_key.txt')
+    if os.path.exists(api_key_path):
+        try:
+            with open(api_key_path, 'r') as f:
+                api_key_default = f.read().strip()
+        except Exception:
+            pass
+
     with st.sidebar:
         st.header("Configuración de Motor IA")
-        api_key = st.text_input("Gemini API Key", type="password")
+        api_key = st.text_input("Gemini API Key", value=api_key_default, type="password")
         if not api_key:
             st.warning("⚠️ Ingresa tu API Key para activar el motor de extracción.")
 
