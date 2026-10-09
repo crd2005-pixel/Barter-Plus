@@ -285,9 +285,9 @@ def get_master_lookup(df_master):
 
                 # Cargar por codigo de proveedor (prioridad)
                 if prov_col and pd.notna(row[prov_col]):
-                    norm_cod = normalize_text(str(row[prov_col]))
-                    if norm_cod:
-                        lookup_cod[norm_cod] = sku_val
+                    cod_val = str(row[prov_col]).strip().upper()
+                    if cod_val:
+                        lookup_cod[cod_val] = sku_val
 
                 # Cargar por descripcion (respaldo)
                 if desc_col and pd.notna(row[desc_col]):
@@ -343,11 +343,11 @@ def process_and_unify(json_data, proveedor, marca_default='', master_lookup_cod=
                 logging.warning(f"Advertencia: Producto procesado con precio 0. Datos crudos: {item}")
 
             norm_desc = normalize_text(desc)
-            norm_cod = normalize_text(cod_prov)
+            cod_prov_limpio = str(item.get('codigo_proveedor', '')).strip().upper()
 
             target_sku = None
-            if norm_cod and norm_cod in master_lookup_cod:
-                target_sku = master_lookup_cod[norm_cod]
+            if cod_prov_limpio and cod_prov_limpio in master_lookup_cod:
+                target_sku = master_lookup_cod[cod_prov_limpio]
             elif norm_desc in master_lookup_desc:
                 target_sku = master_lookup_desc[norm_desc]
 
@@ -362,8 +362,8 @@ def process_and_unify(json_data, proveedor, marca_default='', master_lookup_cod=
                     counter += 1
 
             used_skus.add(final_sku)
-            if norm_cod:
-                master_lookup_cod[norm_cod] = final_sku
+            if cod_prov_limpio:
+                master_lookup_cod[cod_prov_limpio] = final_sku
             master_lookup_desc[norm_desc] = final_sku
 
             c.execute('''INSERT INTO productos_maestro
@@ -415,6 +415,18 @@ def main():
     master_lookup_cod = {}
     master_lookup_desc = {}
 
+    # Pre-Load forzado desde la base maestra local (productos_maestro) para garantizar memoria caliente
+    try:
+        conn_local = get_connection()
+        cursor_local = conn_local.cursor()
+        cursor_local.execute("SELECT sku_interno, codigo_proveedor FROM productos_maestro WHERE codigo_proveedor IS NOT NULL AND codigo_proveedor != ''")
+        for row in cursor_local.fetchall():
+            sku, cod_prov = row
+            master_lookup_cod[str(cod_prov).strip().upper()] = sku
+        conn_local.close()
+    except Exception as e:
+        logging.error(f"Error en Pre-Load de productos_maestro: {e}\n{traceback.format_exc()}")
+
     if master_db_mode == "Conexión Local (barterplus.db)":
         APP_DIR = os.environ.get('APPDATA', os.path.expanduser('~/AppData/Roaming'))
         db_path = os.path.join(APP_DIR, 'BarterPlus', 'barterplus.db')
@@ -425,7 +437,9 @@ def main():
                 df_master = pd.read_sql_query("SELECT id as codigo, nombre as descripcion, codigo_proveedor FROM productos", conn_bp)
                 conn_bp.close()
                 st.write(f"✓ {len(df_master)} productos cargados para matching.")
-                master_lookup_cod, master_lookup_desc = get_master_lookup(df_master)
+                lc, ld = get_master_lookup(df_master)
+                master_lookup_cod.update(lc)
+                master_lookup_desc.update(ld)
             except Exception as e:
                 st.error(f"Error leyendo base local: {e}")
         else:
@@ -439,7 +453,9 @@ def main():
                 else:
                     df_master = pd.read_excel(master_file)
                 st.write(f"✓ {len(df_master)} productos cargados para matching.")
-                master_lookup_cod, master_lookup_desc = get_master_lookup(df_master)
+                lc, ld = get_master_lookup(df_master)
+                master_lookup_cod.update(lc)
+                master_lookup_desc.update(ld)
             except Exception as e:
                 st.error(f"Error leyendo el archivo: {e}")
 
