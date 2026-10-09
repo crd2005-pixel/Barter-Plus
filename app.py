@@ -448,7 +448,8 @@ def main():
             st.success(f"Base de datos local detectada: {db_path}")
             try:
                 conn_bp = sqlite3.connect(db_path)
-                df_master = pd.read_sql_query("SELECT id as codigo, nombre as descripcion, codigo_proveedor FROM productos", conn_bp)
+                # Seleccionar la tabla completa para permitir la detección dinámica de la columna de SKU alfanumérico (ej. codigo o sku_interno)
+                df_master = pd.read_sql_query("SELECT * FROM productos", conn_bp)
                 conn_bp.close()
                 st.write(f"✓ {len(df_master)} productos cargados para matching.")
                 lc, ld = get_master_lookup(df_master)
