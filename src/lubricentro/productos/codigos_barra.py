@@ -578,6 +578,12 @@ class CodigosBarraTab(QWidget):
         self.lay_filtros.addWidget(QLabel("Subrubro:"))
         self.lay_filtros.addWidget(self.cmb_subrubro)
         self.lay_filtros.addWidget(self.chk_recientes)
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Buscar por código o nombre...")
+        self.search_input.setMinimumWidth(200)
+        self.lay_filtros.addWidget(self.search_input)
+
         self.lay_filtros.addStretch()
 
         layout.addLayout(self.lay_filtros)
@@ -586,6 +592,7 @@ class CodigosBarraTab(QWidget):
         self.cmb_rubro.currentIndexChanged.connect(self._aplicar_filtros)
         self.cmb_subrubro.currentIndexChanged.connect(self._aplicar_filtros)
         self.chk_recientes.stateChanged.connect(self._aplicar_filtros)
+        self.search_input.textChanged.connect(self._aplicar_filtros)
 
         bar.addStretch()
 
@@ -608,8 +615,8 @@ class CodigosBarraTab(QWidget):
 
         # Tabla
         self.tbl = QTableWidget()
-        self.tbl.setColumnCount(5)
-        self.tbl.setHorizontalHeaderLabels(["Sel.", "ID", "Marca", "Producto", "Código Barras"])
+        self.tbl.setColumnCount(6)
+        self.tbl.setHorizontalHeaderLabels(["Sel.", "ID", "Marca", "Cód. Prov.", "Producto", "Código Barras"])
         self.tbl.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.tbl.setColumnWidth(0, 40)
         self.tbl.setColumnWidth(1, 60)
@@ -690,7 +697,8 @@ class CodigosBarraTab(QWidget):
                     "rubro": rubro,
                     "subrubro": subrubro,
                     "creado_en": creado_en,
-                    "precio": pr
+                    "precio": pr,
+                    "cod_prov": getattr(p, "codigo_proveedor", "") or ""
                 })
 
         self._actualizar_combos_filtro()
@@ -750,6 +758,7 @@ class CodigosBarraTab(QWidget):
         f_rubro = self.cmb_rubro.currentText()
         f_subrubro = self.cmb_subrubro.currentText()
         f_reciente = self.chk_recientes.isChecked()
+        f_busqueda = self.search_input.text().strip().lower() if hasattr(self, 'search_input') else ""
 
         hoy = dt.datetime.now().date()
 
@@ -761,6 +770,14 @@ class CodigosBarraTab(QWidget):
             if f_subrubro != "Todos" and f_subrubro != "" and d.get("subrubro") != f_subrubro: mostrar = False
             if f_reciente:
                 if d.get("creado_en") is None or d.get("creado_en").date() != hoy: mostrar = False
+
+            if f_busqueda:
+                nombre = str(d.get("nombre") or "").lower()
+                cb = str(d.get("cb") or "").lower()
+                cod = str(d.get("codigo") or "").lower()
+                cod_prov = str(d.get("cod_prov") or "").lower()
+                if f_busqueda not in nombre and f_busqueda not in cb and f_busqueda not in cod and f_busqueda not in cod_prov:
+                    mostrar = False
 
             if mostrar:
                 self._filtered_indices.append(i)
@@ -805,16 +822,20 @@ class CodigosBarraTab(QWidget):
             it_marca.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
             self.tbl.setItem(page_row, 2, it_marca)
 
+            it_cod_prov = QTableWidgetItem(d.get("cod_prov") or "")
+            it_cod_prov.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            self.tbl.setItem(page_row, 3, it_cod_prov)
+
             it_nombre = QTableWidgetItem(d.get("nombre") or "")
             it_nombre.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-            self.tbl.setItem(page_row, 3, it_nombre)
+            self.tbl.setItem(page_row, 4, it_nombre)
 
             it_cb = QTableWidgetItem(d.get("cb") or "")
             it_cb.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-            self.tbl.setItem(page_row, 4, it_cb)
+            self.tbl.setItem(page_row, 5, it_cb)
 
         self.tbl.resizeColumnsToContents()
-        self.tbl.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.tbl.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         self.tbl.setUpdatesEnabled(True)
         self.tbl.setSortingEnabled(True)
         self.tbl.itemChanged.connect(self._on_item_changed)

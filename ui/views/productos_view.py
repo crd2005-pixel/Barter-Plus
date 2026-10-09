@@ -21,6 +21,8 @@ class ProductoDialog(QDialog):
         self.sku_input = QLineEdit()
         self.nombre_input = QLineEdit()
         self.codigo_input = QLineEdit()
+        self.cod_prov_input = QLineEdit()
+        self.equivalencias_input = QLineEdit()
 
         self.combo_proveedor = QComboBox()
         self.combo_proveedor.setEditable(True)
@@ -69,8 +71,10 @@ class ProductoDialog(QDialog):
         self.precio_final_label.setStyleSheet("font-weight: bold; font-size: 14px;")
 
         self.layout.addRow("SKU Interno:", self.sku_input)
-        self.layout.addRow("Nombre:", self.nombre_input)
         self.layout.addRow("Código de Barras (EAN):", self.codigo_input)
+        self.layout.addRow("Código Proveedor:", self.cod_prov_input)
+        self.layout.addRow("Equivalencias (separadas por coma):", self.equivalencias_input)
+        self.layout.addRow("Nombre:", self.nombre_input)
 
         self.layout.addRow("Proveedor:", self.combo_proveedor)
         self.layout.addRow("Categoría/Rubro:", self.combo_rubro)
@@ -163,6 +167,8 @@ class ProductoDialog(QDialog):
 
             self.nombre_input.setText(self.producto.nombre)
             self.codigo_input.setText(self.producto.codigo_barras or "")
+            self.cod_prov_input.setText(self.producto.codigo_proveedor or "")
+            self.equivalencias_input.setText(self.producto.equivalencias or "")
 
             # Combos
             if self.producto.proveedor_id and self.producto.proveedor:
@@ -188,6 +194,8 @@ class ProductoDialog(QDialog):
         sku = self.sku_input.text().strip()
         nombre = self.nombre_input.text().strip()
         codigo = self.codigo_input.text().strip()
+        cod_prov = self.cod_prov_input.text().strip()
+        equiv = self.equivalencias_input.text().strip()
         prov_nombre = self.combo_proveedor.currentText()
         rubro_nombre = self.combo_rubro.currentText()
         marca_nombre = self.combo_marca.currentText()
@@ -210,6 +218,8 @@ class ProductoDialog(QDialog):
                     nombre=nombre,
                     costo=costo,
                     codigo_barras=codigo if codigo else None,
+                    codigo_proveedor=cod_prov if cod_prov else None,
+                    equivalencias=equiv if equiv else None,
                     stock_inicial=stock,
                     es_granel=es_granel,
                     divisor_granel=divisor,
@@ -225,6 +235,8 @@ class ProductoDialog(QDialog):
                     producto_id=self.producto_id,
                     nombre=nombre,
                     codigo_barras=codigo,
+                    codigo_proveedor=cod_prov if cod_prov else None,
+                    equivalencias=equiv if equiv else None,
                     costo=costo,
                     margen=margen,
                     stock=stock,
@@ -315,8 +327,8 @@ class ProductosTab(QWidget):
         self.bottom_layout.setContentsMargins(0, 0, 0, 0)
 
         # --- Tabla de Productos ---
-        self.tabla = QTableWidget(0, 7)
-        self.tabla.setHorizontalHeaderLabels(["ID", "SKU", "Cód. Barras", "Nombre", "Stock", "Costo", "Precio Final"])
+        self.tabla = QTableWidget(0, 8)
+        self.tabla.setHorizontalHeaderLabels(["ID", "SKU", "Cód. Barras", "Cód. Prov.", "Nombre", "Stock", "Costo", "Precio Final"])
 
         # Ergonomía Global: Columnas redimensionables interactivamente
         self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -435,10 +447,11 @@ class ProductosTab(QWidget):
             self.tabla.setItem(row, 0, QTableWidgetItem(str(prod.id)))
             self.tabla.setItem(row, 1, QTableWidgetItem(prod.sku or ""))
             self.tabla.setItem(row, 2, QTableWidgetItem(prod.codigo_barras or ""))
-            self.tabla.setItem(row, 3, QTableWidgetItem(prod.nombre))
-            self.tabla.setItem(row, 4, QTableWidgetItem(f"{prod.stock_actual:.2f}"))
-            self.tabla.setItem(row, 5, QTableWidgetItem(f"$ {prod.costo:.2f}"))
-            self.tabla.setItem(row, 6, QTableWidgetItem(f"$ {prod.precio_minorista:.2f}"))
+            self.tabla.setItem(row, 3, QTableWidgetItem(prod.codigo_proveedor or ""))
+            self.tabla.setItem(row, 4, QTableWidgetItem(prod.nombre))
+            self.tabla.setItem(row, 5, QTableWidgetItem(f"{prod.stock_actual:.2f}"))
+            self.tabla.setItem(row, 6, QTableWidgetItem(f"$ {prod.costo:.2f}"))
+            self.tabla.setItem(row, 7, QTableWidgetItem(f"$ {prod.precio_minorista:.2f}"))
 
             # Guardamos el ID en el item para facilitar la edición
             self.tabla.item(row, 0).setData(Qt.ItemDataRole.UserRole, prod.id)

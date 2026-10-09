@@ -40,7 +40,7 @@ class SugerenciasTab(QWidget):
 
         # Grilla
         self.table = QTableWidget(0, 7)
-        self.table.setHorizontalHeaderLabels(["Pedir", "SKU", "Proveedor", "Producto", "Stock Act.", "Stock Mín.", "Cant. a Pedir"])
+        self.table.setHorizontalHeaderLabels(["Pedir", "SKU", "Cód. Prov.", "Proveedor", "Producto", "Stock Act.", "Stock Mín.", "Cant. a Pedir"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         layout.addWidget(self.table)
@@ -132,8 +132,9 @@ class SugerenciasTab(QWidget):
                 if chk and chk.isChecked():
                     datos_pdf.append({
                         'sku': self.table.item(r, 1).text(),
-                        'nombre': self.table.item(r, 3).text(),
-                        'cantidad': self.table.item(r, 6).text()
+                        'codigo_proveedor': self.table.item(r, 2).text(),
+                        'nombre': self.table.item(r, 4).text(),
+                        'cantidad': self.table.item(r, 7).text()
                     })
 
         if not datos_pdf:

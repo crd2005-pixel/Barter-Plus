@@ -37,6 +37,8 @@ class ProductoService:
     @staticmethod
     def crear_producto(nombre: str, costo: float, iva: float = 21.0,
                        codigo_barras: Optional[str] = None,
+                       codigo_proveedor: Optional[str] = None,
+                       equivalencias: Optional[str] = None,
                        stock_inicial: float = 0.0,
                        es_granel: bool = False,
                        divisor_granel: float = 1.0,
@@ -89,6 +91,8 @@ class ProductoService:
                     costo=costo,
                     iva=iva,
                     codigo_barras=codigo_barras,
+                    codigo_proveedor=codigo_proveedor,
+                    equivalencias=equivalencias,
                     stock_actual=stock_inicial,
                     stock_minimo=stock_minimo,
                     stock_maximo=stock_maximo,
@@ -293,7 +297,8 @@ class ProductoService:
                                    margen: float, stock: float, es_granel: bool = False,
                                    divisor_granel: float = 1.0, stock_minimo: float = 0.0,
                                    stock_maximo: float = 0.0, proveedor_nombre: Optional[str] = None,
-                                   categoria_nombre: Optional[str] = None, marca_nombre: Optional[str] = None) -> Optional[Producto]:
+                                   categoria_nombre: Optional[str] = None, marca_nombre: Optional[str] = None,
+                                   codigo_proveedor: Optional[str] = None, equivalencias: Optional[str] = None) -> Optional[Producto]:
         from database.models.producto import Categoria, Marca
         from database.models.proveedor import Proveedor
         with get_session() as session:
@@ -337,6 +342,8 @@ class ProductoService:
 
                 producto.nombre = nombre
                 producto.codigo_barras = codigo_barras if codigo_barras else None
+                producto.codigo_proveedor = codigo_proveedor
+                producto.equivalencias = equivalencias
                 producto.proveedor_id = prov_id
                 producto.categoria_id = cat_id
                 producto.marca_id = mar_id
@@ -372,7 +379,9 @@ class ProductoService:
             ).where(
                 (Producto.codigo_barras == query) |
                 (Producto.sku == query) |
-                (Producto.nombre.icontains(query))
+                (Producto.nombre.icontains(query)) |
+                (Producto.codigo_proveedor == query) |
+                (Producto.equivalencias.icontains(query))
             )
             producto = session.scalars(stmt).first()
             if producto:
