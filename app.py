@@ -332,11 +332,11 @@ def process_and_unify(json_data, proveedor, marca_default='', master_lookup_cod=
                     final_sku = f"{base_sku}-{counter}"
                     counter += 1
 
-            # Realizar Upsert interceptando estrictamente por proveedor y codigo_proveedor usando la directiva de la base de datos temporal
+            # Realizar Upsert interceptando estrictamente por sku_interno usando la directiva de la base de datos temporal
             c.execute('''INSERT INTO productos_maestro
                          (sku_interno, proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion)
                          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                         ON CONFLICT(proveedor, codigo_proveedor) DO UPDATE SET
+                         ON CONFLICT(sku_interno) DO UPDATE SET
                          costo_neto=excluded.costo_neto,
                          fecha_actualizacion=excluded.fecha_actualizacion''',
                          (final_sku, proveedor, cod_prov, desc, marca, costo, caja, now))
