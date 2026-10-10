@@ -366,23 +366,33 @@ def process_and_unify(json_data, proveedor, marca_default='', master_lookup_cod=
                     final_sku = f"{base_sku}-{counter}"
                     counter += 1
 
-            used_skus.add(final_sku)
-            if cod_prov_limpio:
-                master_lookup_cod[cod_prov_limpio] = final_sku
-            master_lookup_desc[norm_desc] = final_sku
+            # Realizar Upsert interceptando estrictamente por proveedor y codigo_proveedor
+            c.execute("SELECT id FROM productos_maestro WHERE proveedor = ? AND codigo_proveedor = ?", (proveedor, cod_prov))
+            if c.fetchone():
+                c.execute('''UPDATE productos_maestro
+                             SET costo_neto = ?, fecha_actualizacion = ?
+                             WHERE proveedor = ? AND codigo_proveedor = ?''',
+                          (costo, now, proveedor, cod_prov))
+                updates += 1
+            else:
+                c.execute('''INSERT INTO productos_maestro
+                             (sku_interno, proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion)
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                             ON CONFLICT(proveedor, codigo_proveedor) DO UPDATE SET
+                             costo_neto=excluded.costo_neto,
+                             fecha_actualizacion=excluded.fecha_actualizacion''',
+                             (final_sku, proveedor, cod_prov, desc, marca, costo, caja, now))
+                inserts += 1
 
-            c.execute('''INSERT INTO productos_maestro
-                         (proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion, sku_interno)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                         ON CONFLICT(sku_interno) DO UPDATE SET
-                         costo_neto=excluded.costo_neto,
-                         fecha_actualizacion=excluded.fecha_actualizacion,
-                         proveedor=excluded.proveedor,
-                         codigo_proveedor=excluded.codigo_proveedor,
-                         descripcion=excluded.descripcion,
-                         marca=excluded.marca''',
-                         (proveedor, cod_prov, desc, marca, costo, caja, now, final_sku))
-            inserts += 1
+            # Recuperar el SKU inmutable real que quedó en la BD tras la transacción
+            c.execute("SELECT sku_interno FROM productos_maestro WHERE proveedor = ? AND codigo_proveedor = ?", (proveedor, cod_prov))
+            row = c.fetchone()
+            if row:
+                real_sku = row[0]
+                used_skus.add(real_sku)
+                if cod_prov_limpio:
+                    master_lookup_cod[cod_prov_limpio] = real_sku
+                master_lookup_desc[norm_desc] = real_sku
 
         conn.commit()
     except Exception as e:
