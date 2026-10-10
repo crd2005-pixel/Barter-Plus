@@ -7,7 +7,7 @@ DisableProgramGroupPage=yes
 ; Usa el logo corporativo para el instalador
 SetupIconFile=logo.ico
 OutputDir=.\Output
-OutputBaseFilename=Instalar_BarterPlus
+OutputBaseFilename=BarterPlus_Update_Setup
 Compression=lzma
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64
@@ -17,7 +17,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 ; Toma todo el contenido de la carpeta dist compilada
-Source: "dist\Barter Plus\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\Barter Plus\*"; DestDir: "{app}"; Excludes: "*.db,*.sqlite,*.sqlite3"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\Barter Plus"; Filename: "{app}\Barter Plus.exe"; IconFilename: "{app}\Barter Plus.exe"
