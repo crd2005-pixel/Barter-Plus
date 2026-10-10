@@ -38,11 +38,11 @@ def global_exception_handler(exc_type, exc_value, exc_traceback):
 
 sys.excepthook = global_exception_handler
 
-DB_NAME = os.path.join(INSTALL_DIR, "embudo_temp.db")
+DB_PATH = os.path.join(INSTALL_DIR, "embudo_temp.db")
 
 @st.cache_resource
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''
         CREATE TABLE IF NOT EXISTS productos_maestro (
@@ -62,7 +62,7 @@ def init_db():
     conn.close()
 
 def get_connection():
-    return sqlite3.connect(DB_NAME)
+    return sqlite3.connect(DB_PATH)
 
 def extract_raw_text(uploaded_file, batch_size=50):
     """
@@ -371,8 +371,10 @@ def to_excel(df):
     return output.getvalue()
 
 def main():
-    st.set_page_config(page_title="Embudo IA Dual (Barter Plus)", layout="wide")
+    # 1. Garantizar estructura ANTES de cualquier operación
     init_db()
+
+    st.set_page_config(page_title="Embudo IA Dual (Barter Plus)", layout="wide")
 
     api_key_default = ""
     api_key_path = os.path.join(INSTALL_DIR, 'api_key.txt')
@@ -514,21 +516,24 @@ def main():
     st.write("---")
     st.subheader("3. Inventario Maestro (Exportación Final)")
 
-    conn = get_connection()
-    df_maestro = pd.read_sql_query("SELECT sku_interno, proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion FROM productos_maestro", conn)
-    conn.close()
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            df_maestro = pd.read_sql_query("SELECT sku_interno, proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion FROM productos_maestro", conn)
 
-    st.dataframe(df_maestro, use_container_width=True, hide_index=True)
+            st.dataframe(df_maestro, use_container_width=True, hide_index=True)
 
-    if not df_maestro.empty:
-        st.success("La Base de Datos Maestra está lista para ser transferida al siguiente sistema.")
-        excel_data = to_excel(df_maestro)
-        st.download_button(
-            label="📥 Descargar Inventario_Maestro_Unificado.xlsx",
-            data=excel_data,
-            file_name='Inventario_Maestro_Unificado.xlsx',
-            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        )
+            if not df_maestro.empty:
+                st.success("La Base de Datos Maestra está lista para ser transferida al siguiente sistema.")
+                excel_data = to_excel(df_maestro)
+                st.download_button(
+                    label="📥 Descargar Inventario_Maestro_Unificado.xlsx",
+                    data=excel_data,
+                    file_name='Inventario_Maestro_Unificado.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                )
+    except Exception as e:
+        logging.error(f"Error al leer la base de datos temporal: {e}\n{traceback.format_exc()}")
+        st.error(f"Error al leer la base de datos: {e}")
 
 if __name__ == '__main__':
     main()
