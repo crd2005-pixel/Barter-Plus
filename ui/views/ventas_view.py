@@ -172,6 +172,9 @@ class VentasTab(QWidget):
         self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.tabla.horizontalHeader().setStretchLastSection(True)
         self.tabla.setAlternatingRowColors(True)
+        self.tabla.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.tabla.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.tabla.cellDoubleClicked.connect(self._editar_precio_carrito)
 
         self.tabla.setColumnWidth(0, 50)
         self.tabla.setColumnWidth(1, 120)
@@ -715,6 +718,64 @@ class VentasTab(QWidget):
                 self.lbl_detalle_financiacion.setText(f"Total a pasar por Posnet: ${total_financiado:.2f}")
         else:
             self.lbl_detalle_financiacion.setText("")
+
+
+    def _editar_precio_carrito(self, row, col):
+        from PyQt6.QtWidgets import QInputDialog
+        if row < 0 or row >= len(self.carrito):
+            return
+
+        item = self.carrito[row]
+        precio_unitario_base = item['precio_base'] * 0.9 if getattr(self, 'cliente_vip', False) else item['precio_base']
+        precio_actual = precio_unitario_base - item.get('descuento_unit', 0.0)
+        if precio_actual < 0: precio_actual = 0.0
+
+        nuevo_precio, ok = QInputDialog.getDouble(
+            self,
+            "Editar Precio Final",
+            f"Producto: {item['nombre']}
+Precio Original (con Dcto VIP si aplica): ${precio_unitario_base:.2f}
+
+Ingrese el Nuevo Precio Final Unitario ($):",
+            value=precio_actual,
+            min=0.01,
+            max=99999999.0,
+            decimals=2
+        )
+
+        if ok:
+            # Regla de Negocio: Limite de descuento 10% sobre el precio unitario base
+            limite_inferior = precio_unitario_base * 0.90
+
+            if nuevo_precio < limite_inferior:
+                QMessageBox.warning(self, "Descuento Inválido", "El sistema no permite realizar descuentos manuales mayores al 10% del precio base.")
+                return
+
+            if nuevo_precio < precio_unitario_base:
+                # Es un descuento válido (se registra la diferencia para mantener equilibrio contable)
+                diferencia = precio_unitario_base - nuevo_precio
+                item['descuento_unit'] = diferencia
+                # Restauramos precio_base original por si hubo aumento antes
+                if 'precio_base_original' in item:
+                    item['precio_base'] = item['precio_base_original']
+            else:
+                # Es un aumento o mismo precio
+                # Fuerza el descuento a 0
+                item['descuento_unit'] = 0.0
+
+                # Para aumentar el precio en el UI/BD sin romper el descuento VIP,
+                # modificamos temporalmente el precio_base del item en el carrito
+                if 'precio_base_original' not in item:
+                    item['precio_base_original'] = item['precio_base']
+
+                # Si hay VIP activo, el precio base interno debe ser mayor para que al restarle 10% de el `nuevo_precio`
+                # nuevo_precio = precio_base * 0.9 => precio_base = nuevo_precio / 0.9
+                if getattr(self, 'cliente_vip', False):
+                    item['precio_base'] = nuevo_precio / 0.9
+                else:
+                    item['precio_base'] = nuevo_precio
+
+            self.actualizar_ui()
 
     def modificar_cantidad_grid(self, item):
         col = item.column()
