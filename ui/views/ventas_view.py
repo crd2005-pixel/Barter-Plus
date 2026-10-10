@@ -733,10 +733,7 @@ class VentasTab(QWidget):
         nuevo_precio, ok = QInputDialog.getDouble(
             self,
             "Editar Precio Final",
-            f"Producto: {item['nombre']}
-Precio Original (con Dcto VIP si aplica): ${precio_unitario_base:.2f}
-
-Ingrese el Nuevo Precio Final Unitario ($):",
+            f"Producto: {item['nombre']}\nPrecio Original (con Dcto VIP si aplica): ${precio_unitario_base:.2f}\n\nIngrese el Nuevo Precio Final Unitario ($):",
             value=precio_actual,
             min=0.01,
             max=99999999.0,
