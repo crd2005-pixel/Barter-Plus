@@ -38,41 +38,7 @@ def global_exception_handler(exc_type, exc_value, exc_traceback):
 
 sys.excepthook = global_exception_handler
 
-def run_migration_barterplus():
-    APP_DIR = os.environ.get('APPDATA', os.path.expanduser('~/AppData/Roaming'))
-    APP_DIR = os.path.join(APP_DIR, 'BarterPlus')
-    os.makedirs(APP_DIR, exist_ok=True)
-    db_path = os.path.join(APP_DIR, 'barterplus.db')
-    backup_path = os.path.join(APP_DIR, 'barterplus_backup.db')
-
-    if os.path.exists(db_path):
-        try:
-            shutil.copy2(db_path, backup_path)
-
-            if os.path.exists(backup_path):
-                conn = sqlite3.connect(db_path)
-                cursor = conn.cursor()
-
-                try:
-                    cursor.execute("PRAGMA table_info(productos)")
-                    columns = [info[1] for info in cursor.fetchall()]
-
-                    if "codigo_proveedor" not in columns:
-                        cursor.execute("ALTER TABLE productos ADD COLUMN codigo_proveedor TEXT;")
-                    if "equivalencias" not in columns:
-                        cursor.execute("ALTER TABLE productos ADD COLUMN equivalencias TEXT;")
-
-                    conn.commit()
-                except Exception as e:
-                    pass
-                finally:
-                    conn.close()
-        except Exception as e:
-            pass
-
-run_migration_barterplus()
-
-DB_NAME = os.path.join(INSTALL_DIR, "inventario_barter.db")
+DB_NAME = os.path.join(INSTALL_DIR, "embudo_temp.db")
 
 @st.cache_resource
 def init_db():
@@ -366,23 +332,17 @@ def process_and_unify(json_data, proveedor, marca_default='', master_lookup_cod=
                     final_sku = f"{base_sku}-{counter}"
                     counter += 1
 
-            # Realizar Upsert interceptando estrictamente por proveedor y codigo_proveedor
-            c.execute("SELECT id FROM productos_maestro WHERE proveedor = ? AND codigo_proveedor = ?", (proveedor, cod_prov))
-            if c.fetchone():
-                c.execute('''UPDATE productos_maestro
-                             SET costo_neto = ?, fecha_actualizacion = ?
-                             WHERE proveedor = ? AND codigo_proveedor = ?''',
-                          (costo, now, proveedor, cod_prov))
-                updates += 1
-            else:
-                c.execute('''INSERT INTO productos_maestro
-                             (sku_interno, proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion)
-                             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                             ON CONFLICT(proveedor, codigo_proveedor) DO UPDATE SET
-                             costo_neto=excluded.costo_neto,
-                             fecha_actualizacion=excluded.fecha_actualizacion''',
-                             (final_sku, proveedor, cod_prov, desc, marca, costo, caja, now))
-                inserts += 1
+            # Realizar Upsert interceptando estrictamente por proveedor y codigo_proveedor usando la directiva de la base de datos temporal
+            c.execute('''INSERT INTO productos_maestro
+                         (sku_interno, proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                         ON CONFLICT(proveedor, codigo_proveedor) DO UPDATE SET
+                         costo_neto=excluded.costo_neto,
+                         fecha_actualizacion=excluded.fecha_actualizacion''',
+                         (final_sku, proveedor, cod_prov, desc, marca, costo, caja, now))
+
+            # Asumimos que si rowcount == 1 es insert, pero SQLite no siempre es claro en upserts, por simplicidad:
+            inserts += 1
 
             # Recuperar el SKU inmutable real que quedó en la BD tras la transacción
             c.execute("SELECT sku_interno FROM productos_maestro WHERE proveedor = ? AND codigo_proveedor = ?", (proveedor, cod_prov))
@@ -455,9 +415,10 @@ def main():
         APP_DIR = os.environ.get('APPDATA', os.path.expanduser('~/AppData/Roaming'))
         db_path = os.path.join(APP_DIR, 'BarterPlus', 'barterplus.db')
         if os.path.exists(db_path):
-            st.success(f"Base de datos local detectada: {db_path}")
+            st.success(f"Base de datos local detectada: {db_path} (Modo Lectura)")
             try:
-                conn_bp = sqlite3.connect(db_path)
+                # Conexión estrictamente de solo lectura a la base de producción
+                conn_bp = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
                 # Seleccionar la tabla completa para permitir la detección dinámica de la columna de SKU alfanumérico (ej. codigo o sku_interno)
                 df_master = pd.read_sql_query("SELECT * FROM productos", conn_bp)
                 conn_bp.close()
