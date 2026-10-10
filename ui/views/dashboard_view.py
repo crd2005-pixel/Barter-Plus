@@ -2,9 +2,37 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame, QLabel, QTableWidget,
     QTableWidgetItem, QHeaderView, QPushButton, QScrollArea, QTextBrowser
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QColor
 from services.dashboard_service import DashboardService
+
+
+class DataLoaderThread(QThread):
+    datos_cargados = pyqtSignal(dict)
+
+    def run(self):
+        try:
+            datos = {
+                "liquidez": DashboardService.obtener_liquidez_neta(),
+                "deuda_prov": DashboardService.obtener_deuda_proveedores(),
+                "valores_inventario": DashboardService.obtener_valor_inventario(),
+                "ventas_mes": DashboardService.obtener_ventas_del_mes(),
+                "ticket_prom": DashboardService.obtener_ticket_promedio(),
+                "cuentas_cobrar": DashboardService.obtener_cuentas_a_cobrar(),
+                "utilidad_bruta": DashboardService.obtener_utilidad_bruta_mes(),
+                "desc_data": DashboardService.obtener_analisis_descuentos(),
+                "gastos_data": DashboardService.obtener_incidencia_gastos(),
+                "top_productos": DashboardService.obtener_top_productos_mes(),
+                "peores": DashboardService.obtener_peores_productos(),
+                "deudores": DashboardService.obtener_ranking_deudores(),
+                "alertas": DashboardService.obtener_alertas_stock()
+            }
+            self.datos_cargados.emit(datos)
+        except Exception as e:
+            print(f"Error cargando dashboard: {e}")
+            # En un entorno real se podría emitir una señal de error, pero dejemos pasar silencio aquí para evitar crashear.
+            self.datos_cargados.emit({})
+
 
 class DashboardView(QWidget):
     def __init__(self, parent=None):
@@ -175,22 +203,6 @@ class DashboardView(QWidget):
         main_h_lay = QHBoxLayout()
         main_h_lay.addLayout(grid_tablas, stretch=4)
 
-        # Columna de Noticias
-        frame_news = QFrame()
-        lay_news = QVBoxLayout(frame_news)
-        lbl_news = QLabel("Contexto Económico y Sectorial")
-        lbl_news.setStyleSheet("font-weight: bold; font-size: 16px; color: #2980b9;")
-
-        self.txt_news = QTextBrowser()
-        self.txt_news.setOpenExternalLinks(True)
-        self.txt_news.setText("Cargando información o sin conexión...")
-        self.txt_news.setStyleSheet("background-color: transparent; color: white; font-size: 13px; border: 1px solid #444;")
-
-        lay_news.addWidget(lbl_news)
-        lay_news.addWidget(self.txt_news)
-
-        main_h_lay.addWidget(frame_news, stretch=1)
-
         layout.addLayout(main_h_lay)
 
         # Configurar Scroll Area principal
@@ -204,25 +216,40 @@ class DashboardView(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(scroll_area)
 
-        self._cargar_noticias()
+
 
     def cargar_datos(self):
-        # 1. Cargar KPIs
-        liquidez = DashboardService.obtener_liquidez_neta()
-        deuda_prov = DashboardService.obtener_deuda_proveedores()
-        valores_inventario = DashboardService.obtener_valor_inventario()
-        ventas_mes = DashboardService.obtener_ventas_del_mes()
-        ticket_prom = DashboardService.obtener_ticket_promedio()
-        cuentas_cobrar = DashboardService.obtener_cuentas_a_cobrar()
-        utilidad_bruta = DashboardService.obtener_utilidad_bruta_mes()
+        self.btn_actualizar.setEnabled(False)
+        self.btn_actualizar.setText("Actualizando...")
+
+        self.loader_thread = DataLoaderThread()
+        self.loader_thread.datos_cargados.connect(self._on_datos_cargados)
+        self.loader_thread.start()
+
+    def _on_datos_cargados(self, datos: dict):
+        self.btn_actualizar.setEnabled(True)
+        self.btn_actualizar.setText("Actualizar Métricas")
+
+        if not datos:
+            return
+
+        liquidez = datos.get("liquidez", 0.0)
+        deuda_prov = datos.get("deuda_prov", 0.0)
+        valores_inventario = datos.get("valores_inventario", {"capital_invertido": 0.0, "valor_venta_publico": 0.0})
+        ventas_mes = datos.get("ventas_mes", 0.0)
+        ticket_prom = datos.get("ticket_prom", 0.0)
+        cuentas_cobrar = datos.get("cuentas_cobrar", 0.0)
+        utilidad_bruta = datos.get("utilidad_bruta", 0.0)
+        desc_data = datos.get("desc_data", {'total_dinero_descontado': 0.0, 'cantidad_operaciones': 0, 'porcentaje_sobre_ventas': 0.0})
+        gastos_data = datos.get("gastos_data", {'total_gastos': 0.0, 'incidencia_operativa': 0.0})
 
         self.lbl_liquidez.setText(f"$ {liquidez:,.2f}")
         self.lbl_liquidez.setStyleSheet(f"color: {'#2ecc71' if liquidez >= 0 else '#e74c3c'}; font-size: 24px; font-weight: bold;")
 
         self.lbl_deuda_prov.setText(f"$ {deuda_prov:,.2f}")
 
-        cap_inv = valores_inventario["capital_invertido"]
-        val_ven = valores_inventario["valor_venta_publico"]
+        cap_inv = valores_inventario.get("capital_invertido", 0.0)
+        val_ven = valores_inventario.get("valor_venta_publico", 0.0)
         ganancia_latente = val_ven - cap_inv
 
         self.lbl_inventario_costo.setText(f"$ {cap_inv:,.2f}")
@@ -234,20 +261,14 @@ class DashboardView(QWidget):
         self.lbl_cobrar.setText(f"$ {cuentas_cobrar:,.2f}")
         self.lbl_utilidad.setText(f"$ {utilidad_bruta:,.2f}")
 
-        # Nuevos KPIs Fugas/Gastos
-        desc_data = DashboardService.obtener_analisis_descuentos()
-        gastos_data = DashboardService.obtener_incidencia_gastos()
-
         texto_desc = f"$ {desc_data['total_dinero_descontado']:,.2f}\n({desc_data['cantidad_operaciones']} ops | {desc_data['porcentaje_sobre_ventas']:.1f}%)"
         self.lbl_descuentos.setText(texto_desc)
-        self.lbl_descuentos.setStyleSheet("color: #e67e22; font-size: 16px; font-weight: bold;")
 
         texto_gasto = f"$ {gastos_data['total_gastos']:,.2f}\n({gastos_data['incidencia_operativa']:.1f}% vs Ventas)"
         self.lbl_gastos.setText(texto_gasto)
-        self.lbl_gastos.setStyleSheet("color: #e74c3c; font-size: 16px; font-weight: bold;")
 
-        # 2. Cargar Tabla 1: Top Rotacion
-        top_productos = DashboardService.obtener_top_productos_mes()
+        # Tablas
+        top_productos = datos.get("top_productos", [])
         self.tbl_top_rotacion.setRowCount(len(top_productos))
         for row, prod in enumerate(top_productos):
             self.tbl_top_rotacion.setItem(row, 0, QTableWidgetItem(prod["codigo"]))
@@ -256,8 +277,7 @@ class DashboardView(QWidget):
             item_cant.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.tbl_top_rotacion.setItem(row, 2, item_cant)
 
-        # 3. Cargar Tabla 2: Peores Productos
-        peores = DashboardService.obtener_peores_productos()
+        peores = datos.get("peores", [])
         self.tbl_peores.setRowCount(len(peores))
         for row, p in enumerate(peores):
             self.tbl_peores.setItem(row, 0, QTableWidgetItem(p["codigo"]))
@@ -269,8 +289,7 @@ class DashboardView(QWidget):
             item_vnd.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.tbl_peores.setItem(row, 3, item_vnd)
 
-        # 4. Cargar Tabla 3: Deudores
-        deudores = DashboardService.obtener_ranking_deudores()
+        deudores = datos.get("deudores", [])
         self.tbl_deudores.setRowCount(len(deudores))
         for row, d in enumerate(deudores):
             self.tbl_deudores.setItem(row, 0, QTableWidgetItem(d["cliente"]))
@@ -279,8 +298,7 @@ class DashboardView(QWidget):
             item_saldo.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self.tbl_deudores.setItem(row, 2, item_saldo)
 
-        # 5. Cargar Tabla 4: Alertas de Stock
-        alertas = DashboardService.obtener_alertas_stock()
+        alertas = datos.get("alertas", [])
         self.tbl_alertas_stock.setRowCount(len(alertas))
         for row, alerta in enumerate(alertas):
             self.tbl_alertas_stock.setItem(row, 0, QTableWidgetItem(alerta["producto"]))
@@ -294,35 +312,3 @@ class DashboardView(QWidget):
             item_min = QTableWidgetItem(f"{alerta['stock_minimo']:.2f}")
             item_min.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.tbl_alertas_stock.setItem(row, 2, item_min)
-
-    def _cargar_noticias(self):
-        import threading
-        def fetch():
-            import urllib.request
-            import xml.etree.ElementTree as ET
-
-            html = ""
-            try:
-                # Usamos Ambito Financiero Economía
-                req = urllib.request.Request('https://www.ambito.com/rss/economia.xml', headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=5) as response:
-                    xml_data = response.read()
-
-                root = ET.fromstring(xml_data)
-                items = root.findall('.//item')[:5]
-
-                for item in items:
-                    title = item.find('title').text if item.find('title') is not None else 'Sin título'
-                    link = item.find('link').text if item.find('link') is not None else '#'
-                    pub_date = item.find('pubDate').text if item.find('pubDate') is not None else ''
-
-                    html += f"<h3><a href='{link}' style='color: #2980b9; text-decoration: none;'>{title}</a></h3>"
-                    html += f"<p style='color: #7f8c8d; font-size: 11px; margin-top: -10px;'>{pub_date}</p><hr>"
-            except Exception as e:
-                html = f"<p style='color: red;'>Sin conexión para noticias.<br>({str(e)})</p>"
-
-            # Actualizar GUI de forma segura (aunque en PyQt estricto deberia ser por señales, QTextBrowser tolera setText si no hay mucha concurrencia, pero lo haremos con un QTimer para ser pulcros)
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(0, lambda: self.txt_news.setHtml(html))
-
-        threading.Thread(target=fetch, daemon=True).start()

@@ -82,11 +82,11 @@ class DashboardService:
                 func.max(ClienteCuentaCorriente.id).label('max_id')
             ).group_by(ClienteCuentaCorriente.cliente_id).subquery()
 
-            ultimos_movs = session.query(ClienteCuentaCorriente).join(
+            stmt = select(func.sum(ClienteCuentaCorriente.saldo)).join(
                 subq, ClienteCuentaCorriente.id == subq.c.max_id
-            ).all()
+            ).where(ClienteCuentaCorriente.saldo > 0)
 
-            deuda_clientes = sum(m.saldo for m in ultimos_movs if m.saldo > 0)
+            deuda_clientes = session.execute(stmt).scalar() or 0.0
             return deuda_clientes
 
     @staticmethod
@@ -174,11 +174,11 @@ class DashboardService:
                 func.max(ProveedorCuentaCorriente.id).label('max_id')
             ).group_by(ProveedorCuentaCorriente.proveedor_id).subquery()
 
-            ultimos_movs = session.query(ProveedorCuentaCorriente).join(
+            stmt = select(func.sum(ProveedorCuentaCorriente.saldo)).join(
                 subq, ProveedorCuentaCorriente.id == subq.c.max_id
-            ).all()
+            ).where(ProveedorCuentaCorriente.saldo > 0)
 
-            deuda = sum(m.saldo for m in ultimos_movs if m.saldo > 0)
+            deuda = session.execute(stmt).scalar() or 0.0
             return deuda
 
     @staticmethod
