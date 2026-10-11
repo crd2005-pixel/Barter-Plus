@@ -14,6 +14,9 @@ import logging
 import sys
 import traceback
 
+# 1. Configuración de página DEBE ser el primer comando de Streamlit
+st.set_page_config(page_title="Embudo IA Dual (Barter Plus)", layout="wide")
+
 if getattr(sys, 'frozen', False):
     INSTALL_DIR = os.path.dirname(sys.executable)
 else:
@@ -373,8 +376,6 @@ def to_excel(df):
 def main():
     # 1. Garantizar estructura ANTES de cualquier operación
     init_db()
-
-    st.set_page_config(page_title="Embudo IA Dual (Barter Plus)", layout="wide")
 
     api_key_default = ""
     api_key_path = os.path.join(INSTALL_DIR, 'api_key.txt')
