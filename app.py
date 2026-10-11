@@ -45,24 +45,24 @@ DB_PATH = os.path.join(INSTALL_DIR, "embudo_temp.db")
 
 @st.cache_resource
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS productos_maestro (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sku_interno TEXT UNIQUE,
-            proveedor TEXT,
-            codigo_proveedor TEXT,
-            descripcion TEXT,
-            marca TEXT,
-            costo_neto REAL,
-            contenido_caja TEXT,
-            fecha_actualizacion TEXT,
-            UNIQUE(proveedor, codigo_proveedor)
-        )
-    ''')
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(DB_PATH) as conn:
+        c = conn.cursor()
+        # Limpiamos el esquema viejo para evitar conflictos de restricciones
+        c.execute("DROP TABLE IF EXISTS productos_maestro")
+
+        c.execute('''
+            CREATE TABLE productos_maestro (
+                sku_interno TEXT PRIMARY KEY,
+                proveedor TEXT,
+                codigo_proveedor TEXT,
+                descripcion TEXT,
+                marca TEXT,
+                costo_neto REAL,
+                contenido_caja TEXT,
+                fecha_actualizacion TEXT
+            )
+        ''')
+        conn.commit()
 
 def get_connection():
     return sqlite3.connect(DB_PATH)
