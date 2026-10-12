@@ -18,12 +18,16 @@ import traceback
 st.set_page_config(page_title="Embudo IA Dual (Barter Plus)", layout="wide")
 
 if getattr(sys, 'frozen', False):
-    INSTALL_DIR = os.path.dirname(sys.executable)
+    # Si es un ejecutable compilado, guardar junto al .exe real
+    BASE_DIR = os.path.dirname(sys.executable)
 else:
-    INSTALL_DIR = os.path.dirname(os.path.abspath(__file__))
+    # Si es script normal, guardar junto a app.py
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+DB_PATH = os.path.join(BASE_DIR, "inventario_barter.db")
 
 try:
-    log_path = os.path.join(INSTALL_DIR, 'error_log.txt')
+    log_path = os.path.join(BASE_DIR, 'error_log.txt')
     logging.basicConfig(
         filename=log_path,
         filemode='a',
@@ -40,8 +44,6 @@ def global_exception_handler(exc_type, exc_value, exc_traceback):
     logging.error("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
 
 sys.excepthook = global_exception_handler
-
-DB_PATH = os.path.join(INSTALL_DIR, "embudo_temp.db")
 
 @st.cache_resource
 def init_db():
@@ -378,7 +380,7 @@ def main():
     init_db()
 
     api_key_default = ""
-    api_key_path = os.path.join(INSTALL_DIR, 'api_key.txt')
+    api_key_path = os.path.join(BASE_DIR, 'api_key.txt')
     if os.path.exists(api_key_path):
         try:
             with open(api_key_path, 'r') as f:
