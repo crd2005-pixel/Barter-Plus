@@ -1,23 +1,26 @@
+import subprocess
 import sys
 import os
-import streamlit.web.bootstrap
 
-if __name__ == "__main__":
-    # Configurar variables de entorno críticas para empaquetado
-    os.environ["STREAMLIT_SERVER_HEADLESS"] = "true"
-    os.environ["STREAMLIT_GLOBAL_DEVELOPMENT_MODE"] = "false"
-
-    # Determinar la ruta real del script
+def main():
+    # Determinar ruta base
     if getattr(sys, 'frozen', False):
-        app_path = os.path.join(sys._MEIPASS, 'app.py')
+        base_dir = sys._MEIPASS
     else:
-        app_path = os.path.abspath('app.py')
+        base_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # Validación de existencia (evita el 404 silencioso)
-    if not os.path.exists(app_path):
-        print(f"ERROR CRÍTICO: No se encuentra app.py en {app_path}")
-        sys.exit(1)
+    app_script = os.path.join(base_dir, 'app.py')
 
-    # Ejecución directa del motor
-    print(f"Iniciando Streamlit desde: {app_path}")
-    streamlit.web.bootstrap.run(app_path, "", [], flag_options={})
+    # Ejecutar Streamlit como subproceso usando el Python del bundle
+    comando = [
+        sys.executable, "-m", "streamlit", "run",
+        app_script,
+        "--server.port=8501",
+        "--server.headless=false",
+        "--global.developmentMode=false"
+    ]
+
+    subprocess.run(comando, env=os.environ.copy())
+
+if __name__ == '__main__':
+    main()
