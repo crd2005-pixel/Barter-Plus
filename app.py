@@ -6,7 +6,7 @@ import json
 import io
 import time
 from datetime import datetime
-import PyPDF2
+import pdfplumber
 import re
 import os
 import shutil
@@ -85,27 +85,62 @@ def extract_raw_text(uploaded_file, batch_size=50):
                 df = df.dropna(how='all')
                 df = df.fillna('')
 
-                for start_idx in range(0, len(df), batch_size):
-                    df_chunk = df.iloc[start_idx:start_idx + batch_size]
+                # Rutina automatica para aislar tabla principal (descarta basura sobre los encabezados)
+                start_row = 0
+                for idx, row in df.iterrows():
+                    # Si la fila tiene mas de 2 columnas no vacias, asumimos que es el encabezado de la tabla principal
+                    if sum(1 for cell in row if str(cell).strip() != '') >= 3:
+                        start_row = idx
+                        break
+
+                # Recortar el dataframe desde el encabezado detectado hacia abajo
+                df_clean = df.iloc[start_row:].copy()
+
+                # Rutina para ignorar "listas sobre listas" o footers: Cortar al primer bloque vacío importante
+                end_row = len(df_clean)
+                empty_streak = 0
+                for idx, row in df_clean.iterrows():
+                    if sum(1 for cell in row if str(cell).strip() != '') < 2:
+                        empty_streak += 1
+                        if empty_streak >= 5:  # Si hay 5 filas semi-vacias seguidas, asumir fin de tabla
+                            end_row = idx - 5
+                            break
+                    else:
+                        empty_streak = 0
+
+                df_final = df_clean.loc[:end_row]
+
+                for start_idx in range(0, len(df_final), batch_size):
+                    df_chunk = df_final.iloc[start_idx:start_idx + batch_size]
                     csv_str = df_chunk.to_csv(index=False, header=False)
                     chunk_context = f"--- PESTAÑA ORIGEN: {sheet} ---\n{csv_str}"
                     text_chunks.append(chunk_context)
 
         elif filename.endswith('.pdf'):
-            reader = PyPDF2.PdfReader(uploaded_file)
             all_lines = []
-            for i, page in enumerate(reader.pages):
-                text = page.extract_text()
-                if text:
-                    lines = text.split('\n')
-                    for line in lines:
-                        if line.strip():
-                            all_lines.append(line.strip())
+            with pdfplumber.open(uploaded_file) as pdf:
+                for page in pdf.pages:
+                    table = page.extract_table()
+                    if table:
+                        for row in table:
+                            # Limpiar Nones y saltos de linea dentro de las celdas
+                            clean_row = [str(cell).replace('\n', ' ').strip() if cell else '' for cell in row]
+                            # Ignorar filas completamente vacias
+                            if any(clean_row):
+                                all_lines.append(" | ".join(clean_row))
+                    else:
+                        # Fallback a texto normal si no hay tabla estricta
+                        text = page.extract_text()
+                        if text:
+                            lines = text.split('\n')
+                            for line in lines:
+                                if line.strip():
+                                    all_lines.append(line.strip())
 
             for start_idx in range(0, len(all_lines), batch_size):
                 chunk_lines = all_lines[start_idx:start_idx + batch_size]
                 chunk_text = "\n".join(chunk_lines)
-                chunk_context = f"--- LOTE PDF ---\n{chunk_text}"
+                chunk_context = f"--- LOTE PDF TABULAR ---\n{chunk_text}"
                 text_chunks.append(chunk_context)
 
     except Exception as e:
