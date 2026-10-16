@@ -553,6 +553,16 @@ class App(ctk.CTk):
         if pd.isna(val) or val is None: return True
         return str(val).strip() == ""
 
+    def _is_orphan_description(self, text, code):
+        t = str(text).strip()
+        if not t: return True
+        if t == str(code).strip() and t != "": return True
+        if len(t) < 5: return True
+        # Must have at least one alphabetical word of 3 or more letters
+        words = re.findall(r'[A-Za-z]{3,}', t)
+        if not words: return True
+        return False
+
     def _is_valid_price(self, val):
         if self._is_empty_cell(val): return False
         s = str(val).strip()
@@ -637,15 +647,20 @@ class App(ctk.CTk):
             codigo = ""
             desc = ""
 
+            # Identify if all text cells are purely measurements/numbers
+            all_measures = all(not re.findall(r'[A-Za-z]{3,}', t) for t in text_cells)
+
             # Rule C: Code vs Description Split
-            if len(text_cells) >= 2:
+            if all_measures:
+                # E.g. ["175/70-13", "175/65-14..."]
+                codigo = text_cells[0]
+                # Join everything as description, don't drop the first cell if it's all measures
+                desc = " / ".join(text_cells)
+            elif len(text_cells) >= 2:
                 codigo = text_cells[0]
                 desc = " ".join(text_cells[1:])
-                if len(desc) < 10 and not any(c.isalpha() for c in desc):
-                    if context_seccion: desc = f"{context_seccion} - {desc}"
             elif len(text_cells) == 1:
                 desc = text_cells[0]
-
                 # Extract trailing numbers as code
                 match = re.search(r'\b(\d{4,})$', desc)
                 if match:
@@ -658,11 +673,30 @@ class App(ctk.CTk):
             if any(kw in cod_lower for kw in junk_keywords) or any(kw in desc_lower for kw in junk_keywords):
                 continue
 
+            # Context Inheritance
+            clean_sheet_name = origen.split(" (")[0] if isinstance(origen, str) else str(origen)
+            generic_sheets = ["hoja1", "hoja 1", "sheet1", "sheet 1", "lista", "precios", "pag ", "pág "]
+            is_generic_sheet = any(g in clean_sheet_name.lower() for g in generic_sheets)
+
+            if self._is_orphan_description(desc, codigo):
+                prefix_parts = []
+                if not is_generic_sheet: prefix_parts.append(clean_sheet_name)
+                if context_seccion: prefix_parts.append(context_seccion)
+
+                if prefix_parts:
+                    desc = f"{' - '.join(prefix_parts)} - {desc}"
+
+            marca = "GENERICA"
+            if not is_generic_sheet:
+                marca = clean_sheet_name.upper()
+            else:
+                marca = proveedor.upper()
+
             extracted.append({
                 'proveedor': proveedor,
                 'codigo_proveedor': codigo,
                 'descripcion': desc,
-                'marca': "GENERICA",
+                'marca': marca,
                 'costo_neto': precio_final,
                 'origen': origen
             })
