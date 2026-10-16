@@ -90,16 +90,22 @@ class App(ctk.CTk):
         if self.master_db_path and os.path.exists(self.master_db_path):
             self.lbl_master_info.configure(text=f"Conectado en Solo Lectura: {len(self.master_lookup)} productos con SKU reconocidos", text_color="green")
 
-        # Frame for file selection
+        # Frame for file selection & Basic Info
         self.file_frame = ctk.CTkFrame(self.tab_import)
         self.file_frame.pack(fill="x", padx=10, pady=5)
 
+        ctk.CTkLabel(self.file_frame, text="Proveedor (Obligatorio):").pack(side="left", padx=10)
+        self.entry_proveedor = ctk.CTkEntry(self.file_frame, width=150)
+        self.entry_proveedor.pack(side="left", padx=5)
+
+        ctk.CTkLabel(self.file_frame, text=" | ").pack(side="left", padx=10)
+
         ctk.CTkLabel(self.file_frame, text="Archivos del Proveedor:").pack(side="left", padx=10)
         self.btn_load_excel = ctk.CTkButton(self.file_frame, text="Cargar Excel", command=self.load_excel)
-        self.btn_load_excel.pack(side="left", padx=10, pady=10)
+        self.btn_load_excel.pack(side="left", padx=5, pady=10)
 
         self.btn_load_pdf = ctk.CTkButton(self.file_frame, text="Cargar PDF", command=self.load_pdf)
-        self.btn_load_pdf.pack(side="left", padx=10, pady=10)
+        self.btn_load_pdf.pack(side="left", padx=5, pady=10)
 
         self.lbl_file_info = ctk.CTkLabel(self.file_frame, text="Ningún archivo cargado")
         self.lbl_file_info.pack(side="left", padx=10, pady=10)
@@ -107,59 +113,30 @@ class App(ctk.CTk):
         self.config_frame = ctk.CTkFrame(self.tab_import)
         self.config_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # Mapping inputs
+        # Main Process Frame
         self.map_frame = ctk.CTkFrame(self.config_frame)
         self.map_frame.pack(fill="x", pady=5)
 
-        ctk.CTkLabel(self.map_frame, text="Proveedor (Obligatorio):").pack(side="left", padx=5)
-        self.entry_proveedor = ctk.CTkEntry(self.map_frame, width=150)
-        self.entry_proveedor.pack(side="left", padx=5)
+        self.btn_process_file = ctk.CTkButton(self.map_frame, text="Autodetectar y Procesar Productos", font=("Roboto", 14, "bold"), command=self.process_file, fg_color="green", height=40)
+        self.btn_process_file.pack(side="right", padx=10, pady=10)
 
-        ctk.CTkLabel(self.map_frame, text="Col. Código:").pack(side="left", padx=5)
-        self.entry_col_cod = ctk.CTkEntry(self.map_frame, width=40)
-        self.entry_col_cod.pack(side="left", padx=2)
-        self.entry_col_cod.insert(0, "A")
-        self.entry_col_cod.bind("<KeyRelease>", self.update_mapping_examples)
+        self.btn_select_all_sheets = ctk.CTkButton(self.map_frame, text="Seleccionar Todas las Pestañas", command=self.select_all_sheets)
+        self.btn_select_all_sheets.pack(side="left", padx=10, pady=10)
 
-        ctk.CTkLabel(self.map_frame, text="Col. Desc:").pack(side="left", padx=5)
-        self.entry_col_desc = ctk.CTkEntry(self.map_frame, width=40)
-        self.entry_col_desc.pack(side="left", padx=2)
-        self.entry_col_desc.insert(0, "B")
-        self.entry_col_desc.bind("<KeyRelease>", self.update_mapping_examples)
-
-        ctk.CTkLabel(self.map_frame, text="Col. Marca:").pack(side="left", padx=5)
-        self.entry_col_marca = ctk.CTkEntry(self.map_frame, width=40)
-        self.entry_col_marca.pack(side="left", padx=2)
-        self.entry_col_marca.insert(0, "C")
-        self.entry_col_marca.bind("<KeyRelease>", self.update_mapping_examples)
-
-        ctk.CTkLabel(self.map_frame, text="Col. Precio:").pack(side="left", padx=5)
-        self.entry_col_precio = ctk.CTkEntry(self.map_frame, width=40)
-        self.entry_col_precio.pack(side="left", padx=2)
-        self.entry_col_precio.insert(0, "D")
-        self.entry_col_precio.bind("<KeyRelease>", self.update_mapping_examples)
-
-        self.btn_process_file = ctk.CTkButton(self.map_frame, text="Procesar Archivo", command=self.process_file, fg_color="green")
-        self.btn_process_file.pack(side="right", padx=10)
-
-        # Tabs / preview
-        self.sheets_frame = ctk.CTkScrollableFrame(self.config_frame, height=100)
-        self.sheets_frame.pack(fill="x", pady=5)
+        # Tabs container
+        self.sheets_frame = ctk.CTkScrollableFrame(self.config_frame, height=200)
+        self.sheets_frame.pack(fill="both", expand=True, pady=5)
         self.sheet_vars = {}
-
-        # Treeview for preview
-        columns = ('Col A', 'Col B', 'Col C', 'Col D', 'Col E', 'Col F')
-        self.tree_preview = ttk.Treeview(self.config_frame, columns=columns, show='headings', height=10)
-        for col in columns:
-            self.tree_preview.heading(col, text=col)
-            self.tree_preview.column(col, width=100)
-        self.tree_preview.pack(fill="both", expand=True, pady=5)
 
         # Temp list for processing results
         self.extracted_data = []
         self.current_file = None
         self.current_file_type = None
         self.excel_data = None # Dictionary of DataFrames
+
+    def select_all_sheets(self):
+        for var in self.sheet_vars.values():
+            var.set(True)
 
     def setup_audit_tab(self):
         self.audit_tabview = ctk.CTkTabview(self.tab_audit)
@@ -469,69 +446,11 @@ class App(ctk.CTk):
 
                 var = tk.BooleanVar(value=True)
                 chk = ctk.CTkCheckBox(self.sheets_frame, text=sheet, variable=var)
-                chk.pack(side="left", padx=10, pady=5)
+                chk.pack(side="top", anchor="w", padx=10, pady=2)
                 self.sheet_vars[sheet] = var
-
-            # Show preview of first sheet
-            if xl.sheet_names:
-                self.update_preview(self.excel_data[xl.sheet_names[0]])
 
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo cargar el Excel: {e}")
-
-    def update_preview(self, df):
-        # Clear tree
-        for item in self.tree_preview.get_children():
-            self.tree_preview.delete(item)
-
-        # Store for real-time examples
-        self.preview_df = df
-
-        # Insert first 15 rows
-        for i, row in df.head(15).iterrows():
-            values = [str(x) if pd.notna(x) else "" for x in row.values]
-            # Pad with empty if needed
-            while len(values) < 6:
-                values.append("")
-            self.tree_preview.insert('', 'end', values=values[:6])
-
-        self.update_mapping_examples()
-
-    def update_mapping_examples(self, *args):
-        if not hasattr(self, 'preview_df') or self.preview_df is None or self.preview_df.empty:
-            return
-
-        # Get a sample row (e.g. index 10, or last if < 10)
-        sample_idx = min(10, len(self.preview_df) - 1)
-        if sample_idx < 0: return
-        sample_row = self.preview_df.iloc[sample_idx]
-
-        try:
-            col_cod = self.letter_to_index(self.entry_col_cod.get())
-            cod_val = str(sample_row.iloc[col_cod]) if len(sample_row) > col_cod else ""
-            if not hasattr(self, 'lbl_ej_cod'):
-                self.lbl_ej_cod = ctk.CTkLabel(self.entry_col_cod.master, text="", text_color="gray")
-                self.lbl_ej_cod.pack(side="left", padx=2)
-            self.lbl_ej_cod.configure(text=f"[{cod_val[:10]}]")
-        except: pass
-
-        try:
-            col_desc = self.letter_to_index(self.entry_col_desc.get())
-            desc_val = str(sample_row.iloc[col_desc]) if len(sample_row) > col_desc else ""
-            if not hasattr(self, 'lbl_ej_desc'):
-                self.lbl_ej_desc = ctk.CTkLabel(self.entry_col_desc.master, text="", text_color="gray")
-                self.lbl_ej_desc.pack(side="left", padx=2)
-            self.lbl_ej_desc.configure(text=f"[{desc_val[:15]}]")
-        except: pass
-
-        try:
-            col_precio = self.letter_to_index(self.entry_col_precio.get())
-            precio_val = str(sample_row.iloc[col_precio]) if len(sample_row) > col_precio else ""
-            if not hasattr(self, 'lbl_ej_precio'):
-                self.lbl_ej_precio = ctk.CTkLabel(self.entry_col_precio.master, text="", text_color="gray")
-                self.lbl_ej_precio.pack(side="left", padx=2)
-            self.lbl_ej_precio.configure(text=f"[{precio_val[:10]}]")
-        except: pass
 
     def load_pdf(self):
         file_path = filedialog.askopenfilename(filetypes=[("PDF Files", "*.pdf")])
@@ -553,22 +472,105 @@ class App(ctk.CTk):
             chk.pack(side="left", padx=10, pady=5)
             self.sheet_vars["PDF_ALL"] = var
 
-            # Extract first page table for preview
-            with pdfplumber.open(file_path) as pdf:
-                if len(pdf.pages) > 0:
-                    page = pdf.pages[0]
-                    # Simple table extraction for preview
-                    table = page.extract_table()
-                    if table:
-                        df = pd.DataFrame(table)
-                        self.update_preview(df)
-                    else:
-                        messagebox.showinfo("Aviso", "No se detectó tabla automática en la primera página. Se intentará extracción por líneas.")
-                        # Create empty df for preview
-                        self.update_preview(pd.DataFrame(columns=range(6)))
 
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo cargar el PDF: {e}")
+
+    def _is_empty_cell(self, val):
+        if pd.isna(val) or val is None: return True
+        return str(val).strip() == ""
+
+    def _is_valid_price(self, val):
+        # Ignora símbolos '$' sueltos
+        if self._is_empty_cell(val): return False
+        s = str(val).strip()
+        if s == '$': return False
+        p = self.limpiar_precio_argentino(val)
+        return not math.isnan(p) and p > 10.0 # Heuristica: precios menores a 10 pueden ser códigos o cantidades
+
+    def _extract_segments_from_row(self, row_values):
+        # Step B: Divide by empty columns
+        segments = []
+        current_segment = []
+        consecutive_empty = 0
+
+        for val in row_values:
+            if self._is_empty_cell(val):
+                consecutive_empty += 1
+                if consecutive_empty >= 1 and current_segment:
+                    segments.append(current_segment)
+                    current_segment = []
+            else:
+                consecutive_empty = 0
+                current_segment.append(val)
+
+        if current_segment:
+            segments.append(current_segment)
+
+        return segments
+
+    def _process_heuristic_row(self, row_values, context_seccion, proveedor, origen):
+        # Check if entire row is empty
+        if all(self._is_empty_cell(v) for v in row_values):
+            return context_seccion, []
+
+        # Step A: Context Title
+        non_empty = [v for v in row_values if not self._is_empty_cell(v)]
+        if len(non_empty) == 1:
+            val = non_empty[0]
+            if not self._is_valid_price(val):
+                return str(val).strip(), []
+
+        segments = self._extract_segments_from_row(row_values)
+        extracted = []
+        junk_keywords = ["un x caj", "u x bulto", "codigo", "código", "descripcion", "precio", "lista", "linea ", "rubro", "item", "art"]
+
+        for seg in segments:
+            # Step C: Extract rightmost valid price
+            price_idx = -1
+            precio_final = 0.0
+
+            for i in range(len(seg)-1, -1, -1):
+                if self._is_valid_price(seg[i]):
+                    price_idx = i
+                    precio_final = self.limpiar_precio_argentino(seg[i])
+                    break
+
+            if price_idx == -1: continue # No price in segment
+
+            # Text cells to the left of the rightmost price
+            text_cells = [str(x).strip() for x in seg[:price_idx] if not self._is_empty_cell(x) and str(x).strip() != '$']
+            if not text_cells: continue
+
+            codigo = ""
+            desc = ""
+
+            # Step D
+            if len(text_cells) >= 2:
+                codigo = text_cells[0]
+                desc = " ".join(text_cells[1:])
+                # Check short description
+                if len(desc) < 10 and not any(c.isalpha() for c in desc):
+                    if context_seccion: desc = f"{context_seccion} - {desc}"
+            elif len(text_cells) == 1:
+                desc = text_cells[0]
+                codigo = re.sub(r'[^A-Z0-9]', '', desc.upper())[:20]
+
+            cod_lower = codigo.lower()
+            desc_lower = desc.lower()
+            if any(kw in cod_lower for kw in junk_keywords) or any(kw in desc_lower for kw in junk_keywords):
+                continue
+
+            extracted.append({
+                'proveedor': proveedor,
+                'codigo_proveedor': codigo,
+                'descripcion': desc,
+                'marca': "GENERICA",
+                'costo_neto': precio_final,
+                'origen': origen
+            })
+
+        return context_seccion, extracted
 
     def process_file(self):
         if not self.current_file:
@@ -580,64 +582,16 @@ class App(ctk.CTk):
             messagebox.showwarning("Aviso", "El campo Proveedor es obligatorio.")
             return
 
-        try:
-            col_cod = self.letter_to_index(self.entry_col_cod.get())
-            col_desc = self.letter_to_index(self.entry_col_desc.get())
-            col_marca = self.letter_to_index(self.entry_col_marca.get())
-            col_precio = self.letter_to_index(self.entry_col_precio.get())
-        except Exception as e:
-            messagebox.showwarning("Aviso", "Configuración de columnas inválida.")
-            return
-
-        self.extracted_data.clear() # Flush per run
-
-        junk_keywords = ["un x caj", "u x bulto", "codigo", "código", "descripcion", "precio", "lista", "linea ", "rubro", "item", "art"]
+        self.extracted_data.clear()
 
         if self.current_file_type == 'excel':
             for sheet, var in self.sheet_vars.items():
-                if not var.get():
-                    continue
+                if not var.get(): continue
                 df = self.excel_data[sheet]
+                context_seccion = ""
                 for idx, row in df.iterrows():
-                    try:
-                        if len(row) <= max(col_cod, col_desc, col_precio):
-                            continue
-
-                        cod = str(row.iloc[col_cod]).strip() if pd.notna(row.iloc[col_cod]) else ""
-                        desc = str(row.iloc[col_desc]).strip() if pd.notna(row.iloc[col_desc]) else ""
-
-                        # Marca can be from col or sheet name
-                        if len(row) > col_marca and pd.notna(row.iloc[col_marca]):
-                            marca = str(row.iloc[col_marca]).strip().upper()
-                        else:
-                            marca = "GENERICA"
-
-                        precio_raw = row.iloc[col_precio]
-
-                        # Anti-desfase Rule 1 & 2 & 3
-                        if not cod or not desc: continue
-                        if desc.isdigit() and len(desc) <= 3: continue # desc is likely box quantity
-
-                        cod_lower = cod.lower()
-                        desc_lower = desc.lower()
-                        if any(kw in cod_lower for kw in junk_keywords) or any(kw in desc_lower for kw in junk_keywords):
-                            continue
-
-                        precio = self.limpiar_precio_argentino(precio_raw)
-                        if math.isnan(precio) or precio <= 0.01:
-                            continue
-
-                        self.extracted_data.append({
-                            'proveedor': proveedor,
-                            'codigo_proveedor': cod,
-                            'descripcion': desc,
-                            'marca': marca,
-                            'costo_neto': precio,
-                            'origen': sheet
-                        })
-                    except Exception as e:
-                        # Skip row on parsing errors
-                        pass
+                    context_seccion, items = self._process_heuristic_row(row.values, context_seccion, proveedor, sheet)
+                    self.extracted_data.extend(items)
 
             messagebox.showinfo("Proceso Terminado", f"Se extrajeron {len(self.extracted_data)} productos válidos de Excel.")
             self.populate_audit_tables()
@@ -645,83 +599,22 @@ class App(ctk.CTk):
         elif self.current_file_type == 'pdf':
             with pdfplumber.open(self.current_file) as pdf:
                 for i, page in enumerate(pdf.pages):
-                    # Try extract_table first
+                    context_seccion = ""
                     tables = page.extract_tables()
                     if tables:
                         for table in tables:
                             for row in table:
                                 if not row: continue
-                                try:
-                                    if len(row) <= max(col_cod, col_desc, col_precio): continue
-
-                                    cod = str(row[col_cod]).strip() if row[col_cod] else ""
-                                    desc = str(row[col_desc]).strip() if row[col_desc] else ""
-
-                                    if len(row) > col_marca and row[col_marca]:
-                                        marca = str(row[col_marca]).strip().upper()
-                                    else:
-                                        marca = "GENERICA"
-
-                                    precio_raw = row[col_precio]
-
-                                    # Anti-desfase Rule 1 & 2 & 3
-                                    if not cod or not desc: continue
-                                    if desc.isdigit() and len(desc) <= 3: continue
-
-                                    cod_lower = cod.lower()
-                                    desc_lower = desc.lower()
-                                    if any(kw in cod_lower for kw in junk_keywords) or any(kw in desc_lower for kw in junk_keywords):
-                                        continue
-
-                                    precio = self.limpiar_precio_argentino(precio_raw)
-                                    if math.isnan(precio) or precio <= 0.01: continue
-
-                                    self.extracted_data.append({
-                                        'proveedor': proveedor,
-                                        'codigo_proveedor': cod,
-                                        'descripcion': desc,
-                                        'marca': marca,
-                                        'costo_neto': precio,
-                                        'origen': f"Pag {i+1}"
-                                    })
-                                except Exception:
-                                    pass
+                                context_seccion, items = self._process_heuristic_row(row, context_seccion, proveedor, f"Pag {i+1}")
+                                self.extracted_data.extend(items)
                     else:
-                        # Fallback to lines if table extraction fails completely
                         text = page.extract_text(vertical_strategy="lines")
                         if text:
                             lines = text.split('\n')
                             for line in lines:
-                                parts = [p.strip() for p in line.split('  ') if p.strip()] # Double space as separator heuristic
-                                try:
-                                    if len(parts) <= max(col_cod, col_desc, col_precio): continue
-                                    cod = str(parts[col_cod]).strip()
-                                    desc = str(parts[col_desc]).strip()
-                                    marca = "GENERICA"
-                                    if len(parts) > col_marca:
-                                        marca = str(parts[col_marca]).strip().upper()
-                                    precio_raw = parts[col_precio]
-
-                                    if not cod or not desc: continue
-                                    if desc.isdigit() and len(desc) <= 3: continue
-
-                                    cod_lower = cod.lower()
-                                    desc_lower = desc.lower()
-                                    if any(kw in cod_lower for kw in junk_keywords) or any(kw in desc_lower for kw in junk_keywords): continue
-
-                                    precio = self.limpiar_precio_argentino(precio_raw)
-                                    if math.isnan(precio) or precio <= 0.01: continue
-
-                                    self.extracted_data.append({
-                                        'proveedor': proveedor,
-                                        'codigo_proveedor': cod,
-                                        'descripcion': desc,
-                                        'marca': marca,
-                                        'costo_neto': precio,
-                                        'origen': f"Pag {i+1} (Lineas)"
-                                    })
-                                except Exception:
-                                    pass
+                                parts = [p.strip() for p in line.split('  ') if p.strip()]
+                                context_seccion, items = self._process_heuristic_row(parts, context_seccion, proveedor, f"Pag {i+1} (Lineas)")
+                                self.extracted_data.extend(items)
 
             messagebox.showinfo("Proceso Terminado", f"Se extrajeron {len(self.extracted_data)} productos válidos de PDF.")
             self.populate_audit_tables()
