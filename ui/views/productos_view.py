@@ -271,7 +271,9 @@ class ProductosTab(QWidget):
         # --- Barra de Filtros ---
         self.filter_bar = QHBoxLayout()
 
+        from PyQt6.QtWidgets import QCompleter
         self.combo_marca = QComboBox()
+        self.combo_marca.setEditable(True)
         self.combo_marca.addItem("-- Todas las Marcas --")
 
         self.combo_rubro = QComboBox()
@@ -286,9 +288,15 @@ class ProductosTab(QWidget):
         self.filter_bar.addWidget(self.combo_marca)
         self.filter_bar.addWidget(QLabel("Rubro:"))
         self.filter_bar.addWidget(self.combo_rubro)
+        self.chk_existencias = QCheckBox("Solo Existencias")
+        self.btn_exportar_pdf = QPushButton("Exportar PDF")
+        self.btn_exportar_pdf.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold;")
+
         self.filter_bar.addWidget(QLabel("Proveedor:"))
         self.filter_bar.addWidget(self.combo_proveedor)
+        self.filter_bar.addWidget(self.chk_existencias)
         self.filter_bar.addWidget(self.btn_limpiar)
+        self.filter_bar.addWidget(self.btn_exportar_pdf)
         self.filter_bar.addStretch()
 
         self.top_layout.addLayout(self.filter_bar)
@@ -366,6 +374,8 @@ class ProductosTab(QWidget):
         self.combo_marca.currentIndexChanged.connect(self.cargar_datos)
         self.combo_rubro.currentIndexChanged.connect(self.cargar_datos)
         self.combo_proveedor.currentIndexChanged.connect(self.cargar_datos)
+        self.chk_existencias.stateChanged.connect(self.cargar_datos)
+        self.btn_exportar_pdf.clicked.connect(self.exportar_pdf)
 
         # Cargar filtros
         self.cargar_filtros()
@@ -397,8 +407,15 @@ class ProductosTab(QWidget):
 
         self.combo_marca.clear()
         self.combo_marca.addItem("-- Todas las Marcas --", None)
+        marcas_names = ["-- Todas las Marcas --"]
         for m in marcas:
             self.combo_marca.addItem(m["nombre"], m["id"])
+            marcas_names.append(m["nombre"])
+
+        completer = QCompleter(marcas_names, self.combo_marca)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.combo_marca.setCompleter(completer)
 
         self.combo_rubro.clear()
         self.combo_rubro.addItem("-- Todos los Rubros --", None)
@@ -420,12 +437,14 @@ class ProductosTab(QWidget):
         marca_id = self.combo_marca.currentData()
         rubro_id = self.combo_rubro.currentData()
         proveedor_id = self.combo_proveedor.currentData()
+        solo_existencias = getattr(self, 'chk_existencias', None) and self.chk_existencias.isChecked()
 
         self.productos_db = ProductoService.listar_todos_filtros(
             busqueda=busqueda,
             marca_id=marca_id,
             categoria_id=rubro_id,
-            proveedor_id=proveedor_id
+            proveedor_id=proveedor_id,
+            solo_existencias=solo_existencias
         )
         self.paginacion.set_total_items(len(self.productos_db))
 
@@ -478,3 +497,22 @@ class ProductosTab(QWidget):
         dialog = ProductoDialog(self, producto=producto)
         if dialog.exec():
             self.cargar_datos()
+
+    def exportar_pdf(self):
+        from utils.export_utils import ExportUtils
+        from PyQt6.QtWidgets import QFileDialog
+
+        if self.tabla.rowCount() == 0:
+            QMessageBox.warning(self, "Sin datos", "No hay datos para exportar.")
+            return
+
+        filepath, _ = QFileDialog.getSaveFileName(self, "Guardar Inventario PDF", "Inventario.pdf", "PDF Files (*.pdf)")
+        if filepath:
+            try:
+                # We want ID, SKU, Nombre, Stock
+                # Columns in tabla: "ID" (0), "SKU" (1), "Cód. Barras" (2), "Cód. Prov." (3), "Nombre" (4), "Stock" (5), "Costo" (6), "Precio Final" (7)
+                column_indices = [0, 1, 4, 5]
+                ExportUtils.exportar_tabla_a_pdf(self.tabla, "Reporte de Inventario (Filtro Activo)", filepath, custom_columns=column_indices)
+                QMessageBox.information(self, "Éxito", f"PDF generado en:\n{filepath}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", str(e))

@@ -154,7 +154,7 @@ class ProductoService:
             return producto
 
     @staticmethod
-    def listar_todos_filtros(busqueda: str = "", marca_id: int = None, categoria_id: int = None, proveedor_id: int = None) -> List[Producto]:
+    def listar_todos_filtros(busqueda: str = "", marca_id: int = None, categoria_id: int = None, proveedor_id: int = None, solo_existencias: bool = False) -> List[Producto]:
         from sqlalchemy.orm import joinedload
         with get_session() as session:
             stmt = select(Producto).options(
@@ -178,6 +178,9 @@ class ProductoService:
 
             if proveedor_id is not None:
                 stmt = stmt.where(Producto.proveedor_id == proveedor_id)
+
+            if solo_existencias:
+                stmt = stmt.where(Producto.stock_actual > 0)
 
             productos = session.scalars(stmt).all()
             for p in productos:
@@ -277,20 +280,42 @@ class ProductoService:
                     pedir = True
 
                 if pedir:
-                    # Aplicar fórmula estricta
                     cantidad_pedir = p.stock_maximo - p.stock_actual
-                    if cantidad_pedir <= 0:
-                        cantidad_pedir = 1.0 # Pedido mínimo por seguridad si máximo está mal configurado
-
+                    if cantidad_pedir <= 0: cantidad_pedir = 1.0
                     sugerencias.append({
                         'producto': p,
                         'cantidad_pedir': cantidad_pedir
                     })
 
+            # Filtro de Cruzamiento de Equivalencias (Mantener solo el de menor costo)
+            # Agruparemos por códigos encontrados en 'equivalencias'
+            agrupados = {}
+            unicos = []
+
             for s in sugerencias:
+                p = s['producto']
+                eq_str = getattr(p, 'equivalencias', None)
+                if eq_str and eq_str.strip():
+                    # Usamos el primer codigo como llave de grupo (simplificado)
+                    # o ordenamos para asegurar misma llave
+                    codigos = sorted([c.strip() for c in eq_str.split(',') if c.strip()])
+                    llave = codigos[0] if codigos else str(p.id)
+
+                    if llave not in agrupados:
+                        agrupados[llave] = s
+                    else:
+                        # Conservar el de menor costo
+                        if p.costo < agrupados[llave]['producto'].costo:
+                            agrupados[llave] = s
+                else:
+                    unicos.append(s)
+
+            sugerencias_finales = unicos + list(agrupados.values())
+
+            for s in sugerencias_finales:
                 session.expunge(s['producto'])
 
-            return sugerencias
+            return sugerencias_finales
 
     @staticmethod
     def actualizar_producto_manual(producto_id: int, nombre: str, codigo_barras: str, costo: float,

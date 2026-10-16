@@ -46,7 +46,7 @@ class ExportUtils:
             QMessageBox.critical(parent, "Error de Exportación", f"No se pudo exportar el archivo:\n{str(e)}")
 
     @staticmethod
-    def exportar_tabla_a_pdf(tabla: QTableWidget, titulo_reporte: str, filepath: str):
+    def exportar_tabla_a_pdf(tabla: QTableWidget, titulo_reporte: str, filepath: str, custom_columns: list = None):
         from PyQt6.QtPrintSupport import QPrinter
         from PyQt6.QtGui import QTextDocument, QPageSize
         from datetime import datetime
