@@ -6,6 +6,8 @@ import pandas as pd
 import pdfplumber
 import os
 import re
+import json
+import math
 from datetime import datetime
 import hashlib
 
@@ -18,11 +20,16 @@ class App(ctk.CTk):
         super().__init__()
 
         self.title("Unificador de Listas - Barter Plus")
-        self.db_path = "inventario_barter.db"
+        self.local_db_path = "unificador_interno.db"
+        self.master_db_path = None
         self.master_lookup = {}
+        self.config_file = "config.json"
 
-        self.init_db()
-        self.load_master_index()
+        self.init_local_db()
+        self.load_config()
+        if self.master_db_path and os.path.exists(self.master_db_path):
+            self.load_master_index_db(self.master_db_path)
+
         self.geometry("1000x700")
 
         # Grid layout
@@ -47,11 +54,47 @@ class App(ctk.CTk):
         self.setup_audit_tab()
         self.setup_export_tab()
 
+    def load_config(self):
+        if os.path.exists(self.config_file):
+            try:
+                with open(self.config_file, 'r') as f:
+                    config = json.load(f)
+                    self.master_db_path = config.get('master_db_path')
+            except:
+                pass
+
+    def save_config(self):
+        with open(self.config_file, 'w') as f:
+            json.dump({'master_db_path': self.master_db_path}, f)
+
     def setup_import_tab(self):
+        # Master DB Reference Panel
+        self.master_frame = ctk.CTkFrame(self.tab_import)
+        self.master_frame.pack(fill="x", padx=10, pady=5)
+
+        lbl_title = ctk.CTkLabel(self.master_frame, text="Padrón Maestro Barter Plus (Solo Lectura - Referencia de SKUs)", font=("Roboto", 14, "bold"))
+        lbl_title.pack(pady=5)
+
+        btn_frame = ctk.CTkFrame(self.master_frame, fg_color="transparent")
+        btn_frame.pack(fill="x", pady=5)
+
+        self.btn_link_db = ctk.CTkButton(btn_frame, text="Vincular Base de Gestión (.db) [SOLO LECTURA]", command=self.link_master_db)
+        self.btn_link_db.pack(side="left", padx=10)
+
+        self.btn_link_excel = ctk.CTkButton(btn_frame, text="O Cargar Padrón desde Excel (.xlsx)", command=self.link_master_excel)
+        self.btn_link_excel.pack(side="left", padx=10)
+
+        self.lbl_master_info = ctk.CTkLabel(self.master_frame, text="Sin conexión al Padrón Maestro", text_color="orange")
+        self.lbl_master_info.pack(pady=5)
+
+        if self.master_db_path and os.path.exists(self.master_db_path):
+            self.lbl_master_info.configure(text=f"Conectado en Solo Lectura: {len(self.master_lookup)} productos con SKU reconocidos", text_color="green")
+
         # Frame for file selection
         self.file_frame = ctk.CTkFrame(self.tab_import)
-        self.file_frame.pack(fill="x", padx=10, pady=10)
+        self.file_frame.pack(fill="x", padx=10, pady=5)
 
+        ctk.CTkLabel(self.file_frame, text="Archivos del Proveedor:").pack(side="left", padx=10)
         self.btn_load_excel = ctk.CTkButton(self.file_frame, text="Cargar Excel", command=self.load_excel)
         self.btn_load_excel.pack(side="left", padx=10, pady=10)
 
@@ -73,24 +116,28 @@ class App(ctk.CTk):
         self.entry_proveedor.pack(side="left", padx=5)
 
         ctk.CTkLabel(self.map_frame, text="Col. Código:").pack(side="left", padx=5)
-        self.entry_col_cod = ctk.CTkEntry(self.map_frame, width=50)
-        self.entry_col_cod.pack(side="left", padx=5)
+        self.entry_col_cod = ctk.CTkEntry(self.map_frame, width=40)
+        self.entry_col_cod.pack(side="left", padx=2)
         self.entry_col_cod.insert(0, "A")
+        self.entry_col_cod.bind("<KeyRelease>", self.update_mapping_examples)
 
         ctk.CTkLabel(self.map_frame, text="Col. Desc:").pack(side="left", padx=5)
-        self.entry_col_desc = ctk.CTkEntry(self.map_frame, width=50)
-        self.entry_col_desc.pack(side="left", padx=5)
+        self.entry_col_desc = ctk.CTkEntry(self.map_frame, width=40)
+        self.entry_col_desc.pack(side="left", padx=2)
         self.entry_col_desc.insert(0, "B")
+        self.entry_col_desc.bind("<KeyRelease>", self.update_mapping_examples)
 
         ctk.CTkLabel(self.map_frame, text="Col. Marca:").pack(side="left", padx=5)
-        self.entry_col_marca = ctk.CTkEntry(self.map_frame, width=50)
-        self.entry_col_marca.pack(side="left", padx=5)
+        self.entry_col_marca = ctk.CTkEntry(self.map_frame, width=40)
+        self.entry_col_marca.pack(side="left", padx=2)
         self.entry_col_marca.insert(0, "C")
+        self.entry_col_marca.bind("<KeyRelease>", self.update_mapping_examples)
 
         ctk.CTkLabel(self.map_frame, text="Col. Precio:").pack(side="left", padx=5)
-        self.entry_col_precio = ctk.CTkEntry(self.map_frame, width=50)
-        self.entry_col_precio.pack(side="left", padx=5)
+        self.entry_col_precio = ctk.CTkEntry(self.map_frame, width=40)
+        self.entry_col_precio.pack(side="left", padx=2)
         self.entry_col_precio.insert(0, "D")
+        self.entry_col_precio.bind("<KeyRelease>", self.update_mapping_examples)
 
         self.btn_process_file = ctk.CTkButton(self.map_frame, text="Procesar Archivo", command=self.process_file, fg_color="green")
         self.btn_process_file.pack(side="right", padx=10)
@@ -149,11 +196,58 @@ class App(ctk.CTk):
         self.chk_new = ctk.CTkCheckBox(self.export_frame, text="Incluir Productos Nuevos (Crear SKUs)", variable=self.chk_var_new)
         self.chk_new.pack(pady=20)
 
-        self.btn_apply_db = ctk.CTkButton(self.export_frame, text="Aplicar Cambios en Base de Datos", command=self.apply_db_changes, fg_color="red")
+        self.btn_export_excel = ctk.CTkButton(self.export_frame, text="Exportar Excel Limpio y Unificado (Para Sistema de Gestión)", font=("Roboto", 16, "bold"), height=50, command=self.export_excel, fg_color="green")
+        self.btn_export_excel.pack(pady=15, fill="x", padx=50)
+
+        self.btn_apply_db = ctk.CTkButton(self.export_frame, text="Guardar en Historial del Unificador (Base Propia)", command=self.apply_db_changes)
         self.btn_apply_db.pack(pady=10)
 
-        self.btn_export_excel = ctk.CTkButton(self.export_frame, text="Exportar Excel Unificado", command=self.export_excel, fg_color="green")
-        self.btn_export_excel.pack(pady=10)
+    def link_master_db(self):
+        file_path = filedialog.askopenfilename(filetypes=[("SQLite DB", "*.db *.sqlite *.sqlite3")])
+        if not file_path: return
+        self.master_db_path = file_path
+        self.save_config()
+        self.load_master_index_db(file_path)
+
+    def link_master_excel(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx *.xls")])
+        if not file_path: return
+        try:
+            df = pd.read_excel(file_path)
+            # Find required columns heuristically
+            cols = [str(c).lower() for c in df.columns]
+
+            sku_col = next((c for c in df.columns if 'sku' in str(c).lower()), None)
+            prov_col = next((c for c in df.columns if 'proveedor' in str(c).lower() and 'cod' not in str(c).lower()), None)
+            cod_col = next((c for c in df.columns if 'cod' in str(c).lower() and 'prov' in str(c).lower()), None)
+            if not cod_col: cod_col = next((c for c in df.columns if 'codigo' in str(c).lower()), None)
+            desc_col = next((c for c in df.columns if 'desc' in str(c).lower()), None)
+            marca_col = next((c for c in df.columns if 'marca' in str(c).lower()), None)
+            costo_col = next((c for c in df.columns if 'costo' in str(c).lower() or 'precio' in str(c).lower()), None)
+
+            if not all([sku_col, cod_col, desc_col]):
+                messagebox.showerror("Error", "No se detectaron las columnas requeridas (SKU, Codigo, Descripcion) en el Excel.")
+                return
+
+            self.master_lookup.clear()
+            for idx, row in df.iterrows():
+                if pd.isna(row.get(sku_col)) or pd.isna(row.get(cod_col)): continue
+
+                prov = str(row.get(prov_col, '')).strip().upper() if prov_col else 'N/A'
+                cod = str(row.get(cod_col)).strip().upper().replace(" ", "")
+                key = (prov, cod)
+                self.master_lookup[key] = {
+                    'sku_interno': str(row.get(sku_col)),
+                    'descripcion': str(row.get(desc_col, '')),
+                    'marca': str(row.get(marca_col, '')),
+                    'costo_neto': float(row.get(costo_col, 0.0)) if costo_col and pd.notna(row.get(costo_col)) else 0.0,
+                    'proveedor': prov,
+                    'codigo_proveedor': str(row.get(cod_col))
+                }
+            self.lbl_master_info.configure(text=f"Conectado en Solo Lectura (Excel): {len(self.master_lookup)} productos con SKU reconocidos", text_color="green")
+            self.master_db_path = None # Clear DB path if excel is used
+        except Exception as e:
+            messagebox.showerror("Error", f"Error cargando Excel maestro: {e}")
 
     def generate_sku(self, proveedor, codigo_proveedor, marca, descripcion):
         prov_prefix = str(proveedor)[:3].upper() if len(str(proveedor)) >= 3 else str(proveedor).upper().ljust(3, 'X')
@@ -175,42 +269,34 @@ class App(ctk.CTk):
             return
 
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.local_db_path)
             c = conn.cursor()
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            updates = 0
             inserts = 0
 
-            # Upsert Updates
+            # Just store history locally
             for item in self.audit_updates_list:
-                c.execute('''UPDATE productos_maestro
-                             SET costo_neto = ?, fecha_actualizacion = ?
-                             WHERE sku_interno = ?''',
-                          (item['costo_nvo'], now, item['sku_interno']))
-                updates += 1
+                c.execute('''INSERT INTO historial_unificador
+                             (sku_interno, proveedor, codigo_proveedor, descripcion, marca, costo_neto, fecha_actualizacion)
+                             VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                          (item['sku_interno'], item.get('proveedor', ''), item['codigo_proveedor'], item['descripcion'], item['marca'], item['costo_nvo'], now))
+                inserts += 1
 
-            # Insert New Products if checked
             if self.chk_var_new.get():
                 for item in self.audit_new_list:
                     sku = self.generate_sku(item['proveedor'], item['codigo_proveedor'], item['marca'], item['descripcion'])
-
-                    try:
-                        c.execute('''INSERT INTO productos_maestro
-                                     (sku_interno, proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion)
-                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                                  (sku, item['proveedor'], item['codigo_proveedor'], item['descripcion'], item['marca'], item['costo_neto'], '1', now))
-                        inserts += 1
-                    except sqlite3.IntegrityError:
-                        # Fallback in case SKU or (proveedor, codigo_proveedor) already exists (should be caught by master index, but double check)
-                        pass
+                    c.execute('''INSERT INTO historial_unificador
+                                 (sku_interno, proveedor, codigo_proveedor, descripcion, marca, costo_neto, fecha_actualizacion)
+                                 VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                              (sku, item['proveedor'], item['codigo_proveedor'], item['descripcion'], item['marca'], item['costo_neto'], now))
+                    inserts += 1
 
             conn.commit()
             conn.close()
 
-            messagebox.showinfo("Éxito", f"Base de datos actualizada.\nActualizados: {updates}\nNuevos (Insertados): {inserts}")
+            messagebox.showinfo("Éxito", f"Se guardaron {inserts} registros en el historial local.")
 
-            # Reload index and clear temp memory
-            self.load_master_index()
+            # Clear temp memory
             self.extracted_data.clear()
             self.audit_updates_list.clear()
             self.audit_new_list.clear()
@@ -221,87 +307,133 @@ class App(ctk.CTk):
             messagebox.showerror("Error DB", f"Ocurrió un error guardando en DB: {e}")
 
     def export_excel(self):
-        try:
-            conn = sqlite3.connect(self.db_path)
-            query = "SELECT sku_interno, proveedor, codigo_proveedor, descripcion, marca, costo_neto, contenido_caja, fecha_actualizacion FROM productos_maestro"
-            df = pd.read_sql_query(query, conn)
-            conn.close()
+        if not self.audit_updates_list and not self.audit_new_list:
+            messagebox.showinfo("Aviso", "No hay datos procesados en la auditoría para exportar.")
+            return
 
-            if df.empty:
-                messagebox.showinfo("Aviso", "La base de datos está vacía, no hay nada que exportar.")
+        try:
+            export_data = []
+
+            for item in self.audit_updates_list:
+                export_data.append({
+                    'sku_interno': item['sku_interno'],
+                    'proveedor': item['proveedor'] if 'proveedor' in item else '',
+                    'codigo_proveedor': item['codigo_proveedor'],
+                    'descripcion': item['descripcion'],
+                    'marca': item['marca'],
+                    'costo_neto': item['costo_nvo']
+                })
+
+            if self.chk_var_new.get():
+                for item in self.audit_new_list:
+                    sku = self.generate_sku(item['proveedor'], item['codigo_proveedor'], item['marca'], item['descripcion'])
+                    export_data.append({
+                        'sku_interno': sku,
+                        'proveedor': item['proveedor'],
+                        'codigo_proveedor': item['codigo_proveedor'],
+                        'descripcion': item['descripcion'],
+                        'marca': item['marca'],
+                        'costo_neto': item['costo_neto']
+                    })
+
+            if not export_data:
+                messagebox.showinfo("Aviso", "No hay registros para exportar.")
                 return
+
+            df = pd.DataFrame(export_data)
 
             file_path = filedialog.asksaveasfilename(
                 defaultextension=".xlsx",
                 filetypes=[("Excel Files", "*.xlsx")],
-                initialfile="Inventario_Maestro_Unificado.xlsx"
+                initialfile="Padrón_Exportado_Limpio.xlsx"
             )
 
             if file_path:
                 df.to_excel(file_path, index=False, engine='openpyxl')
-                messagebox.showinfo("Éxito", f"Archivo exportado correctamente a:\n{file_path}")
+                messagebox.showinfo("Éxito", f"Archivo limpio exportado correctamente a:\n{file_path}\nTotal: {len(df)} registros.")
 
         except Exception as e:
             messagebox.showerror("Error de Exportación", f"No se pudo exportar a Excel: {e}")
 
-    def init_db(self):
-        # Enforcing connection to SQLite, readonly for the main app logic is a principle,
-        # but here we might need to initialize tables if they don't exist yet,
-        # or we assume they exist. The instruction says: "conectar al archivo SQLite de Barter Plus o importar el padron".
-        # We'll ensure the table exists just in case.
+    def init_local_db(self):
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.local_db_path)
             c = conn.cursor()
             c.execute('''
-                CREATE TABLE IF NOT EXISTS productos_maestro (
+                CREATE TABLE IF NOT EXISTS historial_unificador (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    sku_interno TEXT UNIQUE,
+                    sku_interno TEXT,
                     proveedor TEXT,
                     codigo_proveedor TEXT,
                     descripcion TEXT,
                     marca TEXT,
                     costo_neto REAL,
-                    contenido_caja TEXT,
-                    fecha_actualizacion TEXT,
-                    UNIQUE(proveedor, codigo_proveedor)
+                    fecha_actualizacion TEXT
                 )
             ''')
             conn.commit()
             conn.close()
         except Exception as e:
-            messagebox.showerror("Error DB", f"Error inicializando base de datos: {e}")
+            messagebox.showerror("Error Local DB", f"Error inicializando base de historial: {e}")
 
-    def load_master_index(self):
+    def load_master_index_db(self, db_path):
         try:
-            # Connect in Read-Only mode for the lookup index
-            uri = f"file:{os.path.abspath(self.db_path)}?mode=ro"
+            uri = f"file:{os.path.abspath(db_path)}?mode=ro"
             conn = sqlite3.connect(uri, uri=True)
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
 
-            c.execute("SELECT sku_interno, proveedor, codigo_proveedor, descripcion, marca, costo_neto FROM productos_maestro")
+            # Heuristically find the products table
+            c.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = [r[0] for r in c.fetchall()]
+
+            table_name = None
+            if 'productos_maestro' in tables: table_name = 'productos_maestro'
+            elif 'productos' in tables: table_name = 'productos'
+            elif 'producto' in tables: table_name = 'producto'
+
+            if not table_name:
+                messagebox.showwarning("Aviso", "No se detectó tabla de productos en la DB maestra.")
+                conn.close()
+                return
+
+            c.execute(f"PRAGMA table_info({table_name})")
+            cols = [r['name'].lower() for r in c.fetchall()]
+
+            sku_col = 'sku_interno' if 'sku_interno' in cols else ('sku' if 'sku' in cols else 'codigo')
+            prov_col = 'proveedor' if 'proveedor' in cols else 'proveedor_id'
+            cod_col = 'codigo_proveedor' if 'codigo_proveedor' in cols else ('codigo' if 'codigo' in cols else sku_col)
+            desc_col = 'descripcion' if 'descripcion' in cols else 'nombre'
+            marca_col = 'marca' if 'marca' in cols else ('marca_id' if 'marca_id' in cols else "'' as marca")
+            costo_col = 'costo_neto' if 'costo_neto' in cols else ('costo' if 'costo' in cols else 'precio')
+
+            query = f"SELECT {sku_col} as sku_interno, {prov_col} as proveedor, {cod_col} as codigo_proveedor, {desc_col} as descripcion, {marca_col} as marca, {costo_col} as costo_neto FROM {table_name}"
+
+            c.execute(query)
             rows = c.fetchall()
 
             self.master_lookup.clear()
             for row in rows:
-                prov = str(row['proveedor']).strip().upper()
+                prov = str(row['proveedor']).strip().upper() if row['proveedor'] else 'N/A'
+                if not row['codigo_proveedor']: continue
                 cod = str(row['codigo_proveedor']).strip().upper().replace(" ", "")
 
-                # Composite key for strict matching
                 key = (prov, cod)
                 self.master_lookup[key] = {
-                    'sku_interno': row['sku_interno'],
-                    'descripcion': row['descripcion'],
-                    'marca': row['marca'],
-                    'costo_neto': row['costo_neto'],
-                    'proveedor': row['proveedor'],
-                    'codigo_proveedor': row['codigo_proveedor']
+                    'sku_interno': str(row['sku_interno']),
+                    'descripcion': str(row['descripcion']),
+                    'marca': str(row['marca']),
+                    'costo_neto': float(row['costo_neto']) if row['costo_neto'] else 0.0,
+                    'proveedor': prov,
+                    'codigo_proveedor': str(row['codigo_proveedor'])
                 }
 
             conn.close()
-            print(f"Índice maestro cargado con {len(self.master_lookup)} registros.")
+            if hasattr(self, 'lbl_master_info'):
+                self.lbl_master_info.configure(text=f"Conectado en Solo Lectura: {len(self.master_lookup)} productos con SKU reconocidos", text_color="green")
         except Exception as e:
-            print(f"Advertencia: No se pudo cargar el índice (puede que la DB esté vacía): {e}")
+            if hasattr(self, 'lbl_master_info'):
+                self.lbl_master_info.configure(text=f"Error conectando a DB Maestro: {e}", text_color="red")
 
     def letter_to_index(self, letter):
         """Convert column letter (A, B, C...) to 0-based index."""
@@ -352,6 +484,9 @@ class App(ctk.CTk):
         for item in self.tree_preview.get_children():
             self.tree_preview.delete(item)
 
+        # Store for real-time examples
+        self.preview_df = df
+
         # Insert first 15 rows
         for i, row in df.head(15).iterrows():
             values = [str(x) if pd.notna(x) else "" for x in row.values]
@@ -359,6 +494,44 @@ class App(ctk.CTk):
             while len(values) < 6:
                 values.append("")
             self.tree_preview.insert('', 'end', values=values[:6])
+
+        self.update_mapping_examples()
+
+    def update_mapping_examples(self, *args):
+        if not hasattr(self, 'preview_df') or self.preview_df is None or self.preview_df.empty:
+            return
+
+        # Get a sample row (e.g. index 10, or last if < 10)
+        sample_idx = min(10, len(self.preview_df) - 1)
+        if sample_idx < 0: return
+        sample_row = self.preview_df.iloc[sample_idx]
+
+        try:
+            col_cod = self.letter_to_index(self.entry_col_cod.get())
+            cod_val = str(sample_row.iloc[col_cod]) if len(sample_row) > col_cod else ""
+            if not hasattr(self, 'lbl_ej_cod'):
+                self.lbl_ej_cod = ctk.CTkLabel(self.entry_col_cod.master, text="", text_color="gray")
+                self.lbl_ej_cod.pack(side="left", padx=2)
+            self.lbl_ej_cod.configure(text=f"[{cod_val[:10]}]")
+        except: pass
+
+        try:
+            col_desc = self.letter_to_index(self.entry_col_desc.get())
+            desc_val = str(sample_row.iloc[col_desc]) if len(sample_row) > col_desc else ""
+            if not hasattr(self, 'lbl_ej_desc'):
+                self.lbl_ej_desc = ctk.CTkLabel(self.entry_col_desc.master, text="", text_color="gray")
+                self.lbl_ej_desc.pack(side="left", padx=2)
+            self.lbl_ej_desc.configure(text=f"[{desc_val[:15]}]")
+        except: pass
+
+        try:
+            col_precio = self.letter_to_index(self.entry_col_precio.get())
+            precio_val = str(sample_row.iloc[col_precio]) if len(sample_row) > col_precio else ""
+            if not hasattr(self, 'lbl_ej_precio'):
+                self.lbl_ej_precio = ctk.CTkLabel(self.entry_col_precio.master, text="", text_color="gray")
+                self.lbl_ej_precio.pack(side="left", padx=2)
+            self.lbl_ej_precio.configure(text=f"[{precio_val[:10]}]")
+        except: pass
 
     def load_pdf(self):
         file_path = filedialog.askopenfilename(filetypes=[("PDF Files", "*.pdf")])
@@ -418,6 +591,8 @@ class App(ctk.CTk):
 
         self.extracted_data.clear() # Flush per run
 
+        junk_keywords = ["un x caj", "u x bulto", "codigo", "código", "descripcion", "precio", "lista", "linea ", "rubro", "item", "art"]
+
         if self.current_file_type == 'excel':
             for sheet, var in self.sheet_vars.items():
                 if not var.get():
@@ -439,12 +614,17 @@ class App(ctk.CTk):
 
                         precio_raw = row.iloc[col_precio]
 
-                        # Anti-desfase: skip empty cod, repetitive headers, or invalid prices
-                        if not cod or cod.lower() in ["código", "codigo", "item", "art"]:
+                        # Anti-desfase Rule 1 & 2 & 3
+                        if not cod or not desc: continue
+                        if desc.isdigit() and len(desc) <= 3: continue # desc is likely box quantity
+
+                        cod_lower = cod.lower()
+                        desc_lower = desc.lower()
+                        if any(kw in cod_lower for kw in junk_keywords) or any(kw in desc_lower for kw in junk_keywords):
                             continue
 
                         precio = self.limpiar_precio_argentino(precio_raw)
-                        if precio <= 0:
+                        if math.isnan(precio) or precio <= 0.01:
                             continue
 
                         self.extracted_data.append({
@@ -484,11 +664,17 @@ class App(ctk.CTk):
 
                                     precio_raw = row[col_precio]
 
-                                    if not cod or cod.lower() in ["código", "codigo", "item", "art"]:
+                                    # Anti-desfase Rule 1 & 2 & 3
+                                    if not cod or not desc: continue
+                                    if desc.isdigit() and len(desc) <= 3: continue
+
+                                    cod_lower = cod.lower()
+                                    desc_lower = desc.lower()
+                                    if any(kw in cod_lower for kw in junk_keywords) or any(kw in desc_lower for kw in junk_keywords):
                                         continue
 
                                     precio = self.limpiar_precio_argentino(precio_raw)
-                                    if precio <= 0: continue
+                                    if math.isnan(precio) or precio <= 0.01: continue
 
                                     self.extracted_data.append({
                                         'proveedor': proveedor,
@@ -516,9 +702,15 @@ class App(ctk.CTk):
                                         marca = str(parts[col_marca]).strip().upper()
                                     precio_raw = parts[col_precio]
 
-                                    if not cod or cod.lower() in ["código", "codigo", "item", "art"]: continue
+                                    if not cod or not desc: continue
+                                    if desc.isdigit() and len(desc) <= 3: continue
+
+                                    cod_lower = cod.lower()
+                                    desc_lower = desc.lower()
+                                    if any(kw in cod_lower for kw in junk_keywords) or any(kw in desc_lower for kw in junk_keywords): continue
+
                                     precio = self.limpiar_precio_argentino(precio_raw)
-                                    if precio <= 0: continue
+                                    if math.isnan(precio) or precio <= 0.01: continue
 
                                     self.extracted_data.append({
                                         'proveedor': proveedor,
@@ -535,15 +727,19 @@ class App(ctk.CTk):
             self.populate_audit_tables()
 
     def limpiar_precio_argentino(self, valor_crudo):
+        if pd.isna(valor_crudo): return math.nan
+
         if not isinstance(valor_crudo, str):
             try:
-                return float(valor_crudo)
+                val = float(valor_crudo)
+                if math.isnan(val): return math.nan
+                return val
             except (ValueError, TypeError):
-                return 0.0
+                return math.nan
 
         s = re.sub(r'[^\d.,]', '', str(valor_crudo).strip())
         if not s:
-            return 0.0
+            return math.nan
 
         if '.' in s and ',' in s:
             if s.rfind(',') > s.rfind('.'):
@@ -558,9 +754,11 @@ class App(ctk.CTk):
                 s = s.replace('.', '')
 
         try:
-            return round(float(s), 2)
+            val = round(float(s), 2)
+            if math.isnan(val): return math.nan
+            return val
         except ValueError:
-            return 0.0
+            return math.nan
 
     def populate_audit_tables(self):
         # Clear previous tables
@@ -593,6 +791,7 @@ class App(ctk.CTk):
 
                 self.audit_updates_list.append({
                     'sku_interno': existing['sku_interno'],
+                    'proveedor': existing['proveedor'],
                     'codigo_proveedor': existing['codigo_proveedor'],
                     'descripcion': existing['descripcion'], # Original description kept
                     'marca': existing['marca'], # Original brand kept
