@@ -22,13 +22,17 @@ class App(ctk.CTk):
         self.title("Unificador de Listas - Barter Plus")
         self.local_db_path = "unificador_interno.db"
         self.master_db_path = None
-        self.master_lookup = {}
+
+        # Triple Index Maps
+        self.mapa_por_cod_prov = {}
+        self.mapa_por_sku_sufijo = {}
+        self.mapa_por_descripcion = {}
+
         self.config_file = "config.json"
 
         self.init_local_db()
         self.load_config()
-        if self.master_db_path and os.path.exists(self.master_db_path):
-            self.load_master_index_db(self.master_db_path)
+        self.auto_connect_master_db()
 
         self.geometry("1000x700")
 
@@ -69,26 +73,23 @@ class App(ctk.CTk):
 
     def setup_import_tab(self):
         # Master DB Reference Panel
-        self.master_frame = ctk.CTkFrame(self.tab_import)
+        self.master_frame = ctk.CTkFrame(self.tab_import, fg_color="#1e3a5f") # Distinctive color
         self.master_frame.pack(fill="x", padx=10, pady=5)
 
-        lbl_title = ctk.CTkLabel(self.master_frame, text="Padrón Maestro Barter Plus (Solo Lectura - Referencia de SKUs)", font=("Roboto", 14, "bold"))
-        lbl_title.pack(pady=5)
+        self.lbl_master_info = ctk.CTkLabel(self.master_frame, text="Buscando Base Barter Plus...", font=("Roboto", 14, "bold"), text_color="white")
+        self.lbl_master_info.pack(pady=10)
 
         btn_frame = ctk.CTkFrame(self.master_frame, fg_color="transparent")
         btn_frame.pack(fill="x", pady=5)
 
-        self.btn_link_db = ctk.CTkButton(btn_frame, text="Vincular Base de Gestión (.db) [SOLO LECTURA]", command=self.link_master_db)
+        self.btn_link_db = ctk.CTkButton(btn_frame, text="Vincular Base Manual (.db) [SOLO LECTURA]", command=self.link_master_db)
         self.btn_link_db.pack(side="left", padx=10)
 
         self.btn_link_excel = ctk.CTkButton(btn_frame, text="O Cargar Padrón desde Excel (.xlsx)", command=self.link_master_excel)
         self.btn_link_excel.pack(side="left", padx=10)
 
-        self.lbl_master_info = ctk.CTkLabel(self.master_frame, text="Sin conexión al Padrón Maestro", text_color="orange")
-        self.lbl_master_info.pack(pady=5)
-
-        if self.master_db_path and os.path.exists(self.master_db_path):
-            self.lbl_master_info.configure(text=f"Conectado en Solo Lectura: {len(self.master_lookup)} productos con SKU reconocidos", text_color="green")
+        # Update initial banner text if already loaded
+        self.update_master_banner()
 
         # Frame for file selection & Basic Info
         self.file_frame = ctk.CTkFrame(self.tab_import)
@@ -179,8 +180,47 @@ class App(ctk.CTk):
         self.btn_apply_db = ctk.CTkButton(self.export_frame, text="Guardar en Historial del Unificador (Base Propia)", command=self.apply_db_changes)
         self.btn_apply_db.pack(pady=10)
 
+    def auto_connect_master_db(self):
+        # 1. Check Config
+        if self.master_db_path and os.path.exists(self.master_db_path):
+            self.load_master_index_db(self.master_db_path)
+            return
+
+        # 2. Check Default BarterPlus paths
+        appdata = os.environ.get('APPDATA')
+        if not appdata:
+            appdata = os.path.expanduser('~/AppData/Roaming')
+
+        paths_to_check = [
+            os.path.join(appdata, 'BarterPlus', 'barterplus.db'),
+            os.path.join(appdata, 'BarterPlus', 'barterplus')
+        ]
+
+        for path in paths_to_check:
+            if os.path.exists(path):
+                self.master_db_path = path
+                self.save_config()
+                self.load_master_index_db(path)
+                return
+
+    def update_master_banner(self, text=None, is_error=False, detected_cols=None):
+        if not hasattr(self, 'lbl_master_info'): return
+
+        if text:
+            color = "#ff6b6b" if is_error else "white"
+            self.lbl_master_info.configure(text=text, text_color=color)
+        elif hasattr(self, 'last_master_table_name') and self.last_master_table_name:
+            count = len(self.mapa_por_sku_sufijo)
+            col_info = f"Columnas: {detected_cols}" if detected_cols else ""
+            msg = f"✅ Base Barter Plus Conectada (Solo Lectura): Tabla '{self.last_master_table_name}' | {count} productos cargados | {col_info}"
+            self.lbl_master_info.configure(text=msg, text_color="#2ecc71")
+        elif len(self.mapa_por_sku_sufijo) > 0:
+            count = len(self.mapa_por_sku_sufijo)
+            msg = f"✅ Padrón Excel Conectado: {count} productos cargados"
+            self.lbl_master_info.configure(text=msg, text_color="#2ecc71")
+
     def link_master_db(self):
-        file_path = filedialog.askopenfilename(filetypes=[("SQLite DB", "*.db *.sqlite *.sqlite3")])
+        file_path = filedialog.askopenfilename(filetypes=[("SQLite DB", "*.db *.sqlite *.sqlite3 *")])
         if not file_path: return
         self.master_db_path = file_path
         self.save_config()
@@ -206,22 +246,31 @@ class App(ctk.CTk):
                 messagebox.showerror("Error", "No se detectaron las columnas requeridas (SKU, Codigo, Descripcion) en el Excel.")
                 return
 
-            self.master_lookup.clear()
+            self.mapa_por_cod_prov.clear()
+            self.mapa_por_sku_sufijo.clear()
+            self.mapa_por_descripcion.clear()
+
             for idx, row in df.iterrows():
-                if pd.isna(row.get(sku_col)) or pd.isna(row.get(cod_col)): continue
+                if pd.isna(row.get(sku_col)): continue
+                sku = str(row.get(sku_col)).strip()
 
                 prov = str(row.get(prov_col, '')).strip().upper() if prov_col else 'N/A'
-                cod = str(row.get(cod_col)).strip().upper().replace(" ", "")
-                key = (prov, cod)
-                self.master_lookup[key] = {
-                    'sku_interno': str(row.get(sku_col)),
-                    'descripcion': str(row.get(desc_col, '')),
+                cod_raw = str(row.get(cod_col, '')).strip()
+                desc_raw = str(row.get(desc_col, '')).strip()
+
+                prod_data = {
+                    'sku_interno': sku,
+                    'descripcion': desc_raw,
                     'marca': str(row.get(marca_col, '')),
                     'costo_neto': float(row.get(costo_col, 0.0)) if costo_col and pd.notna(row.get(costo_col)) else 0.0,
                     'proveedor': prov,
-                    'codigo_proveedor': str(row.get(cod_col))
+                    'codigo_proveedor': cod_raw
                 }
-            self.lbl_master_info.configure(text=f"Conectado en Solo Lectura (Excel): {len(self.master_lookup)} productos con SKU reconocidos", text_color="green")
+
+                self.index_product(prod_data, sku, cod_raw, desc_raw)
+
+            self.last_master_table_name = None
+            self.update_master_banner()
             self.master_db_path = None # Clear DB path if excel is used
         except Exception as e:
             messagebox.showerror("Error", f"Error cargando Excel maestro: {e}")
@@ -353,6 +402,24 @@ class App(ctk.CTk):
         except Exception as e:
             messagebox.showerror("Error Local DB", f"Error inicializando base de historial: {e}")
 
+    def index_product(self, prod_data, sku, cod_raw, desc_raw):
+        # Index 1: By Normalized Code
+        if cod_raw and cod_raw.lower() not in ['none', 'null', '']:
+            cod_norm = str(cod_raw).strip().upper().replace(" ", "")
+            if cod_norm: self.mapa_por_cod_prov[cod_norm] = prod_data
+
+        # Index 2: By SKU Suffix
+        if sku:
+            parts = str(sku).split('-')
+            sufijo = parts[-1].strip().upper().replace(" ", "") if len(parts) > 1 else str(sku).strip().upper().replace(" ", "")
+            if sufijo: self.mapa_por_sku_sufijo[sufijo] = prod_data
+
+        # Index 3: By Normalized Description
+        if desc_raw and desc_raw.lower() not in ['none', 'null', '']:
+            # Replace multiple spaces with single space, uppercase
+            desc_norm = re.sub(r'\s+', ' ', str(desc_raw).strip().upper())
+            if desc_norm: self.mapa_por_descripcion[desc_norm] = prod_data
+
     def load_master_index_db(self, db_path):
         try:
             uri = f"file:{os.path.abspath(db_path)}?mode=ro"
@@ -370,9 +437,11 @@ class App(ctk.CTk):
             elif 'producto' in tables: table_name = 'producto'
 
             if not table_name:
-                messagebox.showwarning("Aviso", "No se detectó tabla de productos en la DB maestra.")
+                self.update_master_banner("Aviso: No se detectó tabla de productos en la DB maestra.", is_error=True)
                 conn.close()
                 return
+
+            self.last_master_table_name = table_name
 
             c.execute(f"PRAGMA table_info({table_name})")
             cols = [r['name'].lower() for r in c.fetchall()]
@@ -384,33 +453,37 @@ class App(ctk.CTk):
             marca_col = 'marca' if 'marca' in cols else ('marca_id' if 'marca_id' in cols else "'' as marca")
             costo_col = 'costo_neto' if 'costo_neto' in cols else ('costo' if 'costo' in cols else 'precio')
 
+            detected_cols = f"{sku_col}, {cod_col}, {desc_col}, {costo_col}"
             query = f"SELECT {sku_col} as sku_interno, {prov_col} as proveedor, {cod_col} as codigo_proveedor, {desc_col} as descripcion, {marca_col} as marca, {costo_col} as costo_neto FROM {table_name}"
 
             c.execute(query)
             rows = c.fetchall()
 
-            self.master_lookup.clear()
-            for row in rows:
-                prov = str(row['proveedor']).strip().upper() if row['proveedor'] else 'N/A'
-                if not row['codigo_proveedor']: continue
-                cod = str(row['codigo_proveedor']).strip().upper().replace(" ", "")
+            self.mapa_por_cod_prov.clear()
+            self.mapa_por_sku_sufijo.clear()
+            self.mapa_por_descripcion.clear()
 
-                key = (prov, cod)
-                self.master_lookup[key] = {
-                    'sku_interno': str(row['sku_interno']),
-                    'descripcion': str(row['descripcion']),
+            for row in rows:
+                sku = str(row['sku_interno']).strip()
+                prov = str(row['proveedor']).strip().upper() if row['proveedor'] else 'N/A'
+                cod_raw = row['codigo_proveedor']
+                desc_raw = row['descripcion']
+
+                prod_data = {
+                    'sku_interno': sku,
+                    'descripcion': str(desc_raw),
                     'marca': str(row['marca']),
                     'costo_neto': float(row['costo_neto']) if row['costo_neto'] else 0.0,
                     'proveedor': prov,
-                    'codigo_proveedor': str(row['codigo_proveedor'])
+                    'codigo_proveedor': str(cod_raw)
                 }
 
+                self.index_product(prod_data, sku, cod_raw, desc_raw)
+
             conn.close()
-            if hasattr(self, 'lbl_master_info'):
-                self.lbl_master_info.configure(text=f"Conectado en Solo Lectura: {len(self.master_lookup)} productos con SKU reconocidos", text_color="green")
+            self.update_master_banner(detected_cols=detected_cols)
         except Exception as e:
-            if hasattr(self, 'lbl_master_info'):
-                self.lbl_master_info.configure(text=f"Error conectando a DB Maestro: {e}", text_color="red")
+            self.update_master_banner(f"Error conectando a DB Maestro: {e}", is_error=True)
 
     def letter_to_index(self, letter):
         """Convert column letter (A, B, C...) to 0-based index."""
@@ -481,12 +554,22 @@ class App(ctk.CTk):
         return str(val).strip() == ""
 
     def _is_valid_price(self, val):
-        # Ignora símbolos '$' sueltos
         if self._is_empty_cell(val): return False
         s = str(val).strip()
         if s == '$': return False
+
+        # Rule A: Strict numeric/currency check. Reject alphanumeric combos (e.g. 15")
+        if not re.match(r'^[\$\s\d.,]+$', s):
+            return False
+
         p = self.limpiar_precio_argentino(val)
-        return not math.isnan(p) and p > 10.0 # Heuristica: precios menores a 10 pueden ser códigos o cantidades
+
+        # Anti-Box Quantity Filter: Reject integers < 100 unless explicit $ sign
+        if not math.isnan(p) and p < 100.0 and p.is_integer():
+            if '$' not in s:
+                return False
+
+        return not math.isnan(p) and p > 0.0
 
     def _extract_segments_from_row(self, row_values):
         # Step B: Divide by empty columns
@@ -538,23 +621,37 @@ class App(ctk.CTk):
 
             if price_idx == -1: continue # No price in segment
 
-            # Text cells to the left of the rightmost price
-            text_cells = [str(x).strip() for x in seg[:price_idx] if not self._is_empty_cell(x) and str(x).strip() != '$']
+            # Rule B: Ignore Box Quantities in Text
+            raw_text_cells = [str(x).strip() for x in seg[:price_idx] if not self._is_empty_cell(x) and str(x).strip() != '$']
+            text_cells = []
+
+            for t in raw_text_cells:
+                t_lower = t.lower()
+                if t_lower == "un x caj" or t_lower == "u x bulto": continue
+                # Discard if it's just a short integer (box quantity)
+                if t.isdigit() and len(t) <= 3 and int(t) < 1000: continue
+                text_cells.append(t)
+
             if not text_cells: continue
 
             codigo = ""
             desc = ""
 
-            # Step D
+            # Rule C: Code vs Description Split
             if len(text_cells) >= 2:
                 codigo = text_cells[0]
                 desc = " ".join(text_cells[1:])
-                # Check short description
                 if len(desc) < 10 and not any(c.isalpha() for c in desc):
                     if context_seccion: desc = f"{context_seccion} - {desc}"
             elif len(text_cells) == 1:
                 desc = text_cells[0]
-                codigo = re.sub(r'[^A-Z0-9]', '', desc.upper())[:20]
+
+                # Extract trailing numbers as code
+                match = re.search(r'\b(\d{4,})$', desc)
+                if match:
+                    codigo = match.group(1)
+                else:
+                    codigo = re.sub(r'[^A-Z0-9]', '', desc.upper())[:20]
 
             cod_lower = codigo.lower()
             desc_lower = desc.lower()
@@ -666,15 +763,30 @@ class App(ctk.CTk):
         # Deduplicate incoming data by keeping latest cost
         dedup_extracted = {}
         for item in self.extracted_data:
-            # Normalize for matching
-            cod_norm = str(item['codigo_proveedor']).upper().replace(" ", "")
-            key = (item['proveedor'], cod_norm)
+            key = f"{item['proveedor']}_{item['codigo_proveedor']}_{item['descripcion']}"
             dedup_extracted[key] = item
 
         for key, incoming in dedup_extracted.items():
-            if key in self.master_lookup:
+            cod_raw = str(incoming['codigo_proveedor']).strip()
+            desc_raw = str(incoming['descripcion']).strip()
+
+            cod_norm = cod_raw.upper().replace(" ", "") if cod_raw else ""
+            desc_norm = re.sub(r'\s+', ' ', desc_raw.upper()) if desc_raw else ""
+
+            existing = None
+
+            # 1. Match by Codigo Proveedor
+            if cod_norm and cod_norm in self.mapa_por_cod_prov:
+                existing = self.mapa_por_cod_prov[cod_norm]
+            # 2. Match by SKU Suffix
+            elif cod_norm and cod_norm in self.mapa_por_sku_sufijo:
+                existing = self.mapa_por_sku_sufijo[cod_norm]
+            # 3. Match by Exact Description
+            elif desc_norm and desc_norm in self.mapa_por_descripcion:
+                existing = self.mapa_por_descripcion[desc_norm]
+
+            if existing:
                 # Existing product
-                existing = self.master_lookup[key]
                 costo_ant = existing['costo_neto'] or 0.0
                 costo_nvo = incoming['costo_neto']
 
