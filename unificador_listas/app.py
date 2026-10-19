@@ -11,6 +11,11 @@ import math
 from datetime import datetime
 import hashlib
 
+PATRON_MEMBRETE = re.compile(
+    r'(tel\s*[:.]?|cel\s*[:.]?|fax|0260|0261|44\d[\s-]?\d{3}|sarmiento|san\s+rafael|mendoza|cuit|iva\s|www\.|http|@|distribuidora|hoja\s*\d|p[aá]gina)',
+    re.IGNORECASE
+)
+
 # App Config
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -432,25 +437,35 @@ class App(ctk.CTk):
             tables = [r[0] for r in c.fetchall()]
 
             table_name = None
-            if 'productos_maestro' in tables: table_name = 'productos_maestro'
-            elif 'productos' in tables: table_name = 'productos'
-            elif 'producto' in tables: table_name = 'producto'
+            cols = []
+
+            # Heuristically find the products table by looking at columns
+            for t in tables:
+                c.execute(f"PRAGMA table_info({t})")
+                t_cols = [r['name'].lower() for r in c.fetchall()]
+
+                # Check for product-like columns
+                has_code = any(c in t_cols for c in ['sku', 'sku_interno', 'codigo', 'codigo_proveedor'])
+                has_desc = any(c in t_cols for c in ['descripcion', 'nombre', 'detalle'])
+                has_price = any(c in t_cols for c in ['costo', 'costo_neto', 'precio'])
+
+                if has_code and has_desc and has_price:
+                    table_name = t
+                    cols = t_cols
+                    break
 
             if not table_name:
-                self.update_master_banner("Aviso: No se detectó tabla de productos en la DB maestra.", is_error=True)
+                self.update_master_banner("Aviso: No se detectó tabla de inventario válida en la DB maestra.", is_error=True)
                 conn.close()
                 return
 
             self.last_master_table_name = table_name
 
-            c.execute(f"PRAGMA table_info({table_name})")
-            cols = [r['name'].lower() for r in c.fetchall()]
-
             sku_col = 'sku_interno' if 'sku_interno' in cols else ('sku' if 'sku' in cols else 'codigo')
-            prov_col = 'proveedor' if 'proveedor' in cols else 'proveedor_id'
+            prov_col = 'proveedor' if 'proveedor' in cols else ('proveedor_id' if 'proveedor_id' in cols else "''")
             cod_col = 'codigo_proveedor' if 'codigo_proveedor' in cols else ('codigo' if 'codigo' in cols else sku_col)
-            desc_col = 'descripcion' if 'descripcion' in cols else 'nombre'
-            marca_col = 'marca' if 'marca' in cols else ('marca_id' if 'marca_id' in cols else "'' as marca")
+            desc_col = 'descripcion' if 'descripcion' in cols else ('nombre' if 'nombre' in cols else 'detalle')
+            marca_col = 'marca' if 'marca' in cols else ('marca_id' if 'marca_id' in cols else "''")
             costo_col = 'costo_neto' if 'costo_neto' in cols else ('costo' if 'costo' in cols else 'precio')
 
             detected_cols = f"{sku_col}, {cod_col}, {desc_col}, {costo_col}"
@@ -465,15 +480,16 @@ class App(ctk.CTk):
 
             for row in rows:
                 sku = str(row['sku_interno']).strip()
-                prov = str(row['proveedor']).strip().upper() if row['proveedor'] else 'N/A'
-                cod_raw = row['codigo_proveedor']
-                desc_raw = row['descripcion']
+                # Use 'N/A' if the column wasn't found or if the data is literally missing
+                prov = str(row['proveedor']).strip().upper() if 'proveedor' in row.keys() and row['proveedor'] else 'N/A'
+                cod_raw = str(row['codigo_proveedor']) if 'codigo_proveedor' in row.keys() and row['codigo_proveedor'] else ''
+                desc_raw = str(row['descripcion']) if 'descripcion' in row.keys() and row['descripcion'] else ''
 
                 prod_data = {
                     'sku_interno': sku,
                     'descripcion': str(desc_raw),
-                    'marca': str(row['marca']),
-                    'costo_neto': float(row['costo_neto']) if row['costo_neto'] else 0.0,
+                    'marca': str(row['marca']) if 'marca' in row.keys() else '',
+                    'costo_neto': float(row['costo_neto']) if 'costo_neto' in row.keys() and row['costo_neto'] else 0.0,
                     'proveedor': prov,
                     'codigo_proveedor': str(cod_raw)
                 }
@@ -607,22 +623,25 @@ class App(ctk.CTk):
         if all(self._is_empty_cell(v) for v in row_values):
             return context_seccion, []
 
+        # Header/Structure breaker: if we see "CODIGO", "PRECIO", etc. we don't clear context entirely,
+        # but we definitely don't parse it as a product or title.
+        junk_keywords = ["un x caj", "u x bulto", "codigo", "código", "descripcion", "precio", "lista", "linea ", "rubro", "item", "art"]
+
         # Step A: Context Title
         non_empty = [v for v in row_values if not self._is_empty_cell(v)]
         if len(non_empty) == 1:
             val = str(non_empty[0]).strip()
+            val_lower = val.lower()
+            if any(kw in val_lower for kw in ["codigo", "código", "precio", "descrip"]):
+                return context_seccion, []
+
             if not self._is_valid_price(val):
-                # Anti-Letterhead Filter
-                val_lower = val.lower()
-                blacklist = ["av.", "avenida", "calle ", "san rafael", "mendoza", "tel:", "cel:", "cuit", "www.", "@", "distribuidora", "lista de precios", "vigencia", "5600", "5620", "whatsapp", "mail"]
-                if any(kw in val_lower for kw in blacklist):
+                # Strict Anti-Letterhead Filter
+                if PATRON_MEMBRETE.search(val):
                     return context_seccion, [] # Ignore and keep old context
 
                 # Combine contexts if previous existed and wasn't cleared
                 if context_seccion and val not in context_seccion:
-                    # Heuristica simple: Si el contexto nuevo no contiene al viejo, combinamos
-                    # Si el nuevo contexto reemplaza totalmente de rubro, el usuario del prompt sugiere "combinarlos" como en "ABRAZADERAS PERFECTO - Standard Fleje 9mm"
-                    # Para no encadenar 20 títulos indefinidamente, solo combinamos hasta 2 niveles de profundidad.
                     parts = context_seccion.split(" - ")
                     if len(parts) >= 2:
                         return f"{parts[0]} - {val}", []
@@ -673,7 +692,7 @@ class App(ctk.CTk):
                 t_lower = t.lower()
                 if t_lower == "un x caj" or t_lower == "u x bulto": continue
                 # Discard if it's just a short integer (box quantity)
-                if t.isdigit() and len(t) <= 3 and int(t) < 1000: continue
+                if t.isdigit() and len(t) <= 3 and int(t) < 100: continue
                 text_cells.append(t)
 
             if not text_cells: continue
@@ -689,10 +708,11 @@ class App(ctk.CTk):
                 # E.g. ["175/70-13", "175/65-14..."]
                 codigo = text_cells[0]
                 # Join everything as description, don't drop the first cell if it's all measures
+                # Including preserving row specific measurements like "8- 16"
                 desc = " / ".join(text_cells)
             elif len(text_cells) >= 2:
                 codigo = text_cells[0]
-                desc = " ".join(text_cells[1:])
+                desc = " - ".join(text_cells[1:]) # Join all subsequent cells preserving specific row measures
             elif len(text_cells) == 1:
                 desc = text_cells[0]
                 # Check for leading numbers as code (like "300010 Trabasil")
@@ -803,6 +823,18 @@ class App(ctk.CTk):
             messagebox.showinfo("Proceso Terminado", f"Se extrajeron {len(self.extracted_data)} productos válidos de PDF.")
             self.populate_audit_tables()
 
+    def limpiar_descripcion_final(self, desc: str, cod_prov: str) -> str:
+        if not desc:
+            return ""
+        desc = str(desc).strip()
+        # Remove repeated provider code prefix
+        if cod_prov:
+            patron_cod = re.compile(r'^' + re.escape(str(cod_prov).strip()) + r'[\s\-:/]+', re.IGNORECASE)
+            desc = patron_cod.sub('', desc).strip()
+        # Collapse multiple spaces
+        desc = re.sub(r'\s{2,}', ' ', desc)
+        return desc
+
     def limpiar_precio_argentino(self, valor_crudo):
         if pd.isna(valor_crudo): return math.nan
 
@@ -814,7 +846,13 @@ class App(ctk.CTk):
             except (ValueError, TypeError):
                 return math.nan
 
-        s = re.sub(r'[^\d.,]', '', str(valor_crudo).strip())
+        # Rule: If cell has a $ sign, only keep what's AFTER the last $ sign to prevent
+        # adjacent columns (like a box quantity 3) from sticking to the price ($ 9.025,70 -> 39.025,70)
+        s = str(valor_crudo).strip()
+        if '$' in s:
+            s = s.split('$')[-1]
+
+        s = re.sub(r'[^\d.,]', '', s.strip())
         if not s:
             return math.nan
 
@@ -881,11 +919,13 @@ class App(ctk.CTk):
                 if costo_ant > 0:
                     var_pct = ((costo_nvo - costo_ant) / costo_ant) * 100
 
+                desc_limpia = self.limpiar_descripcion_final(existing['descripcion'], existing['codigo_proveedor'])
+
                 self.audit_updates_list.append({
                     'sku_interno': existing['sku_interno'],
                     'proveedor': existing['proveedor'],
                     'codigo_proveedor': existing['codigo_proveedor'],
-                    'descripcion': existing['descripcion'], # Original description kept
+                    'descripcion': desc_limpia,
                     'marca': existing['marca'], # Original brand kept
                     'costo_ant': costo_ant,
                     'costo_nvo': costo_nvo,
@@ -897,18 +937,21 @@ class App(ctk.CTk):
                 self.tree_updates.insert('', 'end', values=(
                     existing['sku_interno'],
                     existing['codigo_proveedor'],
-                    existing['descripcion'],
+                    desc_limpia,
                     f"${costo_ant:,.2f}",
                     f"${costo_nvo:,.2f}",
                     var_str
                 ))
             else:
                 # New product
+                desc_limpia_nvo = self.limpiar_descripcion_final(incoming['descripcion'], incoming['codigo_proveedor'])
+                incoming['descripcion'] = desc_limpia_nvo
+
                 self.audit_new_list.append(incoming)
                 self.tree_new.insert('', 'end', values=(
                     incoming['proveedor'],
                     incoming['codigo_proveedor'],
-                    incoming['descripcion'],
+                    desc_limpia_nvo,
                     incoming['marca'],
                     f"${incoming['costo_neto']:,.2f}"
                 ))
