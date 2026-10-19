@@ -627,31 +627,56 @@ class App(ctk.CTk):
         # but we definitely don't parse it as a product or title.
         junk_keywords = ["un x caj", "u x bulto", "codigo", "código", "descripcion", "precio", "lista", "linea ", "rubro", "item", "art"]
 
-        # Step A: Context Title
-        non_empty = [v for v in row_values if not self._is_empty_cell(v)]
-        if len(non_empty) == 1:
-            val = str(non_empty[0]).strip()
-            val_lower = val.lower()
-            if any(kw in val_lower for kw in ["codigo", "código", "precio", "descrip"]):
-                return context_seccion, []
-
-            if not self._is_valid_price(val):
-                # Strict Anti-Letterhead Filter
-                if PATRON_MEMBRETE.search(val):
-                    return context_seccion, [] # Ignore and keep old context
-
-                # Combine contexts if previous existed and wasn't cleared
-                if context_seccion and val not in context_seccion:
-                    parts = context_seccion.split(" - ")
-                    if len(parts) >= 2:
-                        return f"{parts[0]} - {val}", []
-                    else:
-                        return f"{context_seccion} - {val}", []
-                return val, []
-
         segments = self._extract_segments_from_row(row_values)
         extracted = []
         junk_keywords = ["un x caj", "u x bulto", "codigo", "código", "descripcion", "precio", "lista", "linea ", "rubro", "item", "art"]
+
+        # Step A: Context Title
+        # Evaluamos por segmento (Isla) en lugar de toda la fila para poder leer "Títulos Side-by-Side"
+        if len(segments) > 0:
+            all_segments_are_titles = True
+            potential_titles = []
+
+            for seg in segments:
+                non_empty = [v for v in seg if not self._is_empty_cell(v)]
+                if len(non_empty) == 1:
+                    val = str(non_empty[0]).strip()
+                    val_lower = val.lower()
+                    # Ignorar si parece un encabezado de tabla
+                    if any(kw in val_lower for kw in ["codigo", "código", "precio", "descrip"]):
+                        all_segments_are_titles = False
+                        break
+                    if not self._is_valid_price(val):
+                        # Strict Anti-Letterhead Filter
+                        if PATRON_MEMBRETE.search(val):
+                            # Membrete detectado, no consideramos este segmento como título válido
+                            potential_titles.append(None)
+                        else:
+                            potential_titles.append(val)
+                    else:
+                        all_segments_are_titles = False
+                        break
+                else:
+                    all_segments_are_titles = False
+                    break
+
+            if all_segments_are_titles:
+                # Si todos los segmentos son textos sueltos sin precios, combinamos el primero válido al contexto
+                first_valid_title = next((t for t in potential_titles if t is not None), None)
+                if first_valid_title:
+                    # Ignore if the string is just a date/list header
+                    if re.search(r'\d{1,2}/\d{1,2}/\d{2,4}', first_valid_title):
+                        return context_seccion, []
+
+                    if context_seccion and first_valid_title not in context_seccion:
+                        parts = context_seccion.split(" - ")
+                        if len(parts) >= 2:
+                            return f"{parts[0]} - {first_valid_title}", []
+                        else:
+                            return f"{context_seccion} - {first_valid_title}", []
+                    return first_valid_title, []
+                else:
+                    return context_seccion, [] # Eran todos membretes
 
         for seg in segments:
             # Step C: Extract rightmost valid price
