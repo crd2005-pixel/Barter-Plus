@@ -610,9 +610,25 @@ class App(ctk.CTk):
         # Step A: Context Title
         non_empty = [v for v in row_values if not self._is_empty_cell(v)]
         if len(non_empty) == 1:
-            val = non_empty[0]
+            val = str(non_empty[0]).strip()
             if not self._is_valid_price(val):
-                return str(val).strip(), []
+                # Anti-Letterhead Filter
+                val_lower = val.lower()
+                blacklist = ["av.", "avenida", "calle ", "san rafael", "mendoza", "tel:", "cel:", "cuit", "www.", "@", "distribuidora", "lista de precios", "vigencia", "5600", "5620", "whatsapp", "mail"]
+                if any(kw in val_lower for kw in blacklist):
+                    return context_seccion, [] # Ignore and keep old context
+
+                # Combine contexts if previous existed and wasn't cleared
+                if context_seccion and val not in context_seccion:
+                    # Heuristica simple: Si el contexto nuevo no contiene al viejo, combinamos
+                    # Si el nuevo contexto reemplaza totalmente de rubro, el usuario del prompt sugiere "combinarlos" como en "ABRAZADERAS PERFECTO - Standard Fleje 9mm"
+                    # Para no encadenar 20 títulos indefinidamente, solo combinamos hasta 2 niveles de profundidad.
+                    parts = context_seccion.split(" - ")
+                    if len(parts) >= 2:
+                        return f"{parts[0]} - {val}", []
+                    else:
+                        return f"{context_seccion} - {val}", []
+                return val, []
 
         segments = self._extract_segments_from_row(row_values)
         extracted = []
@@ -631,8 +647,26 @@ class App(ctk.CTk):
 
             if price_idx == -1: continue # No price in segment
 
+            # Purge Intermediate Prices (Decimals / Moneda)
+            # Remove any float or currency formatted values to the left of the final price
+            purged_seg = []
+            for cell in seg[:price_idx]:
+                if self._is_empty_cell(cell) or str(cell).strip() == '$': continue
+
+                cell_str = str(cell).strip()
+                # Purge if it's explicitly a float type, or a string containing '$', or a string with decimals
+                if isinstance(cell, float):
+                    continue
+                if '$' in cell_str:
+                    continue
+                # If it matches numeric but has a decimal point/comma separating cents, purge it
+                if re.match(r'^\d+[.,]\d{1,2}$', cell_str) or re.match(r'^\d{1,3}([.,]\d{3})+[.,]\d{1,2}$', cell_str):
+                    continue
+
+                purged_seg.append(cell)
+
             # Rule B: Ignore Box Quantities in Text
-            raw_text_cells = [str(x).strip() for x in seg[:price_idx] if not self._is_empty_cell(x) and str(x).strip() != '$']
+            raw_text_cells = [str(x).strip() for x in purged_seg]
             text_cells = []
 
             for t in raw_text_cells:
@@ -661,12 +695,31 @@ class App(ctk.CTk):
                 desc = " ".join(text_cells[1:])
             elif len(text_cells) == 1:
                 desc = text_cells[0]
-                # Extract trailing numbers as code
-                match = re.search(r'\b(\d{4,})$', desc)
-                if match:
-                    codigo = match.group(1)
+                # Check for leading numbers as code (like "300010 Trabasil")
+                match_leading = re.search(r'^(\d{4,})\s+', desc)
+                if match_leading:
+                    codigo = match_leading.group(1)
                 else:
-                    codigo = re.sub(r'[^A-Z0-9]', '', desc.upper())[:20]
+                    # Extract trailing numbers as code
+                    match_trailing = re.search(r'\b(\d{4,})$', desc)
+                    if match_trailing:
+                        codigo = match_trailing.group(1)
+                    else:
+                        codigo = re.sub(r'[^A-Z0-9]', '', desc.upper())[:20]
+
+            # Prevent Code Duplication in Description
+            if codigo and desc:
+                # Clean up if code was artificially joined inside purely measurements list (like / 30- 45)
+                # If desc starts with '/ ', remove it
+                desc = re.sub(r'^/\s*', '', desc)
+
+                # Si la descripción empieza exactamente con el código, lo removemos
+                pattern = f"^\\s*{re.escape(codigo)}[\\s/\\-]*"
+                desc = re.sub(pattern, "", desc, flags=re.IGNORECASE).strip()
+
+            # If description becomes empty after stripping code, fallback to context or code
+            if not desc:
+                desc = context_seccion if context_seccion else codigo
 
             cod_lower = codigo.lower()
             desc_lower = desc.lower()
