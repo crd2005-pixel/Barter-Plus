@@ -32,7 +32,14 @@ class App(ctk.CTk):
         super().__init__()
 
         self.title("Unificador de Listas - Barter Plus")
-        self.local_db_path = "unificador_interno.db"
+
+        appdata = os.environ.get('APPDATA')
+        if not appdata:
+            appdata = os.path.expanduser('~/AppData/Roaming')
+        self.app_dir = os.path.join(appdata, 'BarterPlus_Unificador')
+        os.makedirs(self.app_dir, exist_ok=True)
+
+        self.local_db_path = os.path.join(self.app_dir, "unificador_interno.db")
         self.master_db_path = None
         self.api_key = ""
 
@@ -41,7 +48,7 @@ class App(ctk.CTk):
         self.mapa_por_sku_sufijo = {}
         self.mapa_por_descripcion = {}
 
-        self.config_file = "config.json"
+        self.config_file = os.path.join(self.app_dir, "config.json")
 
         self.init_local_db()
         self.load_config()
@@ -829,7 +836,7 @@ class App(ctk.CTk):
         return context_seccion, extracted
 
     def _log_error(self, message):
-        log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'error_log.txt')
+        log_path = os.path.join(self.app_dir, 'error_log.txt')
         try:
             with open(log_path, 'a', encoding='utf-8') as f:
                 f.write(f"[{datetime.now()}] {message}\n")
