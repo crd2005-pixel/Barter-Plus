@@ -12,6 +12,7 @@ from datetime import datetime
 import hashlib
 from typing import List, Optional
 from pydantic import BaseModel, Field
+from difflib import SequenceMatcher
 try:
     from google import genai
 except ImportError:
@@ -1158,6 +1159,45 @@ MUESTRA GRILLA (Pestaña: {sheet_name}):
         desc = re.sub(r'\s{2,}', ' ', desc)
         return desc
 
+    def _is_semantic_match(self, desc1: str, desc2: str) -> bool:
+        if not desc1 or not desc2: return False
+
+        d1_up = str(desc1).upper()
+        d2_up = str(desc2).upper()
+
+        # Tokenize words >= 4 characters
+        tokens1 = set(re.findall(r'\b[A-Za-z0-9]{4,}\b', d1_up))
+        tokens2 = set(re.findall(r'\b[A-Za-z0-9]{4,}\b', d2_up))
+
+        # Direct token intersection check
+        if tokens1 and tokens2 and tokens1.intersection(tokens2):
+            return True
+
+        # Sequence matcher fallback for general similarity
+        ratio = SequenceMatcher(None, d1_up, d2_up).ratio()
+        return ratio >= 0.45
+
+    def _is_prefix_match(self, proveedor_excel: str, marca_excel: str, sku_db: str) -> bool:
+        if not sku_db: return False
+        sku_prefix = str(sku_db).split('-')[0].upper()
+
+        # If it's a known generic/unrelated prefix, and the incoming is explicitly from a different brand/provider
+        # e.g., GEN-, MAN- vs WALKER (WAL)
+        prov = str(proveedor_excel).upper()
+        marca = str(marca_excel).upper()
+
+        # Heuristic mapping for prefix rejection
+        # If incoming is highly specific (WALKER -> WAL), but SKU is MAN- or GEN-
+        # This acts as a strict guard.
+
+        # If sku_prefix matches the first 3 letters of provider or brand, it's a safe match
+        if prov[:3] == sku_prefix or marca[:3] == sku_prefix:
+            return True
+
+        # If SKU prefix is something completely unrelated to the incoming data (like MAN or GEN when expecting WAL)
+        # This will be used in combination with semantic match, so returning False forces the semantic check to pass.
+        return False
+
     def limpiar_precio_argentino(self, valor_crudo):
         if pd.isna(valor_crudo): return math.nan
 
@@ -1223,14 +1263,37 @@ MUESTRA GRILLA (Pestaña: {sheet_name}):
 
             existing = None
 
+            def validate_match(candidate):
+                if not candidate: return False
+                # Must pass semantic check OR prefix check
+                # If code is short (<= 4 chars), enforce strict semantic check regardless of prefix
+                cod_len = len(cod_raw)
+
+                is_semantic = self._is_semantic_match(incoming['descripcion'], candidate['descripcion'])
+                is_prefix = self._is_prefix_match(incoming['proveedor'], incoming['marca'], candidate['sku_interno'])
+
+                if cod_len <= 4:
+                    return is_semantic
+
+                if is_semantic or is_prefix:
+                    return True
+
+                return False
+
             # 1. Match by Codigo Proveedor
             if cod_norm and cod_norm in self.mapa_por_cod_prov:
-                existing = self.mapa_por_cod_prov[cod_norm]
-            # 2. Match by SKU Suffix
-            elif cod_norm and cod_norm in self.mapa_por_sku_sufijo:
-                existing = self.mapa_por_sku_sufijo[cod_norm]
-            # 3. Match by Exact Description
-            elif desc_norm and desc_norm in self.mapa_por_descripcion:
+                candidate = self.mapa_por_cod_prov[cod_norm]
+                if validate_match(candidate):
+                    existing = candidate
+
+            # 2. Match by SKU Suffix (if not found by code)
+            if not existing and cod_norm and cod_norm in self.mapa_por_sku_sufijo:
+                candidate = self.mapa_por_sku_sufijo[cod_norm]
+                if validate_match(candidate):
+                    existing = candidate
+
+            # 3. Match by Exact Description (Ultimate Fallback)
+            if not existing and desc_norm and desc_norm in self.mapa_por_descripcion:
                 existing = self.mapa_por_descripcion[desc_norm]
 
             if existing:
