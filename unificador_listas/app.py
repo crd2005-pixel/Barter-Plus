@@ -827,53 +827,73 @@ class App(ctk.CTk):
 
         return context_seccion, extracted
 
+    def _log_error(self, message):
+        log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'error_log.txt')
+        try:
+            with open(log_path, 'a', encoding='utf-8') as f:
+                f.write(f"[{datetime.now()}] {message}\n")
+        except Exception as e:
+            print(f"No se pudo escribir en log: {e}")
+
     def _analyze_sheet_structure_with_llm(self, df_sample_str, sheet_name):
         if not genai or not self.api_key:
-            messagebox.showerror("Error", "La API de Gemini no está configurada o la librería no está instalada.")
             return None
 
-        try:
-            client = genai.Client(api_key=self.api_key)
+        import time
+        client = genai.Client(api_key=self.api_key)
 
-            prompt = f"""
+        prompt = f"""
 Eres un analizador de estructuras de listas de precios.
 Analiza la siguiente grilla de datos que representa una hoja de Excel/PDF.
 Ignora explícitamente membretes, direcciones (Av. Sarmiento...), teléfonos (Tel: 0260...) y fechas (Vigencia: ...).
 
 Devuelve una lista de bloques de tabla (TableBlock). Por cada bloque indica:
 - titulo_categoria: El nombre real del rubro que encabeza ese bloque (e.g. "ABRAZADERAS PERFECTO - Standard Fleje 9mm").
-- fila_inicio: Índice de la fila donde empiezan los datos de productos de este bloque.
-- col_codigo: Índice de la columna del código de proveedor (null si no tiene).
-- cols_descripcion: Lista de índices de columnas que forman el nombre o medida.
-- col_precio_final: Índice numérico de la ÚLTIMA columna de precio (Precio Final), ignorando precios intermedios o unidades por bulto.
+- fila_inicio: Índice 0-based de la fila donde empiezan los datos de productos de este bloque.
+- col_codigo: Índice 0-based de la columna del código de proveedor (null si no tiene).
+- cols_descripcion: Lista de índices 0-based de columnas que forman el nombre o medida.
+- col_precio_final: Índice 0-based numérico de la ÚLTIMA columna de precio (Precio Final), ignorando precios intermedios o unidades por bulto.
 - requiere_prefijo_titulo: true si las celdas de descripción de ese bloque solo contienen medidas, talles o aplicaciones cortas (ej. "8- 16", '14"').
 
-(Omitiremos enviarte toda la grilla si es muy grande. Analiza y deduce las columnas por esta muestra.)
+Toda la grilla usa índices base-0 exactos: F{{fila}}_C{{columna}}.
 
 MUESTRA GRILLA (Pestaña: {sheet_name}):
 {df_sample_str}
 """
-            class TableBlock(BaseModel):
-                titulo_categoria: str = Field(description="Título real de la categoría/producto")
-                fila_inicio: int = Field(description="Índice de fila de inicio de datos")
-                col_codigo: Optional[int] = Field(description="Índice de columna de código")
-                cols_descripcion: List[int] = Field(description="Índices de columnas de descripción/medida")
-                col_precio_final: int = Field(description="Índice de columna del precio final")
-                requiere_prefijo_titulo: bool = Field(description="True si la descripción son solo medidas cortas")
+        class TableBlock(BaseModel):
+            titulo_categoria: str = Field(description="Título real de la categoría/producto")
+            fila_inicio: int = Field(description="Índice de fila de inicio de datos")
+            col_codigo: Optional[int] = Field(description="Índice de columna de código")
+            cols_descripcion: List[int] = Field(description="Índices de columnas de descripción/medida")
+            col_precio_final: int = Field(description="Índice de columna del precio final")
+            requiere_prefijo_titulo: bool = Field(description="True si la descripción son solo medidas cortas")
 
-            class SheetStructure(BaseModel):
-                bloques: List[TableBlock]
+        class SheetStructure(BaseModel):
+            bloques: List[TableBlock]
 
-            response = client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=prompt,
-                config={'response_mime_type': 'application/json', 'response_schema': SheetStructure}
-            )
+        retries = 3
+        for attempt in range(retries):
+            try:
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=prompt,
+                    config={'response_mime_type': 'application/json', 'response_schema': SheetStructure}
+                )
 
-            return json.loads(response.text)
-        except Exception as e:
-            print(f"Error LLM: {e}")
-            return None
+                text = response.text
+                text = re.sub(r'^```json\s*', '', text, flags=re.IGNORECASE)
+                text = re.sub(r'```\s*$', '', text)
+
+                return json.loads(text.strip())
+
+            except Exception as e:
+                err_msg = str(e)
+                self._log_error(f"Error LLM attempt {attempt+1}: {err_msg}")
+                if "429" in err_msg or "ResourceExhausted" in err_msg:
+                    time.sleep(2 * (attempt + 1)) # Backoff
+                else:
+                    break
+        return None
 
     def _extract_data_from_blocks(self, df, bloques, proveedor, origen):
         # Sort blocks by start row to determine ends safely
@@ -899,10 +919,32 @@ MUESTRA GRILLA (Pestaña: {sheet_name}):
                 try:
                     row = df.iloc[idx]
 
-                    # Extract Price
-                    if col_precio >= len(row): continue
-                    precio_raw = row.iloc[col_precio]
-                    precio = self.limpiar_precio_argentino(precio_raw)
+                    # Extract Price (with neighbor checking fallback)
+                    precio = math.nan
+                    precio_raw = None
+                    col_precio_real = col_precio
+
+                    if col_precio < len(row):
+                        precio_raw = row.iloc[col_precio]
+                        precio = self.limpiar_precio_argentino(precio_raw)
+
+                    # Neighbor checking if main price is invalid (compensates for LLM 1-based indexing hallucination)
+                    if math.isnan(precio) or precio <= 0.01:
+                        # Check left neighbor
+                        if col_precio - 1 >= 0 and col_precio - 1 < len(row):
+                            p_test = self.limpiar_precio_argentino(row.iloc[col_precio - 1])
+                            if not math.isnan(p_test) and p_test > 0.01:
+                                precio = p_test
+                                precio_raw = row.iloc[col_precio - 1]
+                                col_precio_real = col_precio - 1
+                        # Check right neighbor if still invalid
+                        if (math.isnan(precio) or precio <= 0.01) and col_precio + 1 < len(row):
+                            p_test = self.limpiar_precio_argentino(row.iloc[col_precio + 1])
+                            if not math.isnan(p_test) and p_test > 0.01:
+                                precio = p_test
+                                precio_raw = row.iloc[col_precio + 1]
+                                col_precio_real = col_precio + 1
+
                     if math.isnan(precio) or precio <= 0.01: continue
 
                     # Extract Code
@@ -919,7 +961,7 @@ MUESTRA GRILLA (Pestaña: {sheet_name}):
                             d_val = row.iloc[c_idx]
                             if not pd.isna(d_val) and str(d_val).strip():
                                 # Prevent including the price column itself in the description
-                                if c_idx != col_precio:
+                                if c_idx != col_precio_real:
                                     desc_parts.append(str(d_val).strip())
 
                     desc = " - ".join(desc_parts)
@@ -972,6 +1014,16 @@ MUESTRA GRILLA (Pestaña: {sheet_name}):
                 except Exception as e:
                     print(f"Extraction error row {idx}: {e}")
 
+    def _fallback_heuristic_parse(self, df, origen, proveedor):
+        context_seccion = ""
+        items_extracted = 0
+        for idx, row in df.iterrows():
+            context_seccion, items = self._process_heuristic_row(row.values, context_seccion, proveedor, origen)
+            if items:
+                self.extracted_data.extend(items)
+                items_extracted += len(items)
+        return items_extracted
+
     def process_file(self):
         if not self.current_file:
             messagebox.showwarning("Aviso", "No hay archivo cargado.")
@@ -988,92 +1040,111 @@ MUESTRA GRILLA (Pestaña: {sheet_name}):
 
         self.extracted_data.clear()
 
-        # Helper method implementation goes in the next step
-        # Call it here directly
-        if self.current_file_type == 'excel':
-            for sheet, var in self.sheet_vars.items():
-                if not var.get(): continue
-                df = self.excel_data[sheet]
+        # Updating UI to show progress
+        if hasattr(self, 'btn_process_file'):
+            original_text = self.btn_process_file.cget("text")
+            self.btn_process_file.configure(text="Procesando...", state="disabled")
+            self.update()
 
-                # Format to string representation
-                df_str = ""
-                for idx, row in df.iterrows():
-                    # Only include non-completely-empty rows to save tokens
-                    if not all(pd.isna(x) or str(x).strip() == "" for x in row):
-                        row_vals = [f"[{i}]: {x}" for i, x in enumerate(row) if not pd.isna(x) and str(x).strip() != ""]
-                        if row_vals:
-                            df_str += f"Fila {idx} | " + " | ".join(row_vals) + "\n"
+        try:
+            if self.current_file_type == 'excel':
+                for sheet, var in self.sheet_vars.items():
+                    if not var.get(): continue
+                    df = self.excel_data[sheet]
 
-                if not df_str.strip(): continue
+                    if hasattr(self, 'btn_process_file'):
+                        self.btn_process_file.configure(text=f"Analizando pestaña: {sheet}")
+                        self.update()
 
-                # Sample the first 100 rows to find structure instead of character limit
-                sample_df_str = ""
-                count_rows = 0
-                for idx, row in df.iterrows():
-                    if not all(pd.isna(x) or str(x).strip() == "" for x in row):
-                        row_vals = [f"[{i}]: {x}" for i, x in enumerate(row) if not pd.isna(x) and str(x).strip() != ""]
-                        if row_vals:
-                            sample_df_str += f"Fila {idx} | " + " | ".join(row_vals) + "\n"
-                            count_rows += 1
-                    if count_rows >= 100: break
+                    # Format to string representation using explicit 0-based F_C coords
+                    sample_df_str = ""
+                    count_rows = 0
+                    for idx, row in df.iterrows():
+                        if not all(pd.isna(x) or str(x).strip() == "" for x in row):
+                            row_vals = [f"F{idx}_C{i}: {x}" for i, x in enumerate(row) if not pd.isna(x) and str(x).strip() != ""]
+                            if row_vals:
+                                sample_df_str += " | ".join(row_vals) + "\n"
+                                count_rows += 1
+                        if count_rows >= 100: break
 
-                if not sample_df_str.strip(): continue
+                    if not sample_df_str.strip(): continue
 
-                # LLM request
-                structure = self._analyze_sheet_structure_with_llm(sample_df_str, sheet)
-                if structure and 'bloques' in structure:
-                    self._extract_data_from_blocks(df, structure['bloques'], proveedor, sheet)
+                    initial_count = len(self.extracted_data)
+                    # LLM request
+                    structure = self._analyze_sheet_structure_with_llm(sample_df_str, sheet)
+                    if structure and 'bloques' in structure:
+                        self._extract_data_from_blocks(df, structure['bloques'], proveedor, sheet)
 
-            messagebox.showinfo("Proceso Terminado", f"Se extrajeron {len(self.extracted_data)} productos válidos de Excel mediante IA.")
-            self.populate_audit_tables()
+                    # FALLBACK if LLM fails to extract any valid products
+                    if len(self.extracted_data) == initial_count:
+                        self._log_error(f"Fallback activado en pestaña '{sheet}': IA devolvió 0 productos válidos.")
+                        self._fallback_heuristic_parse(df, sheet, proveedor)
 
-        elif self.current_file_type == 'pdf':
-            with pdfplumber.open(self.current_file) as pdf:
-                for i, page in enumerate(pdf.pages):
-                    tables = page.extract_tables()
-                    if tables:
-                        for idx_table, table in enumerate(tables):
-                            df = pd.DataFrame(table)
-                            df_str = ""
-                            for idx, row in df.iterrows():
-                                row_vals = [f"[{j}]: {x}" for j, x in enumerate(row) if x and str(x).strip() != ""]
-                                if row_vals: df_str += f"Fila {idx} | " + " | ".join(row_vals) + "\n"
+                messagebox.showinfo("Proceso Terminado", f"Se extrajeron {len(self.extracted_data)} productos válidos de Excel.")
+                self.populate_audit_tables()
 
-                            if not df_str.strip(): continue
+            elif self.current_file_type == 'pdf':
+                with pdfplumber.open(self.current_file) as pdf:
+                    for i, page in enumerate(pdf.pages):
+                        if hasattr(self, 'btn_process_file'):
+                            self.btn_process_file.configure(text=f"Analizando página: {i+1}")
+                            self.update()
 
-                            sample_df_str = ""
-                            for idx, row in df.head(100).iterrows():
-                                row_vals = [f"[{j}]: {x}" for j, x in enumerate(row) if x and str(x).strip() != ""]
-                                if row_vals: sample_df_str += f"Fila {idx} | " + " | ".join(row_vals) + "\n"
+                        tables = page.extract_tables()
+                        if tables:
+                            for idx_table, table in enumerate(tables):
+                                df = pd.DataFrame(table)
 
-                            structure = self._analyze_sheet_structure_with_llm(sample_df_str, f"Pag {i+1} T{idx_table}")
-                            if structure and 'bloques' in structure:
-                                self._extract_data_from_blocks(df, structure['bloques'], proveedor, f"Pag {i+1}")
-                    else:
-                        text = page.extract_text(vertical_strategy="lines")
-                        if text:
-                            lines = text.split('\n')
-                            data = []
-                            for line in lines:
-                                data.append([p.strip() for p in line.split('  ') if p.strip()])
-                            df = pd.DataFrame(data)
+                                sample_df_str = ""
+                                for idx, row in df.head(100).iterrows():
+                                    row_vals = [f"F{idx}_C{j}: {x}" for j, x in enumerate(row) if x and str(x).strip() != ""]
+                                    if row_vals: sample_df_str += " | ".join(row_vals) + "\n"
 
-                            df_str = ""
-                            count_rows = 0
-                            for idx, row in df.iterrows():
-                                row_vals = [f"[{j}]: {x}" for j, x in enumerate(row) if x and str(x).strip() != ""]
-                                if row_vals:
-                                    df_str += f"Fila {idx} | " + " | ".join(row_vals) + "\n"
-                                    count_rows += 1
-                                if count_rows >= 100: break
+                                if not sample_df_str.strip(): continue
 
-                            if not df_str.strip(): continue
-                            structure = self._analyze_sheet_structure_with_llm(df_str, f"Pag {i+1} Lineas")
-                            if structure and 'bloques' in structure:
-                                self._extract_data_from_blocks(df, structure['bloques'], proveedor, f"Pag {i+1}")
+                                initial_count = len(self.extracted_data)
+                                structure = self._analyze_sheet_structure_with_llm(sample_df_str, f"Pag {i+1} T{idx_table}")
+                                if structure and 'bloques' in structure:
+                                    self._extract_data_from_blocks(df, structure['bloques'], proveedor, f"Pag {i+1}")
 
-            messagebox.showinfo("Proceso Terminado", f"Se extrajeron {len(self.extracted_data)} productos válidos de PDF mediante IA.")
-            self.populate_audit_tables()
+                                if len(self.extracted_data) == initial_count:
+                                    self._log_error(f"Fallback activado en PDF Pág {i+1} Tabla {idx_table}.")
+                                    self._fallback_heuristic_parse(df, f"Pag {i+1} T{idx_table}", proveedor)
+                        else:
+                            text = page.extract_text(vertical_strategy="lines")
+                            if text:
+                                lines = text.split('\n')
+                                data = []
+                                for line in lines:
+                                    data.append([p.strip() for p in line.split('  ') if p.strip()])
+                                df = pd.DataFrame(data)
+
+                                sample_df_str = ""
+                                count_rows = 0
+                                for idx, row in df.iterrows():
+                                    row_vals = [f"F{idx}_C{j}: {x}" for j, x in enumerate(row) if x and str(x).strip() != ""]
+                                    if row_vals:
+                                        sample_df_str += " | ".join(row_vals) + "\n"
+                                        count_rows += 1
+                                    if count_rows >= 100: break
+
+                                if not sample_df_str.strip(): continue
+
+                                initial_count = len(self.extracted_data)
+                                structure = self._analyze_sheet_structure_with_llm(sample_df_str, f"Pag {i+1} Lineas")
+                                if structure and 'bloques' in structure:
+                                    self._extract_data_from_blocks(df, structure['bloques'], proveedor, f"Pag {i+1}")
+
+                                if len(self.extracted_data) == initial_count:
+                                    self._log_error(f"Fallback activado en PDF Pág {i+1} Líneas.")
+                                    self._fallback_heuristic_parse(df, f"Pag {i+1} Lineas", proveedor)
+
+                messagebox.showinfo("Proceso Terminado", f"Se extrajeron {len(self.extracted_data)} productos válidos de PDF.")
+                self.populate_audit_tables()
+        finally:
+            if hasattr(self, 'btn_process_file'):
+                self.btn_process_file.configure(text=original_text, state="normal")
+                self.update()
 
     def limpiar_descripcion_final(self, desc: str, cod_prov: str) -> str:
         if not desc:
