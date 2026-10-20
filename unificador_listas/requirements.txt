@@ -2,3 +2,5 @@ customtkinter
 pandas
 openpyxl
 pdfplumber
+google-genai
+pydantic

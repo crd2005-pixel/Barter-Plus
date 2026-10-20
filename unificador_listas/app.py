@@ -10,6 +10,12 @@ import json
 import math
 from datetime import datetime
 import hashlib
+from typing import List, Optional
+from pydantic import BaseModel, Field
+try:
+    from google import genai
+except ImportError:
+    genai = None
 
 PATRON_MEMBRETE = re.compile(
     r'(tel\s*[:.]?|cel\s*[:.]?|fax|0260|0261|44\d[\s-]?\d{3}|sarmiento|san\s+rafael|mendoza|cuit|iva\s|www\.|http|@|distribuidora|hoja\s*\d|p[aá]gina)',
@@ -27,6 +33,7 @@ class App(ctk.CTk):
         self.title("Unificador de Listas - Barter Plus")
         self.local_db_path = "unificador_interno.db"
         self.master_db_path = None
+        self.api_key = ""
 
         # Triple Index Maps
         self.mapa_por_cod_prov = {}
@@ -39,7 +46,7 @@ class App(ctk.CTk):
         self.load_config()
         self.auto_connect_master_db()
 
-        self.geometry("1000x700")
+        self.geometry("1000x750")
 
         # Grid layout
         self.grid_rowconfigure(1, weight=1)
@@ -69,14 +76,28 @@ class App(ctk.CTk):
                 with open(self.config_file, 'r') as f:
                     config = json.load(f)
                     self.master_db_path = config.get('master_db_path')
+                    self.api_key = config.get('api_key', "")
             except:
                 pass
 
     def save_config(self):
         with open(self.config_file, 'w') as f:
-            json.dump({'master_db_path': self.master_db_path}, f)
+            json.dump({'master_db_path': self.master_db_path, 'api_key': self.api_key}, f)
 
     def setup_import_tab(self):
+        # API Key Configuration
+        self.api_frame = ctk.CTkFrame(self.tab_import)
+        self.api_frame.pack(fill="x", padx=10, pady=5)
+
+        ctk.CTkLabel(self.api_frame, text="Gemini API Key:").pack(side="left", padx=10, pady=5)
+        self.entry_api_key = ctk.CTkEntry(self.api_frame, width=300, show="*")
+        self.entry_api_key.pack(side="left", padx=5, pady=5)
+        if self.api_key:
+            self.entry_api_key.insert(0, self.api_key)
+
+        self.btn_save_api = ctk.CTkButton(self.api_frame, text="Guardar Key", command=self.save_api_key)
+        self.btn_save_api.pack(side="left", padx=10, pady=5)
+
         # Master DB Reference Panel
         self.master_frame = ctk.CTkFrame(self.tab_import, fg_color="#1e3a5f") # Distinctive color
         self.master_frame.pack(fill="x", padx=10, pady=5)
@@ -123,7 +144,7 @@ class App(ctk.CTk):
         self.map_frame = ctk.CTkFrame(self.config_frame)
         self.map_frame.pack(fill="x", pady=5)
 
-        self.btn_process_file = ctk.CTkButton(self.map_frame, text="Autodetectar y Procesar Productos", font=("Roboto", 14, "bold"), command=self.process_file, fg_color="green", height=40)
+        self.btn_process_file = ctk.CTkButton(self.map_frame, text="Agente IA: Analizar Estructura y Extraer", font=("Roboto", 14, "bold"), command=self.process_file, fg_color="green", height=40)
         self.btn_process_file.pack(side="right", padx=10, pady=10)
 
         self.btn_select_all_sheets = ctk.CTkButton(self.map_frame, text="Seleccionar Todas las Pestañas", command=self.select_all_sheets)
@@ -139,6 +160,11 @@ class App(ctk.CTk):
         self.current_file = None
         self.current_file_type = None
         self.excel_data = None # Dictionary of DataFrames
+
+    def save_api_key(self):
+        self.api_key = self.entry_api_key.get().strip()
+        self.save_config()
+        messagebox.showinfo("Éxito", "Gemini API Key guardada en config.json")
 
     def select_all_sheets(self):
         for var in self.sheet_vars.values():
@@ -801,6 +827,151 @@ class App(ctk.CTk):
 
         return context_seccion, extracted
 
+    def _analyze_sheet_structure_with_llm(self, df_sample_str, sheet_name):
+        if not genai or not self.api_key:
+            messagebox.showerror("Error", "La API de Gemini no está configurada o la librería no está instalada.")
+            return None
+
+        try:
+            client = genai.Client(api_key=self.api_key)
+
+            prompt = f"""
+Eres un analizador de estructuras de listas de precios.
+Analiza la siguiente grilla de datos que representa una hoja de Excel/PDF.
+Ignora explícitamente membretes, direcciones (Av. Sarmiento...), teléfonos (Tel: 0260...) y fechas (Vigencia: ...).
+
+Devuelve una lista de bloques de tabla (TableBlock). Por cada bloque indica:
+- titulo_categoria: El nombre real del rubro que encabeza ese bloque (e.g. "ABRAZADERAS PERFECTO - Standard Fleje 9mm").
+- fila_inicio: Índice de la fila donde empiezan los datos de productos de este bloque.
+- col_codigo: Índice de la columna del código de proveedor (null si no tiene).
+- cols_descripcion: Lista de índices de columnas que forman el nombre o medida.
+- col_precio_final: Índice numérico de la ÚLTIMA columna de precio (Precio Final), ignorando precios intermedios o unidades por bulto.
+- requiere_prefijo_titulo: true si las celdas de descripción de ese bloque solo contienen medidas, talles o aplicaciones cortas (ej. "8- 16", '14"').
+
+(Omitiremos enviarte toda la grilla si es muy grande. Analiza y deduce las columnas por esta muestra.)
+
+MUESTRA GRILLA (Pestaña: {sheet_name}):
+{df_sample_str}
+"""
+            class TableBlock(BaseModel):
+                titulo_categoria: str = Field(description="Título real de la categoría/producto")
+                fila_inicio: int = Field(description="Índice de fila de inicio de datos")
+                col_codigo: Optional[int] = Field(description="Índice de columna de código")
+                cols_descripcion: List[int] = Field(description="Índices de columnas de descripción/medida")
+                col_precio_final: int = Field(description="Índice de columna del precio final")
+                requiere_prefijo_titulo: bool = Field(description="True si la descripción son solo medidas cortas")
+
+            class SheetStructure(BaseModel):
+                bloques: List[TableBlock]
+
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+                config={'response_mime_type': 'application/json', 'response_schema': SheetStructure}
+            )
+
+            return json.loads(response.text)
+        except Exception as e:
+            print(f"Error LLM: {e}")
+            return None
+
+    def _extract_data_from_blocks(self, df, bloques, proveedor, origen):
+        # Sort blocks by start row to determine ends safely
+        bloques = sorted(bloques, key=lambda x: x.get('fila_inicio', 0))
+
+        for idx_b, block in enumerate(bloques):
+            start = block.get('fila_inicio', 0)
+            # If not the last block, the end is just before the next block starts
+            end = bloques[idx_b+1].get('fila_inicio', len(df)) - 1 if idx_b + 1 < len(bloques) else len(df) - 1
+
+            titulo = block.get('titulo_categoria', '')
+            col_cod = block.get('col_codigo')
+            cols_desc = block.get('cols_descripcion', [])
+            col_precio = block.get('col_precio_final')
+            req_prefijo = block.get('requiere_prefijo_titulo', False)
+
+            if col_precio is None or not cols_desc:
+                continue
+
+            last_valid_desc = ""
+
+            for idx in range(start, min(end + 1, len(df))):
+                try:
+                    row = df.iloc[idx]
+
+                    # Extract Price
+                    if col_precio >= len(row): continue
+                    precio_raw = row.iloc[col_precio]
+                    precio = self.limpiar_precio_argentino(precio_raw)
+                    if math.isnan(precio) or precio <= 0.01: continue
+
+                    # Extract Code
+                    codigo = ""
+                    if col_cod is not None and col_cod < len(row):
+                        cod_val = row.iloc[col_cod]
+                        if not pd.isna(cod_val) and str(cod_val).strip():
+                            codigo = str(cod_val).strip()
+
+                    # Extract Description
+                    desc_parts = []
+                    for c_idx in cols_desc:
+                        if c_idx < len(row):
+                            d_val = row.iloc[c_idx]
+                            if not pd.isna(d_val) and str(d_val).strip():
+                                # Prevent including the price column itself in the description
+                                if c_idx != col_precio:
+                                    desc_parts.append(str(d_val).strip())
+
+                    desc = " - ".join(desc_parts)
+
+                    # Prevent Code Duplication in Description
+                    if codigo and desc:
+                        pattern = f"^\\s*{re.escape(codigo)}[\\s/\\-]*"
+                        desc = re.sub(pattern, "", desc, flags=re.IGNORECASE).strip()
+
+                    # Missing description but has code (lubricants 20L case)
+                    if not desc and last_valid_desc:
+                        desc = last_valid_desc
+                    elif desc:
+                        last_valid_desc = desc
+
+                    if not desc: continue
+
+                    if req_prefijo and titulo:
+                        desc = f"{titulo} - {desc}"
+                    elif titulo and not any(w in desc.upper() for w in re.findall(r'[A-Za-z]+', titulo.upper())):
+                        desc = f"{titulo} - {desc}"
+
+                    # Synthetic Code if missing
+                    if not codigo:
+                        match_trailing = re.search(r'\b(\d{4,})$', desc)
+                        if match_trailing:
+                            codigo = match_trailing.group(1)
+                        else:
+                            codigo = re.sub(r'[^A-Z0-9]', '', desc.upper())[:20]
+
+                    # Context / Brand inheritance
+                    clean_sheet_name = origen.split(" (")[0] if isinstance(origen, str) else str(origen)
+                    generic_sheets = ["hoja1", "hoja 1", "sheet1", "sheet 1", "lista", "precios", "pag ", "pág "]
+                    is_generic_sheet = any(g in clean_sheet_name.lower() for g in generic_sheets)
+
+                    marca = "GENERICA"
+                    if not is_generic_sheet:
+                        marca = clean_sheet_name.upper()
+                    else:
+                        marca = proveedor.upper()
+
+                    self.extracted_data.append({
+                        'proveedor': proveedor,
+                        'codigo_proveedor': codigo,
+                        'descripcion': desc,
+                        'marca': marca,
+                        'costo_neto': precio,
+                        'origen': origen
+                    })
+                except Exception as e:
+                    print(f"Extraction error row {idx}: {e}")
+
     def process_file(self):
         if not self.current_file:
             messagebox.showwarning("Aviso", "No hay archivo cargado.")
@@ -811,41 +982,97 @@ class App(ctk.CTk):
             messagebox.showwarning("Aviso", "El campo Proveedor es obligatorio.")
             return
 
+        if not self.api_key:
+            messagebox.showwarning("Aviso", "Configura la API Key de Gemini primero.")
+            return
+
         self.extracted_data.clear()
 
+        # Helper method implementation goes in the next step
+        # Call it here directly
         if self.current_file_type == 'excel':
             for sheet, var in self.sheet_vars.items():
                 if not var.get(): continue
                 df = self.excel_data[sheet]
-                context_seccion = ""
-                for idx, row in df.iterrows():
-                    context_seccion, items = self._process_heuristic_row(row.values, context_seccion, proveedor, sheet)
-                    self.extracted_data.extend(items)
 
-            messagebox.showinfo("Proceso Terminado", f"Se extrajeron {len(self.extracted_data)} productos válidos de Excel.")
+                # Format to string representation
+                df_str = ""
+                for idx, row in df.iterrows():
+                    # Only include non-completely-empty rows to save tokens
+                    if not all(pd.isna(x) or str(x).strip() == "" for x in row):
+                        row_vals = [f"[{i}]: {x}" for i, x in enumerate(row) if not pd.isna(x) and str(x).strip() != ""]
+                        if row_vals:
+                            df_str += f"Fila {idx} | " + " | ".join(row_vals) + "\n"
+
+                if not df_str.strip(): continue
+
+                # Sample the first 100 rows to find structure instead of character limit
+                sample_df_str = ""
+                count_rows = 0
+                for idx, row in df.iterrows():
+                    if not all(pd.isna(x) or str(x).strip() == "" for x in row):
+                        row_vals = [f"[{i}]: {x}" for i, x in enumerate(row) if not pd.isna(x) and str(x).strip() != ""]
+                        if row_vals:
+                            sample_df_str += f"Fila {idx} | " + " | ".join(row_vals) + "\n"
+                            count_rows += 1
+                    if count_rows >= 100: break
+
+                if not sample_df_str.strip(): continue
+
+                # LLM request
+                structure = self._analyze_sheet_structure_with_llm(sample_df_str, sheet)
+                if structure and 'bloques' in structure:
+                    self._extract_data_from_blocks(df, structure['bloques'], proveedor, sheet)
+
+            messagebox.showinfo("Proceso Terminado", f"Se extrajeron {len(self.extracted_data)} productos válidos de Excel mediante IA.")
             self.populate_audit_tables()
 
         elif self.current_file_type == 'pdf':
             with pdfplumber.open(self.current_file) as pdf:
                 for i, page in enumerate(pdf.pages):
-                    context_seccion = ""
                     tables = page.extract_tables()
                     if tables:
-                        for table in tables:
-                            for row in table:
-                                if not row: continue
-                                context_seccion, items = self._process_heuristic_row(row, context_seccion, proveedor, f"Pag {i+1}")
-                                self.extracted_data.extend(items)
+                        for idx_table, table in enumerate(tables):
+                            df = pd.DataFrame(table)
+                            df_str = ""
+                            for idx, row in df.iterrows():
+                                row_vals = [f"[{j}]: {x}" for j, x in enumerate(row) if x and str(x).strip() != ""]
+                                if row_vals: df_str += f"Fila {idx} | " + " | ".join(row_vals) + "\n"
+
+                            if not df_str.strip(): continue
+
+                            sample_df_str = ""
+                            for idx, row in df.head(100).iterrows():
+                                row_vals = [f"[{j}]: {x}" for j, x in enumerate(row) if x and str(x).strip() != ""]
+                                if row_vals: sample_df_str += f"Fila {idx} | " + " | ".join(row_vals) + "\n"
+
+                            structure = self._analyze_sheet_structure_with_llm(sample_df_str, f"Pag {i+1} T{idx_table}")
+                            if structure and 'bloques' in structure:
+                                self._extract_data_from_blocks(df, structure['bloques'], proveedor, f"Pag {i+1}")
                     else:
                         text = page.extract_text(vertical_strategy="lines")
                         if text:
                             lines = text.split('\n')
+                            data = []
                             for line in lines:
-                                parts = [p.strip() for p in line.split('  ') if p.strip()]
-                                context_seccion, items = self._process_heuristic_row(parts, context_seccion, proveedor, f"Pag {i+1} (Lineas)")
-                                self.extracted_data.extend(items)
+                                data.append([p.strip() for p in line.split('  ') if p.strip()])
+                            df = pd.DataFrame(data)
 
-            messagebox.showinfo("Proceso Terminado", f"Se extrajeron {len(self.extracted_data)} productos válidos de PDF.")
+                            df_str = ""
+                            count_rows = 0
+                            for idx, row in df.iterrows():
+                                row_vals = [f"[{j}]: {x}" for j, x in enumerate(row) if x and str(x).strip() != ""]
+                                if row_vals:
+                                    df_str += f"Fila {idx} | " + " | ".join(row_vals) + "\n"
+                                    count_rows += 1
+                                if count_rows >= 100: break
+
+                            if not df_str.strip(): continue
+                            structure = self._analyze_sheet_structure_with_llm(df_str, f"Pag {i+1} Lineas")
+                            if structure and 'bloques' in structure:
+                                self._extract_data_from_blocks(df, structure['bloques'], proveedor, f"Pag {i+1}")
+
+            messagebox.showinfo("Proceso Terminado", f"Se extrajeron {len(self.extracted_data)} productos válidos de PDF mediante IA.")
             self.populate_audit_tables()
 
     def limpiar_descripcion_final(self, desc: str, cod_prov: str) -> str:
