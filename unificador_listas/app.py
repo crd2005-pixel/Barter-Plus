@@ -713,17 +713,43 @@ class App(ctk.CTk):
                     return context_seccion, [] # Eran todos membretes
 
         for seg in segments:
-            # Step C: Extract rightmost valid price
+            # Step C: Extract rightmost valid price & Equivalences
             price_idx = -1
             precio_final = 0.0
+            mixed_equivalences = []
 
+            # Evaluate from left to right to find the actual designated price column.
+            # In some sheets (Seineca), the price is in the middle and equivalences are to the right.
+            # In others, price is strictly at the right. We prioritize cells with explicit $.
+            explicit_price_idx = -1
             for i in range(len(seg)-1, -1, -1):
-                if self._is_valid_price(seg[i]):
-                    price_idx = i
-                    precio_final = self.limpiar_precio_argentino(seg[i])
-                    break
+                cell_str = str(seg[i]).strip()
+                # Support mixed cells like "WK6002\n$4.434"
+                if '$' in cell_str:
+                    lines = cell_str.split('\n')
+                    price_line = next((l for l in lines if '$' in l), None)
+                    if price_line and self._is_valid_price(price_line):
+                        explicit_price_idx = i
+                        precio_final = self.limpiar_precio_argentino(price_line)
+                        mixed_equivalences.extend([l.strip() for l in lines if '$' not in l and l.strip()])
+                        break
+                elif self._is_valid_price(seg[i]):
+                    if price_idx == -1: # Keep the rightmost fallback if no explicit $ found yet
+                        price_idx = i
+                        precio_final = self.limpiar_precio_argentino(seg[i])
+
+            if explicit_price_idx != -1:
+                price_idx = explicit_price_idx
 
             if price_idx == -1: continue # No price in segment
+
+            # Extract Equivalences (columns to the right of the price)
+            equivalences = mixed_equivalences.copy()
+            for x in seg[price_idx+1:]:
+                if not self._is_empty_cell(x) and not self._is_valid_price(x):
+                    # Ignore pure measures like 205, 175 if it's right of the price (like battery dimensions)
+                    if str(x).strip().isdigit() and len(str(x).strip()) <= 3: continue
+                    equivalences.append(str(x).strip())
 
             # Purge Intermediate Prices (Decimals / Moneda)
             # Remove any float or currency formatted values to the left of the final price
@@ -740,6 +766,9 @@ class App(ctk.CTk):
                 # If it matches numeric but has a decimal point/comma separating cents, purge it
                 if re.match(r'^\d+[.,]\d{1,2}$', cell_str) or re.match(r'^\d{1,3}([.,]\d{3})+[.,]\d{1,2}$', cell_str):
                     continue
+                # Filter out pure battery box measures (like 205, 175, 190) from being appended as text
+                if cell_str.isdigit() and len(cell_str) <= 3 and int(cell_str) >= 100:
+                    continue
 
                 purged_seg.append(cell)
 
@@ -754,7 +783,11 @@ class App(ctk.CTk):
                 if t.isdigit() and len(t) <= 3 and int(t) < 100: continue
                 text_cells.append(t)
 
-            if not text_cells: continue
+            if not text_cells and not equivalences: continue
+
+            # Battery special fallback if text_cells is empty but we have equivalences
+            if not text_cells and equivalences:
+                text_cells = [equivalences.pop(0)]
 
             codigo = ""
             desc = ""
@@ -817,6 +850,11 @@ class App(ctk.CTk):
 
                 if prefix_parts:
                     desc = f"{' - '.join(prefix_parts)} - {desc}"
+
+            # Append equivalences at the end of the description if any exist
+            if equivalences:
+                eq_str = " / ".join(equivalences)
+                desc = f"{desc} [Eq: {eq_str}]"
 
             marca = "GENERICA"
             if not is_generic_sheet:
@@ -1101,7 +1139,13 @@ MUESTRA GRILLA (Pestaña: {sheet_name}):
                         tables = page.extract_tables()
                         if tables:
                             for idx_table, table in enumerate(tables):
-                                df = pd.DataFrame(table)
+                                # Multi-line expander
+                                expanded_table = []
+                                for row in table:
+                                    if not any(row): continue
+                                    expanded_table.extend(self._expand_multiline_pdf_row(row))
+
+                                df = pd.DataFrame(expanded_table)
 
                                 sample_df_str = ""
                                 for idx, row in df.head(100).iterrows():
@@ -1119,33 +1163,46 @@ MUESTRA GRILLA (Pestaña: {sheet_name}):
                                     self._log_error(f"Fallback activado en PDF Pág {i+1} Tabla {idx_table}.")
                                     self._fallback_heuristic_parse(df, f"Pag {i+1} T{idx_table}", proveedor)
                         else:
-                            text = page.extract_text(vertical_strategy="lines")
+                            text = page.extract_text(layout=True)
                             if text:
                                 lines = text.split('\n')
                                 data = []
                                 for line in lines:
-                                    data.append([p.strip() for p in line.split('  ') if p.strip()])
-                                df = pd.DataFrame(data)
+                                    # Attempt to handle visual gaps or explicit $ delimiters in raw text
+                                    if ' $' in line:
+                                        parts = line.split(' $')
+                                        parts[1] = '$' + parts[1]
+                                    else:
+                                        parts = [p.strip() for p in line.split('  ') if p.strip()]
+                                        if not parts: parts = line.split()
 
-                                sample_df_str = ""
-                                count_rows = 0
-                                for idx, row in df.iterrows():
-                                    row_vals = [f"F{idx}_C{j}: {x}" for j, x in enumerate(row) if x and str(x).strip() != ""]
-                                    if row_vals:
-                                        sample_df_str += " | ".join(row_vals) + "\n"
-                                        count_rows += 1
-                                    if count_rows >= 100: break
+                                    clean_parts = [p.strip() for p in parts if p.strip()]
+                                    # Fallback Text Plane restriction: only process line if it has Code + Price
+                                    if len(clean_parts) >= 2 and any('$' in p or re.search(r'\d', p) for p in clean_parts):
+                                        data.append(clean_parts)
 
-                                if not sample_df_str.strip(): continue
+                                if data:
+                                    df = pd.DataFrame(data)
 
-                                initial_count = len(self.extracted_data)
-                                structure = self._analyze_sheet_structure_with_llm(sample_df_str, f"Pag {i+1} Lineas")
-                                if structure and 'bloques' in structure:
-                                    self._extract_data_from_blocks(df, structure['bloques'], proveedor, f"Pag {i+1}")
+                                    sample_df_str = ""
+                                    count_rows = 0
+                                    for idx, row in df.iterrows():
+                                        row_vals = [f"F{idx}_C{j}: {x}" for j, x in enumerate(row) if x and str(x).strip() != ""]
+                                        if row_vals:
+                                            sample_df_str += " | ".join(row_vals) + "\n"
+                                            count_rows += 1
+                                        if count_rows >= 100: break
 
-                                if len(self.extracted_data) == initial_count:
-                                    self._log_error(f"Fallback activado en PDF Pág {i+1} Líneas.")
-                                    self._fallback_heuristic_parse(df, f"Pag {i+1} Lineas", proveedor)
+                                    if not sample_df_str.strip(): continue
+
+                                    initial_count = len(self.extracted_data)
+                                    structure = self._analyze_sheet_structure_with_llm(sample_df_str, f"Pag {i+1} Lineas")
+                                    if structure and 'bloques' in structure:
+                                        self._extract_data_from_blocks(df, structure['bloques'], proveedor, f"Pag {i+1}")
+
+                                    if len(self.extracted_data) == initial_count:
+                                        self._log_error(f"Fallback activado en PDF Pág {i+1} Líneas.")
+                                        self._fallback_heuristic_parse(df, f"Pag {i+1} Lineas", proveedor)
 
                 messagebox.showinfo("Proceso Terminado", f"Se extrajeron {len(self.extracted_data)} productos válidos de PDF.")
                 self.populate_audit_tables()
