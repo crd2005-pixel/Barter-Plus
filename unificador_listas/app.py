@@ -1206,6 +1206,13 @@ MUESTRA GRILLA (Pestaña: {sheet_name}):
 
                 messagebox.showinfo("Proceso Terminado", f"Se extrajeron {len(self.extracted_data)} productos válidos de PDF.")
                 self.populate_audit_tables()
+
+        except Exception as e:
+            import traceback
+            err_str = traceback.format_exc()
+            self._log_error(err_str)
+            messagebox.showerror("Error de Extracción", f"Ocurrió un error inesperado en PDF:\n{e}\n\nRevisa el archivo error_log.txt")
+
         finally:
             if hasattr(self, 'btn_process_file'):
                 self.btn_process_file.configure(text=original_text, state="normal")
