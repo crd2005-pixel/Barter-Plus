@@ -4,6 +4,7 @@ AppVersion=1.0
 DefaultDirName={autopf}\BarterPlus_Unificador
 OutputDir=Instalador_Final
 OutputBaseFilename=Setup_Unificador_BarterPlus
+SetupIconFile=dist\UnificadorBarterPlus\ICONO.ico
 Compression=lzma
 SolidCompression=yes
 
