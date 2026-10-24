@@ -1,0 +1,6 @@
+Error multimodal pdf: [Errno 2] No such file or directory: 'dummy.pdf'
+Traceback (most recent call last):
+  File "/app/unificador_listas/app.py", line 310, in extraer_productos_de_pdf
+    with open(ruta_pdf, 'rb') as f:
+         ^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'dummy.pdf'
