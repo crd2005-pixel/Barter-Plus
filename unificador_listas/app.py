@@ -18,6 +18,23 @@ try:
 except ImportError:
     genai = None
 
+
+APP_DATA_DIR = os.path.join(os.environ.get("APPDATA", os.path.dirname(
+    os.path.abspath(__file__))), "BarterPlus_Unificador")
+os.makedirs(APP_DATA_DIR, exist_ok=True)
+ERROR_LOG_PATH = os.path.join(APP_DATA_DIR, "error_log.txt")
+CONFIG_PATH = os.path.join(APP_DATA_DIR, "config.json")
+
+
+def registrar_error_seguro(mensaje: str):
+    import traceback
+    try:
+        with open(ERROR_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(mensaje + "\n")
+    except Exception:
+        pass
+
+
 PATRON_MEMBRETE = re.compile(
     r'(tel\s*[:.]?|cel\s*[:.]?|fax|0260|0261|44\d[\s-]?\d{3}|sarmiento|san\s+rafael|mendoza|cuit|iva\s|www\.|http|@|distribuidora|hoja\s*\d|p[aá]gina)',
     re.IGNORECASE
@@ -28,7 +45,6 @@ ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
 
-
 def extraer_productos_dinamico_multimodal(ruta_archivo: str, proveedor: str, api_key: str, tipo_archivo: str, page_num: int = None, pdf_bytes: bytes = None) -> list:
     if not genai or not api_key:
         return []
@@ -36,10 +52,14 @@ def extraer_productos_dinamico_multimodal(ruta_archivo: str, proveedor: str, api
     client = genai.Client(api_key=api_key)
 
     class ProductoExtraido(BaseModel):
-        codigo_proveedor: str = Field(description="El código real del artículo. PROHIBIDO que empiece con '$' o sea un importe.")
-        descripcion: str = Field(description="Nombre completo, tipo de producto, medidas, aplicación. PROHIBIDO incluir direcciones, teléfonos, o precios.")
-        marca: str = Field(description="La marca real del artículo detectada en la fila, columna o sección.")
-        costo: float = Field(description="El precio unitario final numérico puro (tomar el precio final y omitir valores parciales o entregas de cascos).")
+        codigo_proveedor: str = Field(
+            description="El código real del artículo. PROHIBIDO que empiece con '$' o sea un importe.")
+        descripcion: str = Field(
+            description="Nombre completo, tipo de producto, medidas, aplicación. PROHIBIDO incluir direcciones, teléfonos, o precios.")
+        marca: str = Field(
+            description="La marca real del artículo detectada en la fila, columna o sección.")
+        costo: float = Field(
+            description="El precio unitario final numérico puro (tomar el precio final y omitir valores parciales o entregas de cascos).")
 
     class ListaProductos(BaseModel):
         productos: List[ProductoExtraido]
@@ -61,7 +81,8 @@ def extraer_productos_dinamico_multimodal(ruta_archivo: str, proveedor: str, api
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=[
-                    genai.types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"),
+                    genai.types.Part.from_bytes(
+                        data=pdf_bytes, mime_type="application/pdf"),
                     prompt_texto
                 ],
                 config=genai.types.GenerateContentConfig(
@@ -70,7 +91,7 @@ def extraer_productos_dinamico_multimodal(ruta_archivo: str, proveedor: str, api
                 )
             )
         elif tipo_archivo == 'excel' and pdf_bytes:
-             response = client.models.generate_content(
+            response = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=[
                     pdf_bytes,
@@ -101,7 +122,7 @@ def extraer_productos_dinamico_multimodal(ruta_archivo: str, proveedor: str, api
                     items_list = v
                     break
             else:
-                items_list = [data] # Fallback
+                items_list = [data]  # Fallback
         elif isinstance(data, list):
             items_list = data
         else:
@@ -114,7 +135,8 @@ def extraer_productos_dinamico_multimodal(ruta_archivo: str, proveedor: str, api
             cod = item.get('codigo_proveedor') or item.get('codigo') or ''
             desc = item.get('descripcion') or item.get('desc') or ''
             marca = item.get('marca', 'GENERICA')
-            cost = item.get('costo') or item.get('precio') or item.get('costo_neto') or 0.0
+            cost = item.get('costo') or item.get(
+                'precio') or item.get('costo_neto') or 0.0
 
             extracted.append({
                 'proveedor': proveedor,
@@ -128,9 +150,12 @@ def extraer_productos_dinamico_multimodal(ruta_archivo: str, proveedor: str, api
         return extracted
     except Exception as e:
         import traceback
-        with open('unificador_listas/error_log.txt', 'a', encoding='utf-8') as flog:
-            flog.write(f"Error multimodal json: {e}\n{traceback.format_exc()}\n")
+        with open('ERROR_LOG_PATH', 'a', encoding='utf-8') as flog:
+            flog.write(
+                f"Error multimodal json: {e}\n{traceback.format_exc()}\n")
         return []
+
+
 
 def extraer_productos_de_pdf(ruta_pdf: str, proveedor: str, api_key: str) -> list:
     extracted_total = []
@@ -151,7 +176,7 @@ def extraer_productos_de_pdf(ruta_pdf: str, proveedor: str, api_key: str) -> lis
 
             if not desc or desc.startswith("Pag ") and "$" in desc:
                 if len(re.sub(r'Pag\s*\d+\s*-\s*\$\s*[\d.,]+', '', desc).strip()) == 0:
-                     continue
+                    continue
             if re.match(r'^\$?\s*\d{1,3}(?:\.\d{3})+(?:,\d{2})?$', desc):
                 continue
 
@@ -159,8 +184,156 @@ def extraer_productos_de_pdf(ruta_pdf: str, proveedor: str, api_key: str) -> lis
 
     except Exception as e:
         import traceback
-        with open('unificador_listas/error_log.txt', 'a', encoding='utf-8') as flog:
-            flog.write(f"Error multimodal pdf: {e}\n{traceback.format_exc()}\n")
+        registrar_error_seguro(f"Error multimodal pdf: {e}\n{traceback.format_exc()}")
+
+    # CRITICAL: Always fallback if empty
+    if not extracted_total:
+        extracted_total = _fallback_pdf_determinista(ruta_pdf, proveedor)
+
+    return extracted_total
+
+def extraer_productos_dinamico_multimodal(ruta_archivo: str, proveedor: str, api_key: str, tipo_archivo: str, page_num: int = None, pdf_bytes: bytes = None) -> list:
+    if not genai or not api_key:
+        return []
+
+    client = genai.Client(api_key=api_key)
+
+    class ProductoExtraido(BaseModel):
+        codigo_proveedor: str = Field(
+            description="El código real del artículo. PROHIBIDO que empiece con '$' o sea un importe.")
+        descripcion: str = Field(
+            description="Nombre completo, tipo de producto, medidas, aplicación. PROHIBIDO incluir direcciones, teléfonos, o precios.")
+        marca: str = Field(
+            description="La marca real del artículo detectada en la fila, columna o sección.")
+        costo: float = Field(
+            description="El precio unitario final numérico puro (tomar el precio final y omitir valores parciales o entregas de cascos).")
+
+    class ListaProductos(BaseModel):
+        productos: List[ProductoExtraido]
+
+    prompt_texto = f"""
+    Eres un extractor determinista de listas de precios para el proveedor '{proveedor}'.
+    Extrae estrictamente los productos de la imagen o documento adjunto.
+
+    REGLAS ESTRICTAS:
+    1. Si una celda o fila agrupa varios códigos apilados verticalmente con sus respectivos amperajes, marcas y precios (como en listas de baterías), desglosa cada código como un producto individual alineando su marca, amperaje, aplicación compartida y su precio correspondiente.
+    2. Si una tabla tiene el precio en una columna central y códigos de equivalencia (MANN, FRAM, WEGA, MARENO) a la derecha, toma el precio de la columna Precio e incluye las equivalencias dentro de la descripción.
+    3. Ignora membretes comerciales, teléfonos, direcciones, descuentos generales de cabecera y números de página.
+    4. Jamás permitas que un código de proveedor contenga el símbolo "$" o parezca un precio.
+    5. Jamás permitas que la descripción contenga valores monetarios aislados sin contexto.
+    """
+
+    try:
+        if tipo_archivo == 'pdf' and pdf_bytes:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[
+                    genai.types.Part.from_bytes(
+                        data=pdf_bytes, mime_type="application/pdf"),
+                    prompt_texto
+                ],
+                config=genai.types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=ListaProductos
+                )
+            )
+        elif tipo_archivo == 'excel' and pdf_bytes:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[
+                    pdf_bytes,
+                    prompt_texto
+                ],
+                config=genai.types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=ListaProductos
+                )
+            )
+        else:
+            return []
+
+        text_resp = response.text
+
+        # Clean markdown
+        if text_resp.startswith("```json"):
+            text_resp = text_resp.strip()[7:-3]
+        elif text_resp.startswith("```"):
+            text_resp = text_resp.strip()[3:-3]
+
+        data = json.loads(text_resp)
+
+        # Unpack if nested in dict
+        if isinstance(data, dict):
+            for k, v in data.items():
+                if isinstance(v, list):
+                    items_list = v
+                    break
+            else:
+                items_list = [data]  # Fallback
+        elif isinstance(data, list):
+            items_list = data
+        else:
+            items_list = []
+
+        extracted = []
+        origen = f"Pag {page_num+1}" if page_num is not None else "Documento"
+
+        for item in items_list:
+            cod = item.get('codigo_proveedor') or item.get('codigo') or ''
+            desc = item.get('descripcion') or item.get('desc') or ''
+            marca = item.get('marca', 'GENERICA')
+            cost = item.get('costo') or item.get(
+                'precio') or item.get('costo_neto') or 0.0
+
+            extracted.append({
+                'proveedor': proveedor,
+                'codigo_proveedor': cod,
+                'descripcion': desc,
+                'marca': marca,
+                'costo_neto': float(cost) if cost else 0.0,
+                'origen': origen
+            })
+
+        return extracted
+    except Exception as e:
+        import traceback
+        with open('ERROR_LOG_PATH', 'a', encoding='utf-8') as flog:
+            flog.write(
+                f"Error multimodal json: {e}\n{traceback.format_exc()}\n")
+        return []
+
+
+def extraer_productos_de_pdf(ruta_pdf: str, proveedor: str, api_key: str) -> list:
+    extracted_total = []
+
+    try:
+        with open(ruta_pdf, 'rb') as f:
+            pdf_bytes = f.read()
+
+        extracted_list = extraer_productos_dinamico_multimodal(
+            ruta_pdf, proveedor, api_key, 'pdf', page_num=0, pdf_bytes=pdf_bytes)
+
+        for prod in extracted_list:
+            cod = str(prod['codigo_proveedor']).strip()
+            desc = str(prod['descripcion']).strip()
+            costo = prod['costo_neto']
+
+            if '$' in cod or re.match(r'^\$?\s*\d{1,3}(?:\.\d{3})+(?:,\d{2})?$', cod):
+                continue
+
+            if not desc or desc.startswith("Pag ") and "$" in desc:
+                if len(re.sub(r'Pag\s*\d+\s*-\s*\$\s*[\d.,]+', '', desc).strip()) == 0:
+                    continue
+            if re.match(r'^\$?\s*\d{1,3}(?:\.\d{3})+(?:,\d{2})?$', desc):
+                continue
+
+            extracted_total.append(prod)
+
+    except Exception as e:
+        import traceback
+        with open('ERROR_LOG_PATH', 'a', encoding='utf-8') as flog:
+            flog.write(
+                f"Error multimodal pdf: {e}\n{traceback.format_exc()}\n")
 
     # CRITICAL: Always fallback if empty
     if not extracted_total:
@@ -194,6 +367,7 @@ def limpiar_importe_ar(valor_str):
     except ValueError:
         return 0.0
 
+
 def _fallback_pdf_determinista(ruta_pdf: str, proveedor: str) -> list:
     extracted_total = []
 
@@ -206,16 +380,19 @@ def _fallback_pdf_determinista(ruta_pdf: str, proveedor: str) -> list:
                 if tables:
                     for table in tables:
                         for row in table:
-                            extracted, seccion_actual = _process_table_row(row, proveedor, seccion_actual, page_num)
+                            extracted, seccion_actual = _process_table_row(
+                                row, proveedor, seccion_actual, page_num)
                             if extracted:
                                 extracted_total.extend(extracted)
 
     except Exception as e:
         import traceback
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'error_log.txt'), 'a', encoding='utf-8') as flog:
-            flog.write(f"Error _fallback_pdf_determinista: {e}\n{traceback.format_exc()}\n")
+        with open(ERROR_LOG_PATH, 'a', encoding='utf-8') as flog:
+            flog.write(
+                f"Error _fallback_pdf_determinista: {e}\n{traceback.format_exc()}\n")
 
     return extracted_total
+
 
 def _process_table_row(row, proveedor, seccion_actual, page_num):
     extracted = []
@@ -235,7 +412,8 @@ def _process_table_row(row, proveedor, seccion_actual, page_num):
     if not has_dollar and not has_amount and len([c for c in celdas if c]) in [1, 2]:
         text_val = [c for c in celdas if c][0]
         if not re.search(r'(tel\s*[:.]?|cel\s*[:.]?|fax|cuit|iva\s|www\.|http|@)', text_val, re.IGNORECASE):
-            seccion_actual = re.sub(r'\d+\s*PRODUCTOS?', '', text_val, flags=re.IGNORECASE).strip()
+            seccion_actual = re.sub(
+                r'\d+\s*PRODUCTOS?', '', text_val, flags=re.IGNORECASE).strip()
             return extracted, seccion_actual
 
     cols_precio = []
@@ -253,7 +431,8 @@ def _process_table_row(row, proveedor, seccion_actual, page_num):
 
     # RULE 2: Multi-line Grouped
     if '\n' in codigo_raw:
-        codigos = [c.strip() for c in codigo_raw.split('\n') if c.strip() and '$' not in c]
+        codigos = [c.strip() for c in codigo_raw.split('\n')
+                        if c.strip() and '$' not in c]
         precios_str = celdas[cols_precio[-1]]
         precios = re.findall(r'\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?', precios_str)
 
@@ -264,11 +443,14 @@ def _process_table_row(row, proveedor, seccion_actual, page_num):
             marca_col = celdas[2].split('\n') if len(celdas) > 2 else []
             marca_col = [x.strip() for x in marca_col if x.strip()]
 
-            aplic = celdas[3].replace('\n', ' ').strip() if len(celdas) > 3 else ""
+            aplic = celdas[3].replace(
+                '\n', ' ').strip() if len(celdas) > 3 else ""
 
             for i in range(len(codigos)):
-                amp = amp_col[i] if i < len(amp_col) else (amp_col[0] if amp_col else "")
-                marca = marca_col[i] if i < len(marca_col) else (marca_col[0] if marca_col else "GENERICA")
+                amp = amp_col[i] if i < len(amp_col) else (
+                    amp_col[0] if amp_col else "")
+                marca = marca_col[i] if i < len(marca_col) else (
+                    marca_col[0] if marca_col else "GENERICA")
 
                 desc = f"{seccion_actual} - {amp} - {aplic}".strip(" -")
                 desc = re.sub(r'\s{2,}', ' ', desc)
@@ -288,8 +470,10 @@ def _process_table_row(row, proveedor, seccion_actual, page_num):
         idx_p = cols_precio[0]
         codigo_proveedor = celdas[0].replace('\n', ' ').strip()
 
-        match_price = re.search(r'\$\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?)', celdas[idx_p])
-        costo = limpiar_importe_ar(match_price.group(1)) if match_price else 0.0
+        match_price = re.search(
+            r'\$\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?)', celdas[idx_p])
+        costo = limpiar_importe_ar(
+            match_price.group(1)) if match_price else 0.0
 
         if costo > 0:
             eqs = []
@@ -317,205 +501,345 @@ def _process_table_row(row, proveedor, seccion_actual, page_num):
 
     return extracted, seccion_actual
 
+
 class App(ctk.CTk):
+
     def __init__(self):
         super().__init__()
-
         self.title("Unificador de Listas - Barter Plus")
+        self.geometry("1100x750")
 
-        appdata = os.environ.get('APPDATA')
-        if not appdata:
-            appdata = os.path.expanduser('~/AppData/Roaming')
-        self.app_dir = os.path.join(appdata, 'BarterPlus_Unificador')
-        os.makedirs(self.app_dir, exist_ok=True)
-
-        self.local_db_path = os.path.join(self.app_dir, "unificador_interno.db")
-        self.master_db_path = None
+        # Internal State
         self.api_key = ""
-
-        # Triple Index Maps
+        self.master_db_path = None
+        self.master_lookup = set()
         self.mapa_por_cod_prov = {}
         self.mapa_por_sku_sufijo = {}
         self.mapa_por_descripcion = {}
+        self.last_master_table_name = None
 
-        self.config_file = os.path.join(self.app_dir, "config.json")
+        self.current_file = None
+        self.current_file_type = None
+        self.excel_data = {}
+        self.sheet_vars = {}
+        self.extracted_data = []
 
-        self.init_local_db()
+        self.audit_updates_list = []
+        self.audit_new_list = []
+        self.current_view_mode = "updates"  # or "new"
+
         self.load_config()
+
+        # UI Layout
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(2, weight=1)  # The treeview area
+
+        self.setup_header()
+        self.setup_control_bar()
+        self.setup_dynamic_panel()
+        self.setup_unified_audit_view()
+
+        # Connect to default DB quietly
         self.auto_connect_master_db()
 
-        self.geometry("1000x750")
-
-        # Icon loading
-        try:
-            icon_path = os.path.join(sys._MEIPASS, 'ICONO.ico') if hasattr(sys, '_MEIPASS') else os.path.join(os.path.dirname(__file__), 'ICONO.ico')
-            if os.path.exists(icon_path):
-                self.iconbitmap(icon_path)
-        except Exception:
-            pass
-
-        # Grid layout
-        self.grid_rowconfigure(1, weight=1)
-        self.grid_columnconfigure(0, weight=1)
-
-        # Header
-        self.header_frame = ctk.CTkFrame(self)
-        self.header_frame.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
-        self.title_label = ctk.CTkLabel(self.header_frame, text="Unificador de Listas - Motor Determinista", font=("Roboto", 24, "bold"))
-        self.title_label.pack(pady=10)
-
-        # Main Tabview
-        self.tabview = ctk.CTkTabview(self)
-        self.tabview.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
-
-        self.tab_import = self.tabview.add("1. Importar y Mapear")
-        self.tab_audit = self.tabview.add("2. Auditoría Pre-Guardado")
-        self.tab_export = self.tabview.add("3. Exportar / BD")
-
-        self.setup_import_tab()
-        self.setup_audit_tab()
-        self.setup_export_tab()
 
     def load_config(self):
-        if os.path.exists(self.config_file):
+        if os.path.exists(CONFIG_PATH):
             try:
-                with open(self.config_file, 'r') as f:
-                    config = json.load(f)
-                    self.master_db_path = config.get('master_db_path')
-                    self.api_key = config.get('api_key', "")
-            except:
+                with open(CONFIG_PATH, 'r') as f:
+                    conf = json.load(f)
+                    self.api_key = conf.get("api_key", "")
+                    self.master_db_path = conf.get("master_db_path")
+            except Exception:
                 pass
 
     def save_config(self):
-        with open(self.config_file, 'w') as f:
-            json.dump({'master_db_path': self.master_db_path, 'api_key': self.api_key}, f)
+        try:
+            with open(CONFIG_PATH, 'w') as f:
+                json.dump({"api_key": self.api_key, "master_db_path": self.master_db_path}, f)
+        except Exception:
+            pass
 
-    def setup_import_tab(self):
-        # API Key Configuration
-        self.api_frame = ctk.CTkFrame(self.tab_import)
-        self.api_frame.pack(fill="x", padx=10, pady=5)
+    def setup_header(self):
+        self.header_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.header_frame.grid(
+            row=0, column=0, sticky="ew", padx=15, pady=(15, 5))
+        self.header_frame.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(self.api_frame, text="Gemini API Key:").pack(side="left", padx=10, pady=5)
-        self.entry_api_key = ctk.CTkEntry(self.api_frame, width=300, show="*")
-        self.entry_api_key.pack(side="left", padx=5, pady=5)
-        if self.api_key:
-            self.entry_api_key.insert(0, self.api_key)
+        lbl_title = ctk.CTkLabel(
+            self.header_frame, text="Barter Plus — Unificador de Listas", font=("Roboto", 20, "bold"))
+        lbl_title.grid(row=0, column=0, sticky="w")
 
-        self.btn_save_api = ctk.CTkButton(self.api_frame, text="Guardar Key", command=self.save_api_key)
-        self.btn_save_api.pack(side="left", padx=10, pady=5)
+        # Center Banner
+        self.lbl_master_status = ctk.CTkLabel(
+            self.header_frame, text="🔴 Sin Conexión", text_color="#ffcc00", font=("Roboto", 13))
+        self.lbl_master_status.grid(row=0, column=1, sticky="e", padx=10)
 
-        # Master DB Reference Panel
-        self.master_frame = ctk.CTkFrame(self.tab_import, fg_color="#1e3a5f") # Distinctive color
-        self.master_frame.pack(fill="x", padx=10, pady=5)
+        btn_change_db = ctk.CTkButton(
+            self.header_frame, text="Cambiar Base", width=100, height=28, command=self.link_master_db)
+        btn_change_db.grid(row=0, column=2, sticky="e", padx=5)
 
-        self.lbl_master_info = ctk.CTkLabel(self.master_frame, text="Buscando Base Barter Plus...", font=("Roboto", 14, "bold"), text_color="white")
-        self.lbl_master_info.pack(pady=10)
+        btn_api_key = ctk.CTkButton(self.header_frame, text="🔑 Configurar API Key", width=140,
+                                    height=28, fg_color="#333333", hover_color="#555555", command=self.prompt_api_key)
+        btn_api_key.grid(row=0, column=3, sticky="e")
 
-        btn_frame = ctk.CTkFrame(self.master_frame, fg_color="transparent")
-        btn_frame.pack(fill="x", pady=5)
+    def prompt_api_key(self):
+        dialog = ctk.CTkInputDialog(text="Pega tu Gemini API Key:", title="Configurar API Key")
+        key = dialog.get_input()
+        if key:
+            self.api_key = key.strip()
+            self.save_config()
+            messagebox.showinfo("API Key", "API Key guardada correctamente.")
 
-        self.btn_link_db = ctk.CTkButton(btn_frame, text="Vincular Base Manual (.db) [SOLO LECTURA]", command=self.link_master_db)
-        self.btn_link_db.pack(side="left", padx=10)
 
-        self.btn_link_excel = ctk.CTkButton(btn_frame, text="O Cargar Padrón desde Excel (.xlsx)", command=self.link_master_excel)
-        self.btn_link_excel.pack(side="left", padx=10)
+    def setup_control_bar(self):
+        self.control_frame = ctk.CTkFrame(
+            self, fg_color="#2b2b2b", corner_radius=8)
+        self.control_frame.grid(row=1, column=0, sticky="ew", padx=15, pady=5)
+        self.control_frame.grid_columnconfigure(3, weight=1)
 
-        # Update initial banner text if already loaded
-        self.update_master_banner()
+        # Proveedor
+        lbl_prov = ctk.CTkLabel(
+            self.control_frame, text="Proveedor:", font=("Roboto", 13, "bold"))
+        lbl_prov.grid(row=0, column=0, padx=(15, 5), pady=15, sticky="w")
 
-        # Frame for file selection & Basic Info
-        self.file_frame = ctk.CTkFrame(self.tab_import)
-        self.file_frame.pack(fill="x", padx=10, pady=5)
+        self.entry_proveedor = ctk.CTkEntry(
+            self.control_frame, width=200, placeholder_text="Ej: Seineca, La Casa de las Baterías...")
+        self.entry_proveedor.grid(row=0, column=1, padx=5, pady=15, sticky="w")
 
-        ctk.CTkLabel(self.file_frame, text="Proveedor (Obligatorio):").pack(side="left", padx=10)
-        self.entry_proveedor = ctk.CTkEntry(self.file_frame, width=150)
-        self.entry_proveedor.pack(side="left", padx=5)
+        # File Loader
+        self.btn_load_file = ctk.CTkButton(
+            self.control_frame, text="📂 Cargar Lista (Excel / PDF)", width=180, height=35, command=self.load_file)
+        self.btn_load_file.grid(row=0, column=2, padx=15, pady=15, sticky="w")
 
-        ctk.CTkLabel(self.file_frame, text=" | ").pack(side="left", padx=10)
+        # Analyze Button
+        self.btn_process_file = ctk.CTkButton(self.control_frame, text="⚡ Analizar y Extraer Lista", font=(
+            "Roboto", 14, "bold"), fg_color="#28a745", hover_color="#218838", width=220, height=35, command=self.process_file)
+        self.btn_process_file.grid(
+            row=0, column=3, padx=15, pady=15, sticky="e")
 
-        ctk.CTkLabel(self.file_frame, text="Archivos del Proveedor:").pack(side="left", padx=10)
-        self.btn_load_excel = ctk.CTkButton(self.file_frame, text="Cargar Excel", command=self.load_excel)
-        self.btn_load_excel.pack(side="left", padx=5, pady=10)
+    def setup_dynamic_panel(self):
+        self.dynamic_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.dynamic_frame.grid(row=2, column=0, sticky="new", padx=15, pady=5)
+        # This will hold either a PDF notice or Excel sheet selectors
+        self.lbl_pdf_notice = ctk.CTkLabel(
+            self.dynamic_frame, text="📄 Archivo PDF listo para procesar.", text_color="#17a2b8", font=("Roboto", 14, "italic"))
+        self.sheets_container = ctk.CTkScrollableFrame(
+            self.dynamic_frame, height=50, fg_color="#333333", orientation="horizontal")
 
-        self.btn_load_pdf = ctk.CTkButton(self.file_frame, text="Cargar PDF", command=self.load_pdf)
-        self.btn_load_pdf.pack(side="left", padx=5, pady=10)
+    def setup_unified_audit_view(self):
+        self.audit_frame = ctk.CTkFrame(
+            self, fg_color="#1e1e1e", corner_radius=8)
+        self.audit_frame.grid(
+            row=3, column=0, sticky="nsew", padx=15, pady=(5, 15))
+        self.grid_rowconfigure(3, weight=1)
+        self.audit_frame.grid_columnconfigure(0, weight=1)
+        self.audit_frame.grid_rowconfigure(1, weight=1)
 
-        self.lbl_file_info = ctk.CTkLabel(self.file_frame, text="Ningún archivo cargado")
-        self.lbl_file_info.pack(side="left", padx=10, pady=10)
+        # Top Bar of Audit
+        top_audit = ctk.CTkFrame(self.audit_frame, fg_color="transparent")
+        top_audit.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+        top_audit.grid_columnconfigure(3, weight=1)
 
-        self.config_frame = ctk.CTkFrame(self.tab_import)
-        self.config_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        self.btn_view_updates = ctk.CTkButton(
+            top_audit, text="🔄 Actualizaciones (0)", width=150, fg_color="#0056b3", command=lambda: self.switch_view("updates"))
+        self.btn_view_updates.grid(row=0, column=0, padx=(0, 10))
 
-        # Main Process Frame
-        self.map_frame = ctk.CTkFrame(self.config_frame)
-        self.map_frame.pack(fill="x", pady=5)
+        self.btn_view_new = ctk.CTkButton(top_audit, text="✨ Productos Nuevos (0)",
+                                        width=150, fg_color="#444444", command=lambda: self.switch_view("new"))
+        self.btn_view_new.grid(row=0, column=1)
 
-        self.btn_process_file = ctk.CTkButton(self.map_frame, text="Agente IA: Analizar Estructura y Extraer", font=("Roboto", 14, "bold"), command=self.process_file, fg_color="green", height=40)
-        self.btn_process_file.pack(side="right", padx=10, pady=10)
+        self.entry_search = ctk.CTkEntry(
+            top_audit, placeholder_text="🔍 Filtrar por código, marca o descripción...", width=300)
+        self.entry_search.grid(row=0, column=3, sticky="e")
+        self.entry_search.bind("<KeyRelease>", self.filter_treeview)
 
-        self.btn_select_all_sheets = ctk.CTkButton(self.map_frame, text="Seleccionar Todas las Pestañas", command=self.select_all_sheets)
-        self.btn_select_all_sheets.pack(side="left", padx=10, pady=10)
+        # Treeview
+        columns = ("sku", "prov", "cod", "desc", "marca",
+                "costo_ant", "costo_nvo", "var")
+        self.tree = ttk.Treeview(
+            self.audit_frame, columns=columns, show="headings", height=15)
 
-        # Tabs container
-        self.sheets_frame = ctk.CTkScrollableFrame(self.config_frame, height=200)
-        self.sheets_frame.pack(fill="both", expand=True, pady=5)
-        self.sheet_vars = {}
+        self.tree.heading("sku", text="SKU")
+        self.tree.heading("prov", text="Proveedor")
+        self.tree.heading("cod", text="Cód. Prov.")
+        self.tree.heading("desc", text="Descripción")
+        self.tree.heading("marca", text="Marca")
+        self.tree.heading("costo_ant", text="Costo Ant.")
+        self.tree.heading("costo_nvo", text="Costo Nvo.")
+        self.tree.heading("var", text="% Var")
 
-        # Temp list for processing results
-        self.extracted_data = []
-        self.current_file = None
-        self.current_file_type = None
-        self.excel_data = None # Dictionary of DataFrames
+        self.tree.column("sku", width=100)
+        self.tree.column("prov", width=80)
+        self.tree.column("cod", width=100)
+        self.tree.column("desc", width=300)
+        self.tree.column("marca", width=100)
+        self.tree.column("costo_ant", width=80, anchor="e")
+        self.tree.column("costo_nvo", width=80, anchor="e")
+        self.tree.column("var", width=60, anchor="e")
 
-    def save_api_key(self):
-        self.api_key = self.entry_api_key.get().strip()
-        self.save_config()
-        messagebox.showinfo("Éxito", "Gemini API Key guardada en config.json")
+        # Treeview style
+        style = ttk.Style()
+        style.theme_use("default")
+        style.configure("Treeview", background="#2b2b2b", foreground="white", rowheight=25,
+                        fieldbackground="#2b2b2b", bordercolor="#343638", borderwidth=0)
+        style.map('Treeview', background=[('selected', '#22559b')])
+        style.configure("Treeview.Heading", background="#1f1f1f",
+                        foreground="white", relief="flat")
+        style.map("Treeview.Heading", background=[('active', '#343638')])
 
-    def select_all_sheets(self):
-        for var in self.sheet_vars.values():
-            var.set(True)
+        scrollbar = ttk.Scrollbar(
+            self.audit_frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscroll=scrollbar.set)
 
-    def setup_audit_tab(self):
-        self.audit_tabview = ctk.CTkTabview(self.tab_audit)
-        self.audit_tabview.pack(fill="both", expand=True, padx=10, pady=10)
+        self.tree.grid(row=1, column=0, sticky="nsew", padx=(10, 0))
+        scrollbar.grid(row=1, column=1, sticky="ns", padx=(0, 10))
 
-        self.tab_audit_updates = self.audit_tabview.add("Actualizaciones de Precio (Existentes)")
-        self.tab_audit_new = self.audit_tabview.add("Productos Nuevos Detectados")
+        # Footer
+        footer = ctk.CTkFrame(self.audit_frame, fg_color="transparent")
+        footer.grid(row=2, column=0, columnspan=2,
+                    sticky="ew", padx=10, pady=10)
+        footer.grid_columnconfigure(0, weight=1)
 
-        # Updates Treeview
-        columns_updates = ('SKU', 'Cod. Prov.', 'Descripción', 'Costo Ant.', 'Costo Nvo.', 'Var. %')
-        self.tree_updates = ttk.Treeview(self.tab_audit_updates, columns=columns_updates, show='headings')
-        for col in columns_updates:
-            self.tree_updates.heading(col, text=col)
-            self.tree_updates.column(col, width=120)
-        self.tree_updates.pack(fill="both", expand=True, pady=5)
+        self.lbl_summary = ctk.CTkLabel(
+            footer, text="Total extraído: 0 productos | 0 para actualizar | 0 nuevos", font=("Roboto", 12))
+        self.lbl_summary.grid(row=0, column=0, sticky="w")
 
-        # New Treeview
-        columns_new = ('Proveedor', 'Cod. Prov.', 'Descripción', 'Marca', 'Costo')
-        self.tree_new = ttk.Treeview(self.tab_audit_new, columns=columns_new, show='headings')
-        for col in columns_new:
-            self.tree_new.heading(col, text=col)
-            self.tree_new.column(col, width=120)
-        self.tree_new.pack(fill="both", expand=True, pady=5)
+        self.btn_export = ctk.CTkButton(footer, text="💾 Exportar Excel Unificado (.xlsx)", fg_color="#198754",
+                                        hover_color="#146c43", font=("Roboto", 13, "bold"), command=self.export_excel)
+        self.btn_export.grid(row=0, column=1, sticky="e")
 
-        # Tracking lists for DB Upsert
-        self.audit_updates_list = []
-        self.audit_new_list = []
-
-    def setup_export_tab(self):
-        self.export_frame = ctk.CTkFrame(self.tab_export)
-        self.export_frame.pack(fill="both", expand=True, padx=10, pady=10)
-
+        # Include a checkbox to include new products in export
         self.chk_var_new = tk.BooleanVar(value=True)
-        self.chk_new = ctk.CTkCheckBox(self.export_frame, text="Incluir Productos Nuevos (Crear SKUs)", variable=self.chk_var_new)
-        self.chk_new.pack(pady=20)
+        self.chk_include_new = ctk.CTkCheckBox(
+            footer, text="Incluir Nuevos", variable=self.chk_var_new)
+        self.chk_include_new.grid(row=0, column=2, sticky="e", padx=(15, 0))
 
-        self.btn_export_excel = ctk.CTkButton(self.export_frame, text="Exportar Excel Limpio y Unificado (Para Sistema de Gestión)", font=("Roboto", 16, "bold"), height=50, command=self.export_excel, fg_color="green")
-        self.btn_export_excel.pack(pady=15, fill="x", padx=50)
+    def switch_view(self, mode):
+        self.current_view_mode = mode
+        if mode == "updates":
+            self.btn_view_updates.configure(fg_color="#0056b3")
+            self.btn_view_new.configure(fg_color="#444444")
+            self.tree.column("costo_ant", minwidth=80, width=80, stretch=False)
+            self.tree.column("var", minwidth=60, width=60, stretch=False)
+            self.tree.heading("costo_nvo", text="Costo Nvo.")
+        else:
+            self.btn_view_updates.configure(fg_color="#444444")
+            self.btn_view_new.configure(fg_color="#0056b3")
+            self.tree.column("costo_ant", minwidth=0, width=0, stretch=False)
+            self.tree.column("var", minwidth=0, width=0, stretch=False)
+            self.tree.heading("costo_nvo", text="Costo Final")
 
-        self.btn_apply_db = ctk.CTkButton(self.export_frame, text="Guardar en Historial del Unificador (Base Propia)", command=self.apply_db_changes)
-        self.btn_apply_db.pack(pady=10)
+        self.filter_treeview()  # Re-render current list
+
+    def load_file(self):
+        file_path = filedialog.askopenfilename(filetypes=[(
+            "Listas de Precios", "*.xlsx *.xls *.pdf"), ("Excel", "*.xlsx *.xls"), ("PDF", "*.pdf")])
+        if not file_path: return
+
+        self.current_file = file_path
+        filename = os.path.basename(file_path)
+
+        # Auto-fill provider if empty
+        if not self.entry_proveedor.get().strip():
+            # Basic cleanup of filename for provider name
+            prov_name = re.sub(r'\.(pdf|xlsx|xls)$', '',
+                            filename, flags=re.IGNORECASE)
+            prov_name = re.sub(r'[-_\d]+', ' ', prov_name).strip().upper()
+            if len(prov_name) > 15:
+                prov_name = prov_name[:15]
+            self.entry_proveedor.insert(0, prov_name)
+
+        if filename.lower().endswith('.pdf'):
+            self.current_file_type = 'pdf'
+
+            # Update dynamic panel
+            self.sheets_container.grid_forget()
+            self.lbl_pdf_notice.configure(
+                text=f"📄 Archivo PDF listo para procesar: {filename}")
+            self.lbl_pdf_notice.pack(side="left", padx=10, pady=5)
+
+            import PyPDF2
+            try:
+                with open(file_path, 'rb') as f:
+                    reader = PyPDF2.PdfReader(f)
+                    pages = len(reader.pages)
+                    self.lbl_pdf_notice.configure(
+                        text=f"📄 Archivo PDF listo para procesar: {filename} ({pages} páginas)")
+            except:
+                pass
+
+        else:
+            self.current_file_type = 'excel'
+            self.lbl_pdf_notice.pack_forget()
+
+            try:
+                xl = pd.ExcelFile(file_path)
+                self.excel_data = {}
+
+                # Clear previous sheets
+                for widget in self.sheets_container.winfo_children():
+                    widget.destroy()
+                self.sheet_vars.clear()
+
+                self.sheets_container.grid(row=0, column=0, sticky="ew")
+
+                btn_toggle_all = ctk.CTkButton(
+                    self.sheets_container, text="Marcar Todas", width=100, fg_color="#555", command=self.select_all_sheets)
+                btn_toggle_all.pack(side="left", padx=10)
+
+                for sheet in xl.sheet_names:
+                    df = pd.read_excel(xl, sheet_name=sheet, header=None)
+                    df = df.dropna(how='all')
+                    self.excel_data[sheet] = df
+
+                    var = tk.BooleanVar(value=True)
+                    chk = ctk.CTkCheckBox(
+                        self.sheets_container, text=sheet, variable=var)
+                    chk.pack(side="left", padx=10, pady=5)
+                    self.sheet_vars[sheet] = var
+
+            except Exception as e:
+                messagebox.showerror(
+                    "Error", f"No se pudo cargar el Excel: {e}")
+
+    def filter_treeview(self, event=None):
+        search_term = self.entry_search.get().strip().lower()
+
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        target_list = self.audit_updates_list if self.current_view_mode == "updates" else self.audit_new_list
+
+        for item in target_list:
+            if search_term:
+                search_string = f"{item.get('codigo_proveedor', '')} {item.get('descripcion', '')} {item.get('marca', '')} {item.get('sku_interno', '')} {item.get('proveedor', '')}".lower()
+                if search_term not in search_string:
+                    continue
+
+            if self.current_view_mode == "updates":
+                self.tree.insert("", "end", values=(
+                    item.get('sku_interno', ''),
+                    item.get('proveedor', ''),
+                    item.get('codigo_proveedor', ''),
+                    item.get('descripcion', ''),
+                    item.get('marca', ''),
+                    f"${item.get('costo_ant', 0.0):.2f}",
+                    f"${item.get('costo_nvo', 0.0):.2f}",
+                    f"{item.get('variacion', 0.0):.1f}%"
+                ))
+            else:
+                self.tree.insert("", "end", values=(
+                    "NUEVO",
+                    item.get('proveedor', ''),
+                    item.get('codigo_proveedor', ''),
+                    item.get('descripcion', ''),
+                    item.get('marca', ''),
+                    "",
+                    f"${item.get('costo_neto', 0.0):.2f}",
+                    ""
+                ))
+
 
     def auto_connect_master_db(self):
         # 1. Check Config
@@ -540,21 +864,18 @@ class App(ctk.CTk):
                 self.load_master_index_db(path)
                 return
 
+
     def update_master_banner(self, text=None, is_error=False, detected_cols=None):
-        if not hasattr(self, 'lbl_master_info'): return
+        if not hasattr(self, 'lbl_master_status'): return
 
         if text:
-            color = "#ff6b6b" if is_error else "white"
-            self.lbl_master_info.configure(text=text, text_color=color)
-        elif hasattr(self, 'last_master_table_name') and self.last_master_table_name:
-            count = len(self.mapa_por_sku_sufijo)
-            col_info = f"Columnas: {detected_cols}" if detected_cols else ""
-            msg = f"✅ Base Barter Plus Conectada (Solo Lectura): Tabla '{self.last_master_table_name}' | {count} productos cargados | {col_info}"
-            self.lbl_master_info.configure(text=msg, text_color="#2ecc71")
-        elif len(self.mapa_por_sku_sufijo) > 0:
-            count = len(self.mapa_por_sku_sufijo)
-            msg = f"✅ Padrón Excel Conectado: {count} productos cargados"
-            self.lbl_master_info.configure(text=msg, text_color="#2ecc71")
+            color = "#ff4444" if is_error else "#00cc66"
+            self.lbl_master_status.configure(text=text, text_color=color)
+        elif self.master_db_path:
+            count = len(self.master_lookup) if hasattr(self, 'master_lookup') else sum(len(v) for v in self.mapa_por_cod_prov.values())
+            self.lbl_master_status.configure(text=f"🟢 Base Barter Plus (Solo Lectura): {count} productos", text_color="#00cc66")
+        else:
+            self.lbl_master_status.configure(text="🔴 Sin Conexión", text_color="#ffcc00")
 
     def link_master_db(self):
         file_path = filedialog.askopenfilename(filetypes=[("SQLite DB", "*.db *.sqlite *.sqlite3 *")])
@@ -640,18 +961,18 @@ class App(ctk.CTk):
             # Just store history locally
             for item in self.audit_updates_list:
                 c.execute('''INSERT INTO historial_unificador
-                             (sku_interno, proveedor, codigo_proveedor, descripcion, marca, costo_neto, fecha_actualizacion)
-                             VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                          (item['sku_interno'], item.get('proveedor', ''), item['codigo_proveedor'], item['descripcion'], item['marca'], item['costo_nvo'], now))
+                            (sku_interno, proveedor, codigo_proveedor, descripcion, marca, costo_neto, fecha_actualizacion)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                        (item['sku_interno'], item.get('proveedor', ''), item['codigo_proveedor'], item['descripcion'], item['marca'], item['costo_nvo'], now))
                 inserts += 1
 
             if self.chk_var_new.get():
                 for item in self.audit_new_list:
                     sku = self.generate_sku(item['proveedor'], item['codigo_proveedor'], item['marca'], item['descripcion'])
                     c.execute('''INSERT INTO historial_unificador
-                                 (sku_interno, proveedor, codigo_proveedor, descripcion, marca, costo_neto, fecha_actualizacion)
-                                 VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                              (sku, item['proveedor'], item['codigo_proveedor'], item['descripcion'], item['marca'], item['costo_neto'], now))
+                                (sku_interno, proveedor, codigo_proveedor, descripcion, marca, costo_neto, fecha_actualizacion)
+                                VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                            (sku, item['proveedor'], item['codigo_proveedor'], item['descripcion'], item['marca'], item['costo_neto'], now))
                     inserts += 1
 
             conn.commit()
@@ -1536,112 +1857,79 @@ MUESTRA GRILLA (Pestaña: {sheet_name}):
         except ValueError:
             return math.nan
 
-    def populate_audit_tables(self):
-        # Clear previous tables
-        for item in self.tree_updates.get_children():
-            self.tree_updates.delete(item)
-        for item in self.tree_new.get_children():
-            self.tree_new.delete(item)
 
+    def populate_audit_tables(self):
         self.audit_updates_list.clear()
         self.audit_new_list.clear()
 
-        # Deduplicate incoming data by keeping latest cost
-        dedup_extracted = {}
         for item in self.extracted_data:
-            key = f"{item['proveedor']}_{item['codigo_proveedor']}_{item['descripcion']}"
-            dedup_extracted[key] = item
+            prov = item['proveedor']
+            cod = item['codigo_proveedor']
+            desc = item['descripcion']
+            marca = item['marca']
+            costo = item['costo_neto']
 
-        for key, incoming in dedup_extracted.items():
-            cod_raw = str(incoming['codigo_proveedor']).strip()
-            desc_raw = str(incoming['descripcion']).strip()
+            # Double Lock Check
+            match_sku = None
+            match_data = None
 
-            cod_norm = cod_raw.upper().replace(" ", "") if cod_raw else ""
-            desc_norm = re.sub(r'\s+', ' ', desc_raw.upper()) if desc_raw else ""
+            candidates = []
+            if prov in self.mapa_por_cod_prov and cod in self.mapa_por_cod_prov[prov]:
+                candidates.extend(self.mapa_por_cod_prov[prov][cod])
 
-            existing = None
+            cod_suffix = str(cod).split('-')[-1].upper()
+            if cod_suffix in self.mapa_por_sku_sufijo:
+                candidates.extend(self.mapa_por_sku_sufijo[cod_suffix])
 
             def validate_match(candidate):
-                if not candidate: return False
-                # Must pass semantic check OR prefix check
-                # If code is short (<= 4 chars), enforce strict semantic check regardless of prefix
-                cod_len = len(cod_raw)
-
-                is_semantic = self._is_semantic_match(incoming['descripcion'], candidate['descripcion'])
-                is_prefix = self._is_prefix_match(incoming['proveedor'], incoming['marca'], candidate['sku_interno'])
-
-                if cod_len <= 4:
-                    return is_semantic
-
-                if is_semantic or is_prefix:
+                sku_cand = candidate['sku_interno']
+                # Prefijos y semantica
+                if self._is_prefix_match(prov, marca, sku_cand):
                     return True
-
+                if self._is_semantic_match(desc, candidate['descripcion']):
+                    return True
                 return False
 
-            # 1. Match by Codigo Proveedor
-            if cod_norm and cod_norm in self.mapa_por_cod_prov:
-                candidate = self.mapa_por_cod_prov[cod_norm]
-                if validate_match(candidate):
-                    existing = candidate
+            for cand in candidates:
+                if validate_match(cand):
+                    match_sku = cand['sku_interno']
+                    match_data = cand
+                    break
 
-            # 2. Match by SKU Suffix (if not found by code)
-            if not existing and cod_norm and cod_norm in self.mapa_por_sku_sufijo:
-                candidate = self.mapa_por_sku_sufijo[cod_norm]
-                if validate_match(candidate):
-                    existing = candidate
+            if not match_sku and desc in self.mapa_por_descripcion:
+                match_sku = self.mapa_por_descripcion[desc]['sku_interno']
+                match_data = self.mapa_por_descripcion[desc]
 
-            # 3. Match by Exact Description (Ultimate Fallback)
-            if not existing and desc_norm and desc_norm in self.mapa_por_descripcion:
-                existing = self.mapa_por_descripcion[desc_norm]
-
-            if existing:
-                # Existing product
-                costo_ant = existing['costo_neto'] or 0.0
-                costo_nvo = incoming['costo_neto']
-
-                var_pct = 0.0
+            if match_sku:
+                costo_ant = match_data.get('costo_neto', 0.0)
+                var = 0.0
                 if costo_ant > 0:
-                    var_pct = ((costo_nvo - costo_ant) / costo_ant) * 100
-
-                desc_limpia = self.limpiar_descripcion_final(existing['descripcion'], existing['codigo_proveedor'])
+                    var = ((costo - costo_ant) / costo_ant) * 100
 
                 self.audit_updates_list.append({
-                    'sku_interno': existing['sku_interno'],
-                    'proveedor': existing['proveedor'],
-                    'codigo_proveedor': existing['codigo_proveedor'],
-                    'descripcion': desc_limpia,
-                    'marca': existing['marca'], # Original brand kept
+                    'sku_interno': match_sku,
+                    'proveedor': prov,
+                    'codigo_proveedor': cod,
+                    'descripcion': desc,
+                    'marca': marca,
                     'costo_ant': costo_ant,
-                    'costo_nvo': costo_nvo,
-                    'var_pct': var_pct
+                    'costo_nvo': costo,
+                    'variacion': var
                 })
-
-                # Format for display
-                var_str = f"{var_pct:+.2f}%"
-                self.tree_updates.insert('', 'end', values=(
-                    existing['sku_interno'],
-                    existing['codigo_proveedor'],
-                    desc_limpia,
-                    f"${costo_ant:,.2f}",
-                    f"${costo_nvo:,.2f}",
-                    var_str
-                ))
             else:
-                # New product
-                desc_limpia_nvo = self.limpiar_descripcion_final(incoming['descripcion'], incoming['codigo_proveedor'])
-                incoming['descripcion'] = desc_limpia_nvo
+                self.audit_new_list.append(item)
 
-                self.audit_new_list.append(incoming)
-                self.tree_new.insert('', 'end', values=(
-                    incoming['proveedor'],
-                    incoming['codigo_proveedor'],
-                    desc_limpia_nvo,
-                    incoming['marca'],
-                    f"${incoming['costo_neto']:,.2f}"
-                ))
+        # Update summary labels
+        total_extracted = len(self.extracted_data)
+        total_upd = len(self.audit_updates_list)
+        total_new = len(self.audit_new_list)
 
-        # Switch to Audit tab to show results
-        self.tabview.set("2. Auditoría Pre-Guardado")
+        if hasattr(self, 'lbl_summary'):
+            self.lbl_summary.configure(text=f"Total extraído: {total_extracted} productos | {total_upd} para actualizar | {total_new} nuevos")
+            self.btn_view_updates.configure(text=f"🔄 Actualizaciones ({total_upd})")
+            self.btn_view_new.configure(text=f"✨ Productos Nuevos ({total_new})")
+
+        self.filter_treeview()
 
 if __name__ == "__main__":
     app = App()
