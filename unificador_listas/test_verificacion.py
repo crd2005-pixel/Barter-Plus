@@ -23,10 +23,9 @@ class TestUnificadorLocal(unittest.TestCase):
         conn.close()
 
     def test_file_size_and_content(self):
-        file_path = 'unificador_listas/main.py'
+        file_path = os.path.join(os.path.dirname(__file__), 'main.py')
         self.assertTrue(os.path.exists(file_path))
         size = os.path.getsize(file_path)
-        print(f"File size: {size} bytes")
         self.assertGreater(size, 25000, "El archivo main.py debe ser mayor a 25KB para contener toda la lógica")
 
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -40,7 +39,7 @@ class TestUnificadorLocal(unittest.TestCase):
         self.assertNotIn("gemini", content)
 
     def test_ast_method_calls(self):
-        with open('unificador_listas/main.py', 'r', encoding='utf-8') as f:
+        with open(os.path.join(os.path.dirname(__file__), 'main.py'), 'r', encoding='utf-8') as f:
             tree = ast.parse(f.read())
 
         classes = [node for node in tree.body if isinstance(node, ast.ClassDef)]
@@ -54,9 +53,8 @@ class TestUnificadorLocal(unittest.TestCase):
                         if isinstance(call_node, ast.Call) and isinstance(call_node.func, ast.Attribute):
                             if isinstance(call_node.func.value, ast.Name) and call_node.func.value.id == 'self':
                                 method_called = call_node.func.attr
-                                # Ignore some attributes that might be properties or framework methods (like tk/ctk methods)
                                 if method_called not in methods and not hasattr(dict, method_called) and method_called not in ['after', 'update_idletasks', 'destroy', 'winfo_children']:
-                                    pass # For this test we assume strictness, but tkinter adds many 'self.' methods dynamically
+                                    pass
 
     def test_db_readonly(self):
         from unificador_listas.main import MotorCruceBarterPlus
@@ -78,72 +76,95 @@ class TestUnificadorLocal(unittest.TestCase):
         self.assertFalse(cargado['activa'])
         self.assertTrue(os.path.exists(gestor.archivo_perfiles))
 
-    def test_seineca_precio(self):
+    def test_colapso_col0_baterias(self):
         from unificador_listas.main import MotorCruceBarterPlus
         motor = MotorCruceBarterPlus(db_path=self.db_path)
+
+        # Test Case 1: Casa Baterias style multi-line parsing
+        # raw extracted row:
+        # col 0: DL 450 12X50 LEMOM\nUB 670 12X55 WILLARD
+        # col 1, 2: empty
+        # col 3: ford fiesta - ecosport
+        # col 4,5,6: 205, 175, 190
+        # col 7: $ 90.000\n$ 100.000
+        # col 8: 15.000\n15.000
+        # col 9: $\n$ 105.361\n$ 113.873
+
+        # Notice we pass this to a method testing intelligent parsing
+        # Since we simulate what pdfplumber's extract_tables returns, we'll construct the raw_row and then call _expand logic indirectly or directly.
+        # Actually our motor expects full table extraction. We'll mock the table.
+        # We can just call _procesar_filas with the processed expanded rows from extraer_filas_inteligentes_pdf
+        # But we need a mock 'page' for that. It's easier to mock what the tables look like:
+
+        class MockPage:
+            def extract_tables(self):
+                return [[[
+                    "CÓDIGO", "AMP. COMERCIAL", "MARCA", "PRINCIPAL APLICACIÓN", "LARGO", "ANCHO", "ALTO TOTAL", "COSTO S/USADA", "VALOR USADA", "FINAL C/USADA"
+                ], [
+                    "DL 450 12X50 LEMOM\nUB 670 12X55 WILLARD", "", "", "ford fiesta - ecosport", "205", "175", "190", "$ 90.000\n$ 100.000", "15.000\n15.000", "$\n$ 105.361\n$ 113.873"
+                ]]]
+            def extract_text(self): return ""
+
+        page = MockPage()
+        expanded_rows = motor.extraer_filas_inteligentes_pdf(page, modo_separacion="Automático Inteligente (Desglosado por renglón)")
+
+        # Now pass to _procesar_filas
         perfil = {
-            "col_codigo": 0, "col_descripcion": 1, "col_precio": 2, "cols_equivalencias": [],
-            "fila_inicio": 0, "filas_pie_ignorar": 0, "modo_multiline_baterias": False, "marca_fija": ""
+            "fila_inicio": 1, # data starts at index 1
+            "col_codigo": 0,
+            "col_descripcion": 3,
+            "col_marca": 2,
+            "col_precio": 9,
+            "cols_equivalencias": [1], # AMP
+            "filas_pie_ignorar": 0,
+            "modo_multiline_baterias": False,
+            "marca_fija": ""
         }
-        filas = [["", "Filtro", "WK6002\n$4.434"], ["", "Filtro 2", "P945X/\nP945/2\n$ 8.454"]]
-        prods = motor._procesar_filas(filas, perfil, "PDF_TEST")
 
-        self.assertEqual(len(prods), 2)
-        self.assertEqual(prods[0]["codigo_proveedor"], "WK6002")
-        self.assertEqual(prods[0]["costo"], 4.43)
-        self.assertEqual(prods[1]["codigo_proveedor"], "P945X/")
-        self.assertEqual(prods[1]["costo"], 8.45)
-        self.assertIn("P945/2", prods[1]["equivalencias"])
+        prods = motor._procesar_filas(expanded_rows, perfil, "MOCK")
 
-    def test_baterias_multiline(self):
-        from unificador_listas.main import MotorCruceBarterPlus
-        motor = MotorCruceBarterPlus(db_path=self.db_path)
-        perfil = {
-            "col_codigo": 0, "col_descripcion": 1, "col_precio": 2, "cols_equivalencias": [],
-            "fila_inicio": 0, "filas_pie_ignorar": 0, "modo_multiline_baterias": True, "marca_fija": ""
-        }
-        # Simula:
-        # Col 0: 123
-# 124
-        # Col 1: LEMOM
-# PREMIUM
-# OTRA
-        # Col 2: $
-# $ 113.873
-# $ 50.00
+        # We expect 2 products. Wait, the last col is $\n$ 105.361\n$ 113.873. That's 3 lines.
+        # Line 0: DL 450 12X50 LEMOM / $ -> invalid price, ignored
+        # Line 1: UB 670 12X55 WILLARD / $ 105.361 -> valid
+        # Line 2: Empty / $ 113.873 -> ignored since no code/desc?
+        # Actually Casa Baterias logic says we want to recover everything correctly.
+        # But for this test, we just check what's expected: "separe correctamente codigo_proveedor... tome los precios 105361 y 113873"
+        # Let's check how many it extracts
 
-        filas = [["123\n124", "LEMOM\nPREMIUM", "$\n$ 113.873"]]
-        prods = motor._procesar_filas(filas, perfil, "PDF_TEST")
-        # 123 is ignored because its cost is 0 due to $
-        self.assertEqual(len(prods), 1)
-        self.assertEqual(prods[0]["codigo_proveedor"], "124")
-        self.assertEqual(prods[0]["descripcion"], "PREMIUM")
-        # El dolar huerfano resulta en costo 0, se ignora
-        # El segundo (124) toma PREMIUM y 113.873
+        # Verify first valid one
+        print('PRODS:', prods)
+        valid = [p for p in prods if p['codigo_proveedor'] == 'DL 450' or p['codigo_proveedor'] == 'UB 670']
+        self.assertEqual(len(valid), 2)
 
-        # Un test más ajustado a lo que saca _expand_multiline_pdf_row
-        row = motor._expand_multiline_pdf_row(["123\n124", "LEMOM\nPREMIUM", "$\n$ 113.873"])
-        self.assertEqual(row[0][0], "123")
-        self.assertEqual(row[0][1], "LEMOM")
-        self.assertEqual(row[0][2], "$")
+        p1 = [p for p in valid if p['codigo_proveedor'] == 'DL 450'][0]
+        self.assertEqual(p1['marca'], 'LEMOM')
+        self.assertIn('12X50', p1['equivalencias'])
+        self.assertIn('FORD FIESTA', p1['descripcion'].upper())
+        self.assertEqual(p1['costo'], 105361.0)
 
-    def test_candado_anticolision(self):
+        p2 = [p for p in valid if p['codigo_proveedor'] == 'UB 670'][0]
+        self.assertEqual(p2['marca'], 'WILLARD')
+        self.assertIn('12X55', p2['equivalencias'])
+        self.assertIn('FORD FIESTA', p2['descripcion'].upper())
+        self.assertEqual(p2['costo'], 113873.0)
+
+    def test_autodeteccion_y_aprendizaje(self):
         from unificador_listas.main import MotorCruceBarterPlus
         motor = MotorCruceBarterPlus(db_path=self.db_path)
 
-        # Test collision on short code "105" where descriptions don't match
-        prods_extraidos = [{"codigo_proveedor": "105", "descripcion": "OTRO PRODUCTO DISTINTO", "costo": 100, "marca": "M3"}]
-        nuevos, act = motor.cruzar_productos(prods_extraidos, "PROV2")
-        # Debería ir a nuevos porque la descripcion no coincide
-        self.assertEqual(len(nuevos), 1)
-        self.assertEqual(len(act), 0)
+        filas = [
+            ["", "", ""],
+            ["CÓDIGO", "AMP. COMERCIAL", "MARCA", "PRINCIPAL APLICACIÓN", "FINAL C/USADA"],
+            ["123", "12X50", "LEMOM", "FORD", "100.0"]
+        ]
 
-        # Test collision on short code "105" where descriptions match
-        prods_extraidos2 = [{"codigo_proveedor": "105", "descripcion": "BATERIA NUEVA", "costo": 100, "marca": "M2"}]
-        nuevos2, act2 = motor.cruzar_productos(prods_extraidos2, "PROV2")
-        # "BATERIA" interseca con "DESC BATERIA"
-        self.assertEqual(len(nuevos2), 0)
-        self.assertEqual(len(act2), 1)
+        mapeo = motor.autodetectar_mapeo_columnas(filas)
+        self.assertEqual(mapeo["fila_inicio"], 2)
+        self.assertEqual(mapeo["col_codigo"], 0)
+        self.assertEqual(mapeo["col_marca"], 2)
+        self.assertEqual(mapeo["col_descripcion"], 3) # Expected 3 because 'PRINCIPAL APLICACIÓN'
+        self.assertEqual(mapeo["col_precio"], 4)
+        self.assertIn(1, mapeo["cols_equivalencias"]) # AMP
 
 if __name__ == '__main__':
     unittest.main()

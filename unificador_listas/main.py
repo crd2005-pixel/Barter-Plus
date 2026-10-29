@@ -7,7 +7,7 @@ import pandas as pd
 import pdfplumber
 import customtkinter as ctk
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, Menu
 import threading
 import math
 import time
@@ -18,7 +18,6 @@ def limpiar_precio_argentino(valor_crudo):
             return float(valor_crudo)
         except (ValueError, TypeError):
             return 0.0
-    import re
     s = re.sub(r'[^\d.,]', '', str(valor_crudo).strip())
     if not s: return 0.0
 
@@ -113,8 +112,11 @@ class GestorPerfilesEntrenamiento:
             "filas_pie_ignorar": 0,
             "paginas_ignoradas": [],
             "modo_multiline_baterias": False,
-            "marca_fija": ""
+            "marca_fija": "",
+            "modo_lectura_pdf": "Automático Inteligente (Desglosado por renglón)",
+            "nombres_cabecera_aprendidos": {}
         }
+
 
 class MotorCruceBarterPlus:
     def __init__(self, db_path=None):
@@ -130,8 +132,6 @@ class MotorCruceBarterPlus:
             conn = sqlite3.connect(db_uri, uri=True)
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            # Intenta cargar de inventario_maestro o productos
-            # Como barterplus principal, asumimos tabla productos
             try:
                 cursor.execute("SELECT id, codigo_proveedor, descripcion, marca, proveedor, equivalencias FROM productos")
                 for row in cursor.fetchall():
@@ -142,91 +142,247 @@ class MotorCruceBarterPlus:
         except sqlite3.OperationalError as e:
             print(f"Error al cargar DB en modo RO: {e}")
 
-    def obtener_previsualizacion_cruda(self, ruta_archivo):
+    def obtener_previsualizacion_cruda(self, ruta_archivo, gestor_perfiles=None, proveedor=None):
         _, ext = os.path.splitext(ruta_archivo.lower())
         preview = {}
         if ext in ['.xlsx', '.xls']:
             try:
                 xls = pd.ExcelFile(ruta_archivo)
                 for sheet_name in xls.sheet_names:
-                    df = pd.read_excel(xls, sheet_name=sheet_name, nrows=60, header=None)
+                    df = pd.read_excel(xls, sheet_name=sheet_name, nrows=100, header=None)
                     df = df.fillna("")
                     preview[sheet_name] = df.astype(str).values.tolist()
             except Exception as e:
                 print(f"Error excel: {e}")
         elif ext == '.pdf':
             try:
+                perfil_general = gestor_perfiles.obtener_perfil(proveedor, "PDF", "GENERAL") if gestor_perfiles and proveedor else {}
+                modo = perfil_general.get("modo_lectura_pdf", "Automático Inteligente (Desglosado por renglón)")
+
                 with pdfplumber.open(ruta_archivo) as pdf:
                     for i, page in enumerate(pdf.pages):
-                        if i >= 60: break # Limitar max pages previsualizadas
-                        tables = page.extract_tables()
-                        rows = []
-                        if tables:
-                            for table in tables:
-                                for row in table:
-                                    rows.append([str(c) if c is not None else "" for c in row])
+                        if i >= 60: break
+                        if modo == "Tablas Crudas Originales":
+                            tables = page.extract_tables()
+                            rows = []
+                            if tables:
+                                for table in tables:
+                                    for row in table:
+                                        rows.append([str(c) if c is not None else "" for c in row])
+                            else:
+                                text = page.extract_text()
+                                if text:
+                                    for line in text.split('\n'):
+                                        rows.append(re.split(r'\s{2,}', line))
+                            preview[f"Página {i+1}"] = rows[:100]
                         else:
-                            text = page.extract_text()
-                            if text:
-                                for line in text.split('\n'):
-                                    rows.append(re.split(r'\s{2,}', line))
-                        preview[f"Página {i+1}"] = rows[:60]
+                            # Use new intelligent engine
+                            preview[f"Página {i+1}"] = self.extraer_filas_inteligentes_pdf(page, modo_separacion=modo)[:100]
             except Exception as e:
                 print(f"Error pdf: {e}")
         return preview
 
-    def _expand_multiline_pdf_row(self, cells):
-        expanded_rows = []
-        max_lines = 1
-        split_cells = []
-        for cell in cells:
-            parts = str(cell).split('\n')
-            max_lines = max(max_lines, len(parts))
-            split_cells.append(parts)
+    def _es_cabecera(self, row):
+        txt = " ".join([str(c).upper() for c in row if c])
+        keywords = ["CODIGO", "CÓDIGO", "DESCRIPCION", "DESCRIPCIÓN", "MARCA", "PRECIO", "COSTO", "FINAL", "AMP", "APLICACION"]
+        return sum(1 for k in keywords if k in txt) >= 2
 
-        for i in range(max_lines):
-            new_row = []
-            for parts in split_cells:
-                if i < len(parts):
-                    new_row.append(parts[i].strip())
+    def extraer_filas_inteligentes_pdf(self, page, modo_separacion="Automático Inteligente (Desglosado por renglón)"):
+        # Strategy 1: Coordinates
+        if modo_separacion == "Por Coordenadas de Cabecera (Sin bordes)":
+            words = page.extract_words(keep_blank_chars=False, x_tolerance=2, y_tolerance=2)
+            if not words: return []
+
+            # Find rows
+            words.sort(key=lambda w: (w['top'], w['x0']))
+
+            rows_by_top = []
+            current_row = []
+            current_top = words[0]['top']
+
+            for w in words:
+                if abs(w['top'] - current_top) > 3:
+                    if current_row: rows_by_top.append(current_row)
+                    current_row = [w]
+                    current_top = w['top']
                 else:
-                    new_row.append(parts[-1].strip() if parts else "")
+                    current_row.append(w)
+            if current_row: rows_by_top.append(current_row)
 
-            # Limpieza para Casa Baterias (marcas partidas, dolares huerfanos)
-            # Unir marcas si el codigo es vacio o hay continuidad
-            if len(split_cells) >= 3 and i > 0:
-                # If there's an orphan price without code, let's look closer
-                # We simply want to merge lines!
-                pass
+            # Find header
+            header_row = None
+            cortes_x = []
+            for row in rows_by_top[:10]:
+                txt = " ".join([w['text'].upper() for w in row])
+                if sum(1 for k in ["CODIGO", "CÓDIGO", "DESCRIPCION", "MARCA", "PRECIO", "COSTO", "AMP", "APLICACION"] if k in txt) >= 2:
+                    header_row = row
+                    cortes_x = [w['x0'] for w in row]
+                    break
 
-            if new_row and new_row.count("$") > 0:
-                pass
+            if not cortes_x:
+                cortes_x = [0, 100, 200, 300, 400, 500] # Fallback
 
-            expanded_rows.append(new_row)
+            final_rows = []
+            for row in rows_by_top:
+                new_row = [""] * len(cortes_x)
+                for w in row:
+                    x0 = w['x0']
+                    col_idx = 0
+                    for i, cx in enumerate(cortes_x):
+                        if x0 >= cx - 10:
+                            col_idx = i
+                    new_row[col_idx] = (new_row[col_idx] + " " + w['text']).strip()
+                final_rows.append(new_row)
+            return final_rows
 
-        # Merge them correctly according to the prompt
-        merged = []
-        for row in expanded_rows:
-            if len(row) > 2 and (str(row[2]).strip() == "$" or str(row[2]).strip() == ""):
-                # orphan dollar sign, ignore line? No, we might need to merge it with previous or next.
-                # Actually Casa Baterias is like:
-                # LEMOM\nPREMIUM
-                # $\n$ 113.873
-                pass
+        # Strategy 2: Auto Desglosado (default)
+        tables = page.extract_tables()
+        if not tables:
+            text = page.extract_text()
+            if not text: return []
+            rows = []
+            for line in text.split('\n'):
+                rows.append(re.split(r'\s{2,}', line))
+            return rows
 
-        # Best approach to perfectly merge disjointed products:
-        # If code is empty and previous had code, merge description
+        raw_rows = []
+        for table in tables:
+            for row in table:
+                raw_rows.append([str(c) if c is not None else "" for c in row])
+
+        # Analyze if we have the Casa Baterias collapse problem
+        header_len = 0
+        for r in raw_rows[:10]:
+            if self._es_cabecera(r):
+                header_len = len([c for c in r if c])
+                break
+
         final_rows = []
-        for row in expanded_rows:
-            if not row[0].strip() and final_rows:
-                # Merge into previous
-                for j in range(1, len(row)):
-                    if row[j].strip() and row[j].strip() != "$":
-                        final_rows[-1][j] = str(final_rows[-1][j]) + " " + str(row[j]).strip()
-            else:
-                final_rows.append(row)
+        # Propagation variables
+        last_aplicacion = ""
 
-        return final_rows
+        for row in raw_rows:
+            if not any(row): continue
+
+            if self._es_cabecera(row):
+                final_rows.append(row)
+                continue
+
+            # Check if it's collapsed into col 0
+            if len([c for c in row if c]) == 1 and "\n" in row[0]:
+                pass # Proceed to multi-line expansion
+
+            # Find application column (heuristics)
+            aplic = ""
+            for c in row:
+                if len(str(c)) > 10 and not re.search(r'\d', str(c)) and " " in str(c):
+                    aplic = str(c).strip()
+            if aplic:
+                last_aplicacion = aplic
+
+            # Expand multiline
+            max_lines = 1
+            split_cells = []
+            for cell in row:
+                parts = str(cell).split('\n')
+                max_lines = max(max_lines, len(parts))
+                split_cells.append(parts)
+
+            for i in range(max_lines):
+                new_row = []
+                for parts in split_cells:
+                    if i < len(parts):
+                        new_row.append(parts[i].strip())
+                    else:
+                        new_row.append("")
+
+
+                # Casa Baterias pattern: DL 450 12X50 LEMOM
+                if new_row and new_row[0]:
+                    match = re.search(r'\b(\d{1,2}\s*[xX]\s*\d{2,3}[A-Z]?)\b', new_row[0])
+                    if match:
+                        amp = match.group(1)
+                        parts_cod = new_row[0].split(amp)
+                        cod = parts_cod[0].strip()
+                        marca = parts_cod[1].strip() if len(parts_cod) > 1 else ""
+                        new_row[0] = cod
+                        if len(new_row) > 1: new_row[1] = amp
+                        else: new_row.append(amp)
+                        if len(new_row) > 2: new_row[2] = marca
+                        else: new_row.append(marca)
+
+                if not any(len(str(c)) > 10 and " " in str(c) for c in new_row):
+                    if len(new_row) > 3:
+                        new_row[3] = last_aplicacion
+                    else:
+                        while len(new_row) < 3: new_row.append("")
+                        new_row.append(last_aplicacion)
+
+                final_rows.append(new_row)
+
+        # Post-process to remove orphan dollars and align with Casa Baterias
+        # 0: DL, 9: $
+        # 1: UB, 9: $ 105
+        # 2: "", 9: $ 113
+        # We need to shift prices up if the first was just $
+        cleaned_rows = []
+        for i, row in enumerate(final_rows):
+            if str(row[-1]).strip() == "$" and len(row) > 9:
+                row[-1] = ""
+            if not str(row[0]).strip() and str(row[-1]).strip() != "":
+                # Orphan price without code, try to shift it up to previous valid code if it doesn't have a price
+                # Or wait, Casa Baterias:
+                # Row 0: DL 450 ... $ 90.000 ... $
+                # Row 1: UB 670 ... $ 100.000 ... $ 105.361
+                # Row 2: "" ... 15.000 ... $ 113.873
+                # We need to assign prices properly.
+                # Actually simpler: If code is valid, and next row is orphan price, take that price.
+                pass
+            cleaned_rows.append(row)
+
+        # Let's do a smart realignment for Casa Baterias
+        # If we have 2 codes but 3 prices ($, $ 105, $ 113), the valid prices are the last 2.
+        # So assign them to the 2 codes.
+        codes = [r for r in cleaned_rows if str(r[0]).strip() and r[0].upper() not in ["CÓDIGO", "CODIGO", "ARTICULO"]]
+        prices = [str(r[-1]).strip() for r in cleaned_rows if str(r[-1]).strip() and str(r[-1]).strip() != "$"]
+
+        if len(codes) > 0 and len(codes) <= len(prices):
+            p_idx = len(prices) - len(codes)
+            for j, c in enumerate(codes):
+                c[-1] = prices[p_idx + j]
+
+        # To avoid duplicating header if it was processed, return cleaned_rows directly since codes are references to cleaned_rows elements!
+        # wait, we need to return the cleaned rows that have codes
+        return [r for r in cleaned_rows if str(r[0]).strip()]
+
+
+    def autodetectar_mapeo_columnas(self, filas):
+        mapeo = {
+            "fila_inicio": 1,
+            "col_codigo": None,
+            "col_descripcion": None,
+            "col_marca": None,
+            "col_precio": None,
+            "cols_equivalencias": []
+        }
+        for i, fila in enumerate(filas[:15]):
+            txt = " ".join([str(c).upper() for c in fila if c])
+            if sum(1 for k in ["CODIGO", "CÓDIGO", "ARTICULO", "DESCRIPCION", "MARCA", "PRECIO", "COSTO", "FINAL", "AMP", "APLICACION"] if k in txt) >= 2:
+                mapeo["fila_inicio"] = i + 1
+                for j, c in enumerate(fila):
+                    c_up = str(c).upper()
+                    if "CODIGO" in c_up or "CÓDIGO" in c_up or "ARTICULO" in c_up or "COD" == c_up:
+                        mapeo["col_codigo"] = j
+                    elif "MARCA" in c_up or "FABRICANTE" in c_up:
+                        mapeo["col_marca"] = j
+                    elif "DESCRIPCION" in c_up or "DESCRIPCIÓN" in c_up or "APLICACION" in c_up or "APLICACIÓN" in c_up or "DETALLE" in c_up:
+                        mapeo["col_descripcion"] = j
+                    elif "PRECIO" in c_up or "COSTO" in c_up or "FINAL" in c_up:
+                        mapeo["col_precio"] = j
+                    elif "AMP" in c_up or "EQUIVALENCIA" in c_up or "MANN" in c_up or "FRAM" in c_up:
+                        mapeo["cols_equivalencias"].append(j)
+                break
+        return mapeo
 
     def extraer_productos_con_perfil(self, ruta_archivo, proveedor, gestor_perfiles, modo_precio_baterias=False, hojas_seleccionadas_ui=None, callback_progreso=None):
         _, ext = os.path.splitext(ruta_archivo.lower())
@@ -252,6 +408,8 @@ class MotorCruceBarterPlus:
             try:
                 perfil_general = gestor_perfiles.obtener_perfil(proveedor, "PDF", "GENERAL")
                 paginas_ignoradas = set(gestor_perfiles.obtener_metadatos_pdf(proveedor))
+                modo = perfil_general.get("modo_lectura_pdf", "Automático Inteligente (Desglosado por renglón)")
+
                 with pdfplumber.open(ruta_archivo) as pdf:
                     total_paginas = len(pdf.pages)
                     for i, page in enumerate(pdf.pages):
@@ -260,17 +418,20 @@ class MotorCruceBarterPlus:
                         if page_num in paginas_ignoradas or page_num in perfil_general.get("paginas_ignoradas", []):
                             continue
 
-                        tables = page.extract_tables()
-                        rows = []
-                        if tables:
-                            for table in tables:
-                                for row in table:
-                                    rows.append([str(c) if c is not None else "" for c in row])
+                        if modo == "Tablas Crudas Originales":
+                            tables = page.extract_tables()
+                            rows = []
+                            if tables:
+                                for table in tables:
+                                    for row in table:
+                                        rows.append([str(c) if c is not None else "" for c in row])
+                            else:
+                                text = page.extract_text()
+                                if text:
+                                    for line in text.split('\n'):
+                                        rows.append(re.split(r'\s{2,}', line))
                         else:
-                            text = page.extract_text()
-                            if text:
-                                for line in text.split('\n'):
-                                    rows.append(re.split(r'\s{2,}', line))
+                            rows = self.extraer_filas_inteligentes_pdf(page, modo_separacion=modo)
 
                         prods = self._procesar_filas(rows, perfil_general, f"Página {page_num}")
                         productos.extend(prods)
@@ -293,20 +454,11 @@ class MotorCruceBarterPlus:
         cols_equiv = perfil.get("cols_equivalencias", [])
         marca_fija = perfil.get("marca_fija", "")
 
-        filas_reales = filas[fila_inicio:]
-        if filas_pie > 0:
+        filas_reales = filas[fila_inicio:] if fila_inicio < len(filas) else []
+        if filas_pie > 0 and len(filas_reales) > filas_pie:
             filas_reales = filas_reales[:-filas_pie]
 
-        # Si modo_baterias, procesar todas las filas multilinea
-        filas_procesar = []
-        if modo_baterias:
-            for fila in filas_reales:
-                if any('\n' in str(c) for c in fila):
-                    filas_procesar.extend(self._expand_multiline_pdf_row(fila))
-                else:
-                    filas_procesar.append(fila)
-        else:
-            filas_procesar = filas_reales
+        filas_procesar = filas_reales # El _expand ya se hizo inteligentemente, pero mantenemos por si acaso
 
         for fila in filas_procesar:
             if not fila: continue
@@ -324,7 +476,6 @@ class MotorCruceBarterPlus:
             equivs = [safe_get(c) for c in cols_equiv]
             equivs = [e for e in equivs if e]
 
-            # Caso Seineca: "WK6002\n$4.434"
             if "\n" in precio_str and "$" in precio_str:
                 parts = precio_str.split('\n')
                 new_precio = ""
@@ -337,10 +488,11 @@ class MotorCruceBarterPlus:
                     codigo = equivs.pop(0)
                 precio_str = new_precio
 
-            # Logica de limpieza
+            if desc and equivs:
+                desc = desc + " " + " ".join(equivs)
+
             costo = limpiar_precio_argentino(precio_str)
 
-            # Candado estricto
             if "$" in codigo: continue
             if codigo in ["175", "190", "205", "240", "275"]: continue
             if costo <= 0: continue
@@ -351,7 +503,7 @@ class MotorCruceBarterPlus:
                 "descripcion": desc,
                 "costo": costo,
                 "marca": marca,
-                "equivalencias": " | ".join(equivs),
+                "equivalencias": " | ".join(equivs) if equivs else "",
                 "origen": origen
             })
 
@@ -360,8 +512,6 @@ class MotorCruceBarterPlus:
     def cruzar_productos(self, productos_extraidos, proveedor):
         nuevos = []
         actualizaciones = []
-
-        # Mapa memoria
         mapa_prov = {}
         for p in self.productos_db:
             if str(p.get("proveedor", "")).upper() == proveedor.upper():
@@ -370,27 +520,21 @@ class MotorCruceBarterPlus:
 
         for prod in productos_extraidos:
             cod_extraido = str(prod["codigo_proveedor"]).strip().upper()
-
-            # Doble candado anti-colision para codigos cortos o numericos
             es_corto_o_num = len(cod_extraido) < 5 or cod_extraido.isdigit()
 
             if cod_extraido in mapa_prov:
                 db_prod = mapa_prov[cod_extraido]
                 if es_corto_o_num:
-                    # Validacion de descripcion o marca
                     desc_db = str(db_prod.get("descripcion", "")).upper()
                     desc_ext = prod["descripcion"].upper()
-                    # Aceptar si hay interseccion de palabras
                     palabras_ext = set(desc_ext.split())
                     palabras_db = set(desc_db.split())
                     if not palabras_ext.intersection(palabras_db):
                         nuevos.append(prod)
                         continue
-
                 actualizaciones.append({**prod, "id_db": db_prod.get("id")})
             else:
                 nuevos.append(prod)
-
         return nuevos, actualizaciones
 
 class ModalEntrenadorPrevisualizacion(ctk.CTkToplevel):
@@ -398,6 +542,7 @@ class ModalEntrenadorPrevisualizacion(ctk.CTkToplevel):
         super().__init__(master)
         self.title("👁️ Previsualizar y Entrenar Columnas")
         self.geometry("1100x700")
+        self.minsize(1000, 600)
         self.ruta_archivo = ruta_archivo
         self.proveedor = proveedor
         self.gestor_perfiles = gestor_perfiles
@@ -414,33 +559,44 @@ class ModalEntrenadorPrevisualizacion(ctk.CTkToplevel):
     def crear_ui(self):
         # Top Bar
         top_frame = ctk.CTkFrame(self)
-        top_frame.pack(fill="x", padx=10, pady=10)
+        top_frame.pack(fill="x", padx=10, pady=5)
 
-        ctk.CTkLabel(top_frame, text="Origen (Pestaña Excel o Página PDF):").pack(side="left", padx=5)
+        ctk.CTkLabel(top_frame, text="Origen:").pack(side="left", padx=5)
         self.cmb_origen = ctk.CTkComboBox(top_frame, values=[], command=self.on_origen_change)
         self.cmb_origen.pack(side="left", padx=5)
 
+        if self.tipo_archivo == "PDF":
+            ctk.CTkLabel(top_frame, text="Modo de Lectura:").pack(side="left", padx=10)
+            self.cmb_modo = ctk.CTkComboBox(top_frame, values=[
+                "Automático Inteligente (Desglosado por renglón)",
+                "Por Coordenadas de Cabecera (Sin bordes)",
+                "Tablas Crudas Originales"
+            ], width=350, command=self.on_modo_change)
+            self.cmb_modo.pack(side="left", padx=5)
+
         self.var_activa = tk.BooleanVar(value=True)
-        self.chk_activa = ctk.CTkCheckBox(top_frame, text="✅ Procesar esta Pestaña / Página como Lista Válida", variable=self.var_activa, command=self.on_activa_change)
+        self.chk_activa = ctk.CTkCheckBox(top_frame, text="✅ Lista Válida", variable=self.var_activa, command=self.on_activa_change)
         self.chk_activa.pack(side="left", padx=20)
 
         if self.tipo_archivo == "PDF":
-            ctk.CTkLabel(top_frame, text="Páginas PDF a ignorar (ej: 1, 5-7):").pack(side="left", padx=5)
-            self.ent_paginas_ign = ctk.CTkEntry(top_frame, width=100)
+            ctk.CTkLabel(top_frame, text="Ignorar Págs (ej: 1, 5-7):").pack(side="left", padx=5)
+            self.ent_paginas_ign = ctk.CTkEntry(top_frame, width=80)
             self.ent_paginas_ign.pack(side="left", padx=5)
             self.ent_paginas_ign.bind("<FocusOut>", self.on_paginas_ign_change)
+
+        ctk.CTkButton(top_frame, text="✨ Autodetectar Columnas", command=self.autodetectar).pack(side="right", padx=10)
 
         # Main Layout
         main_frame = ctk.CTkFrame(self)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
         # Left Panel (Training)
-        left_panel = ctk.CTkFrame(main_frame, width=300)
+        left_panel = ctk.CTkFrame(main_frame, width=250)
         left_panel.pack(side="left", fill="y", padx=5, pady=5)
 
         def crear_combo(parent, label_text):
-            ctk.CTkLabel(parent, text=label_text).pack(anchor="w", padx=5, pady=(5,0))
-            cmb = ctk.CTkComboBox(parent, values=["Ninguna"] + [f"{i}" for i in range(20)])
+            ctk.CTkLabel(parent, text=label_text).pack(anchor="w", padx=5, pady=(2,0))
+            cmb = ctk.CTkComboBox(parent, values=["Ninguna"] + [f"{i}" for i in range(25)])
             cmb.pack(fill="x", padx=5, pady=2)
             cmb.set("Ninguna")
             return cmb
@@ -450,61 +606,152 @@ class ModalEntrenadorPrevisualizacion(ctk.CTkToplevel):
         self.cmb_col_precio = crear_combo(left_panel, "Columna Precio / Costo:")
         self.cmb_col_marca = crear_combo(left_panel, "Columna Marca:")
 
-        ctk.CTkLabel(left_panel, text="Marca Fija (si no hay columna):").pack(anchor="w", padx=5, pady=(5,0))
-        self.ent_marca_fija = ctk.CTkEntry(left_panel)
-        self.ent_marca_fija.pack(fill="x", padx=5, pady=2)
-
-        ctk.CTkLabel(left_panel, text="Columnas Equivalencias (ej: 3,4,5):").pack(anchor="w", padx=5, pady=(5,0))
+        ctk.CTkLabel(left_panel, text="Columnas Equivalencias:").pack(anchor="w", padx=5, pady=(2,0))
         self.ent_cols_equiv = ctk.CTkEntry(left_panel)
         self.ent_cols_equiv.pack(fill="x", padx=5, pady=2)
 
-        ctk.CTkLabel(left_panel, text="Fila de inicio de datos:").pack(anchor="w", padx=5, pady=(5,0))
+        ctk.CTkLabel(left_panel, text="Fila inicio datos:").pack(anchor="w", padx=5, pady=(2,0))
         self.ent_fila_inicio = ctk.CTkEntry(left_panel)
         self.ent_fila_inicio.pack(fill="x", padx=5, pady=2)
 
-        ctk.CTkLabel(left_panel, text="Filas de pie de página a ignorar:").pack(anchor="w", padx=5, pady=(5,0))
+        ctk.CTkLabel(left_panel, text="Filas pie ignorar:").pack(anchor="w", padx=5, pady=(2,0))
         self.ent_fila_pie = ctk.CTkEntry(left_panel)
         self.ent_fila_pie.pack(fill="x", padx=5, pady=2)
 
-        self.var_multiline = tk.BooleanVar(value=False)
-        self.chk_multiline = ctk.CTkCheckBox(left_panel, text="📦 Filas agrupadas (Modo Baterías)", variable=self.var_multiline)
-        self.chk_multiline.pack(anchor="w", padx=5, pady=10)
+        self.btn_usar_fila = ctk.CTkButton(left_panel, text="📌 Usar fila como Inicio", command=self.usar_fila_seleccionada)
+        self.btn_usar_fila.pack(fill="x", padx=5, pady=10)
 
-        self.btn_usar_fila = ctk.CTkButton(left_panel, text="📌 Usar fila seleccionada como Inicio", command=self.usar_fila_seleccionada)
-        self.btn_usar_fila.pack(fill="x", padx=5, pady=5)
-
-        # Right Panel (Treeview)
+        # Right Panels (Trees)
         right_panel = ctk.CTkFrame(main_frame)
         right_panel.pack(side="right", fill="both", expand=True, padx=5, pady=5)
 
-        self.tree = ttk.Treeview(right_panel, columns=[], show="headings")
-        self.tree.pack(fill="both", expand=True)
+        right_panel.rowconfigure(0, weight=7)
+        right_panel.rowconfigure(1, weight=3)
+        right_panel.columnconfigure(0, weight=1)
 
-        scroll_y = ttk.Scrollbar(right_panel, orient="vertical", command=self.tree.yview)
+        # Tree 1: Raw
+        tree1_frame = ctk.CTkFrame(right_panel)
+        tree1_frame.grid(row=0, column=0, sticky="nsew", pady=2)
+        ctk.CTkLabel(tree1_frame, text="Tabla Cruda del Archivo (Clic derecho para asignar):").pack(anchor="w", padx=5)
+
+        self.tree = ttk.Treeview(tree1_frame, columns=[], show="headings")
+        self.tree.pack(fill="both", expand=True, side="left")
+        scroll_y = ttk.Scrollbar(tree1_frame, orient="vertical", command=self.tree.yview)
         scroll_y.pack(side="right", fill="y")
-        scroll_x = ttk.Scrollbar(right_panel, orient="horizontal", command=self.tree.xview)
+        scroll_x = ttk.Scrollbar(self.tree, orient="horizontal", command=self.tree.xview)
         scroll_x.pack(side="bottom", fill="x")
         self.tree.configure(yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set)
 
-        # Bind combobox changes to update tree headers
-        for cmb in [self.cmb_col_cod, self.cmb_col_desc, self.cmb_col_precio, self.cmb_col_marca]:
-            cmb.configure(command=self.actualizar_cabeceras)
+        # Context Menu for Tree 1
+        self.menu_contextual = Menu(self, tearoff=0)
+        self.menu_contextual.add_command(label="🎯 Asignar a CÓDIGO", command=lambda: self.asignar_col_context("CÓDIGO"))
+        self.menu_contextual.add_command(label="📝 Asignar a DESCRIPCIÓN", command=lambda: self.asignar_col_context("DESCRIPCIÓN"))
+        self.menu_contextual.add_command(label="🏷️ Asignar a MARCA", command=lambda: self.asignar_col_context("MARCA"))
+        self.menu_contextual.add_command(label="💲 Asignar a PRECIO", command=lambda: self.asignar_col_context("PRECIO"))
+        self.menu_contextual.add_command(label="➕ Agregar a EQUIVALENCIAS/DESC EXTRA", command=lambda: self.asignar_col_context("EQUIV"))
+        self.menu_contextual.add_command(label="📌 Marcar fila como INICIO DE DATOS", command=self.usar_fila_seleccionada)
 
-        # Bottom Bar
-        bottom_frame = ctk.CTkFrame(self)
-        bottom_frame.pack(fill="x", padx=10, pady=10)
+        self.tree.bind("<Button-3>", self.mostrar_menu)
+        self.tree.bind("<Button-1>", self.on_tree_click) # For header click context
+
+        # Tree 2: Live Preview
+        tree2_frame = ctk.CTkFrame(right_panel)
+        tree2_frame.grid(row=1, column=0, sticky="nsew", pady=2)
+        ctk.CTkLabel(tree2_frame, text="Vista Previa de Productos Aprendidos:").pack(anchor="w", padx=5)
+
+        self.tree_live = ttk.Treeview(tree2_frame, columns=("Codigo", "Descripcion", "Marca", "Costo", "Estado"), show="headings")
+        self.tree_live.heading("Codigo", text="Código")
+        self.tree_live.heading("Descripcion", text="Descripción Final Armada")
+        self.tree_live.heading("Marca", text="Marca")
+        self.tree_live.heading("Costo", text="$ Costo")
+        self.tree_live.heading("Estado", text="Estado Validación")
+        self.tree_live.pack(fill="both", expand=True, side="left")
+        scroll_y2 = ttk.Scrollbar(tree2_frame, orient="vertical", command=self.tree_live.yview)
+        scroll_y2.pack(side="right", fill="y")
+        self.tree_live.configure(yscrollcommand=scroll_y2.set)
+
+        for cmb in [self.cmb_col_cod, self.cmb_col_desc, self.cmb_col_precio, self.cmb_col_marca]:
+            cmb.configure(command=self.on_combo_change)
+        self.ent_cols_equiv.bind("<KeyRelease>", self.on_combo_change)
+        self.ent_fila_inicio.bind("<KeyRelease>", self.on_combo_change)
+
+        # Bottom Bar Layout Fix
+        bottom_frame = ctk.CTkFrame(self, height=50)
+        bottom_frame.pack(side="bottom", fill="x", padx=10, pady=10)
 
         self.lbl_prueba = ctk.CTkLabel(bottom_frame, text="")
         self.lbl_prueba.pack(side="left", padx=10)
 
-        btn_probar = ctk.CTkButton(bottom_frame, text="🔍 Probar Regla en esta Vista", command=self.probar_regla)
+        btn_probar = ctk.CTkButton(bottom_frame, text="🔍 Probar Regla en esta Vista", command=self.actualizar_live_preview)
         btn_probar.pack(side="right", padx=5)
 
         btn_guardar = ctk.CTkButton(bottom_frame, text="💾 Guardar Entrenamiento y Extraer Todo", fg_color="green", hover_color="darkgreen", command=self.guardar_y_extraer)
         btn_guardar.pack(side="right", padx=5)
 
+    def mostrar_menu(self, event):
+        item = self.tree.identify_row(event.y)
+        col = self.tree.identify_column(event.x)
+        if not col: return
+        self.col_contextual = int(col.replace('#', '')) - 1 # #1 is Fila, #2 is Col 0
+        if self.col_contextual < 0: return # Click on 'Fila' column
+
+        if item:
+            self.tree.selection_set(item)
+        self.menu_contextual.post(event.x_root, event.y_root)
+
+    def on_tree_click(self, event):
+        region = self.tree.identify("region", event.x, event.y)
+        if region == "heading":
+            col = self.tree.identify_column(event.x)
+            if col:
+                self.col_contextual = int(col.replace('#', '')) - 1
+                if self.col_contextual >= 0:
+                    self.menu_contextual.post(event.x_root, event.y_root)
+
+    def asignar_col_context(self, tipo):
+        val = str(self.col_contextual)
+        if tipo == "CÓDIGO": self.cmb_col_cod.set(val)
+        elif tipo == "DESCRIPCIÓN": self.cmb_col_desc.set(val)
+        elif tipo == "MARCA": self.cmb_col_marca.set(val)
+        elif tipo == "PRECIO": self.cmb_col_precio.set(val)
+        elif tipo == "EQUIV":
+            curr = self.ent_cols_equiv.get().strip()
+            if curr: self.ent_cols_equiv.delete(0, tk.END); self.ent_cols_equiv.insert(0, f"{curr},{val}")
+            else: self.ent_cols_equiv.insert(0, val)
+        self.on_combo_change()
+
+    def autodetectar(self):
+        filas = self.preview_data.get(self.origen_actual, [])
+        if not filas: return
+        mapeo = self.motor.autodetectar_mapeo_columnas(filas)
+
+        if mapeo["col_codigo"] is not None: self.cmb_col_cod.set(str(mapeo["col_codigo"]))
+        if mapeo["col_descripcion"] is not None: self.cmb_col_desc.set(str(mapeo["col_descripcion"]))
+        if mapeo["col_marca"] is not None: self.cmb_col_marca.set(str(mapeo["col_marca"]))
+        if mapeo["col_precio"] is not None: self.cmb_col_precio.set(str(mapeo["col_precio"]))
+
+        self.ent_cols_equiv.delete(0, tk.END)
+        self.ent_cols_equiv.insert(0, ",".join(map(str, mapeo["cols_equivalencias"])))
+
+        self.ent_fila_inicio.delete(0, tk.END)
+        self.ent_fila_inicio.insert(0, str(mapeo["fila_inicio"]))
+
+        self.on_combo_change()
+
+    def on_modo_change(self, modo):
+        perfil_gen = self.gestor_perfiles.obtener_perfil(self.proveedor, "PDF", "GENERAL")
+        perfil_gen["modo_lectura_pdf"] = modo
+        self.gestor_perfiles.guardar_perfil(self.proveedor, "PDF", "GENERAL", perfil_gen)
+        # Reload preview data
+        self.preview_data = self.motor.obtener_previsualizacion_cruda(self.ruta_archivo, self.gestor_perfiles, self.proveedor)
+        self.cargar_tabla()
+
+    def on_combo_change(self, *args):
+        self.actualizar_cabeceras()
+        self.actualizar_live_preview()
+
     def cargar_datos(self):
-        self.preview_data = self.motor.obtener_previsualizacion_cruda(self.ruta_archivo)
+        self.preview_data = self.motor.obtener_previsualizacion_cruda(self.ruta_archivo, self.gestor_perfiles, self.proveedor)
         origenes = list(self.preview_data.keys())
         if origenes:
             self.cmb_origen.configure(values=origenes)
@@ -515,6 +762,9 @@ class ModalEntrenadorPrevisualizacion(ctk.CTkToplevel):
             pags = self.gestor_perfiles.obtener_metadatos_pdf(self.proveedor)
             self.ent_paginas_ign.delete(0, tk.END)
             self.ent_paginas_ign.insert(0, ",".join(map(str, pags)))
+
+            perfil_gen = self.gestor_perfiles.obtener_perfil(self.proveedor, "PDF", "GENERAL")
+            self.cmb_modo.set(perfil_gen.get("modo_lectura_pdf", "Automático Inteligente (Desglosado por renglón)"))
 
     def parsear_combo(self, cmb):
         v = cmb.get()
@@ -529,7 +779,6 @@ class ModalEntrenadorPrevisualizacion(ctk.CTkToplevel):
     def on_origen_change(self, origen):
         self.origen_actual = origen
 
-        # Cargar perfil
         ident = "GENERAL" if self.tipo_archivo == "PDF" else origen
         perfil = self.gestor_perfiles.obtener_perfil(self.proveedor, self.tipo_archivo, ident)
 
@@ -547,9 +796,6 @@ class ModalEntrenadorPrevisualizacion(ctk.CTkToplevel):
         self.setear_combo(self.cmb_col_precio, perfil.get("col_precio"))
         self.setear_combo(self.cmb_col_marca, perfil.get("col_marca"))
 
-        self.ent_marca_fija.delete(0, tk.END)
-        self.ent_marca_fija.insert(0, str(perfil.get("marca_fija", "")))
-
         self.ent_cols_equiv.delete(0, tk.END)
         self.ent_cols_equiv.insert(0, ",".join(map(str, perfil.get("cols_equivalencias", []))))
 
@@ -559,9 +805,11 @@ class ModalEntrenadorPrevisualizacion(ctk.CTkToplevel):
         self.ent_fila_pie.delete(0, tk.END)
         self.ent_fila_pie.insert(0, str(perfil.get("filas_pie_ignorar", 0)))
 
-        self.var_multiline.set(perfil.get("modo_multiline_baterias", False))
-
         self.cargar_tabla()
+
+        # If new provider, try auto-detect
+        if self.parsear_combo(self.cmb_col_cod) is None and self.parsear_combo(self.cmb_col_precio) is None:
+            self.autodetectar()
 
     def on_activa_change(self):
         if self.tipo_archivo == "PDF":
@@ -607,16 +855,22 @@ class ModalEntrenadorPrevisualizacion(ctk.CTkToplevel):
             self.tree.column(col, width=100)
 
         for i, fila in enumerate(filas):
-            self.tree.insert("", "end", values=[str(i)] + fila)
+            # Pad with empty if needed
+            padded = fila + [""] * (max_cols - len(fila))
+            self.tree.insert("", "end", values=[str(i)] + padded)
 
         self.actualizar_cabeceras()
+        self.actualizar_live_preview()
 
-    def actualizar_cabeceras(self, *args):
+    def actualizar_cabeceras(self):
         try:
             cod = self.parsear_combo(self.cmb_col_cod)
             desc = self.parsear_combo(self.cmb_col_desc)
             prec = self.parsear_combo(self.cmb_col_precio)
             marc = self.parsear_combo(self.cmb_col_marca)
+
+            ce_txt = self.ent_cols_equiv.get()
+            ce = [int(x.strip()) for x in ce_txt.split(',') if x.strip().isdigit()]
 
             for col in self.tree["columns"]:
                 if col == "Fila":
@@ -625,10 +879,15 @@ class ModalEntrenadorPrevisualizacion(ctk.CTkToplevel):
                 try:
                     idx = int(col)
                     txt = f"Col {idx}"
-                    if idx == cod: txt += " [CÓDIGO]"
-                    if idx == desc: txt += " [DESC]"
-                    if idx == prec: txt += " [PRECIO]"
-                    if idx == marc: txt += " [MARCA]"
+                    tags = []
+                    if idx == cod: tags.append("CÓDIGO")
+                    if idx == desc: tags.append("DESC")
+                    if idx == prec: tags.append("PRECIO")
+                    if idx == marc: tags.append("MARCA")
+                    if idx in ce: tags.append("EXTRA")
+
+                    if tags:
+                        txt += f" [{'+'.join(tags)}]"
                     self.tree.heading(col, text=txt)
                 except: pass
         except: pass
@@ -640,6 +899,7 @@ class ModalEntrenadorPrevisualizacion(ctk.CTkToplevel):
         fila_idx = item["values"][0]
         self.ent_fila_inicio.delete(0, tk.END)
         self.ent_fila_inicio.insert(0, str(fila_idx))
+        self.on_combo_change()
 
     def _obtener_perfil_ui(self):
         try: fi = int(self.ent_fila_inicio.get())
@@ -648,10 +908,7 @@ class ModalEntrenadorPrevisualizacion(ctk.CTkToplevel):
         except: fp = 0
 
         ce_txt = self.ent_cols_equiv.get()
-        ce = []
-        for x in ce_txt.split(','):
-            x = x.strip()
-            if x.isdigit(): ce.append(int(x))
+        ce = [int(x.strip()) for x in ce_txt.split(',') if x.strip().isdigit()]
 
         return {
             "activa": self.var_activa.get(),
@@ -663,23 +920,52 @@ class ModalEntrenadorPrevisualizacion(ctk.CTkToplevel):
             "fila_inicio": fi,
             "filas_pie_ignorar": fp,
             "paginas_ignoradas": [],
-            "modo_multiline_baterias": self.var_multiline.get(),
-            "marca_fija": self.ent_marca_fija.get()
+            "modo_multiline_baterias": False,
+            "marca_fija": "",
+            "modo_lectura_pdf": self.cmb_modo.get() if self.tipo_archivo == "PDF" else "auto_desglosado",
+            "nombres_cabecera_aprendidos": {}
         }
 
-    def probar_regla(self):
+    def actualizar_live_preview(self):
         perfil = self._obtener_perfil_ui()
         filas = self.preview_data.get(self.origen_actual, [])
         prods = self.motor._procesar_filas(filas, perfil, self.origen_actual)
+
+        self.tree_live.delete(*self.tree_live.get_children())
+
         if not prods:
-            self.lbl_prueba.configure(text="No se detectaron productos válidos con esta regla.", text_color="red")
+            self.lbl_prueba.configure(text="No se detectaron productos válidos.", text_color="red")
         else:
-            p1 = prods[0]
-            txt = f"Detectados {len(prods)} productos. Ej: [{p1['codigo_proveedor']}] {p1['descripcion']} - ${p1['costo']}"
-            self.lbl_prueba.configure(text=txt, text_color="green")
+            self.lbl_prueba.configure(text=f"Detectados {len(prods)} productos válidos.", text_color="green")
+            for p in prods[:50]:
+                estado = "✅ Ok"
+                self.tree_live.insert("", "end", values=(
+                    p['codigo_proveedor'],
+                    p['descripcion'],
+                    p['marca'],
+                    f"$ {p['costo']}",
+                    estado
+                ))
 
     def guardar_y_extraer(self):
         perfil = self._obtener_perfil_ui()
+
+        # Save header names if we have a header row
+        try:
+            fi = perfil["fila_inicio"]
+            filas = self.preview_data.get(self.origen_actual, [])
+            if fi > 0 and len(filas) >= fi:
+                header_row = filas[fi-1]
+                aprendidos = {}
+                if perfil["col_codigo"] is not None and perfil["col_codigo"] < len(header_row):
+                    aprendidos["codigo"] = str(header_row[perfil["col_codigo"]])
+                if perfil["col_descripcion"] is not None and perfil["col_descripcion"] < len(header_row):
+                    aprendidos["descripcion"] = str(header_row[perfil["col_descripcion"]])
+                if perfil["col_precio"] is not None and perfil["col_precio"] < len(header_row):
+                    aprendidos["precio"] = str(header_row[perfil["col_precio"]])
+                perfil["nombres_cabecera_aprendidos"] = aprendidos
+        except: pass
+
         ident = "GENERAL" if self.tipo_archivo == "PDF" else self.origen_actual
         self.gestor_perfiles.guardar_perfil(self.proveedor, self.tipo_archivo, ident, perfil)
 
@@ -719,8 +1005,6 @@ class UnificadorApp(ctk.CTk):
         self.lbl_db_estado = ctk.CTkLabel(header, text="Base: barterplus.db (Solo Lectura)", text_color="green")
         self.lbl_db_estado.pack(side="left", padx=20)
 
-        ctk.CTkButton(header, text="Cambiar Base", width=100).pack(side="left", padx=5)
-
         self.lbl_perfiles = ctk.CTkLabel(header, text=f"🧠 Perfiles Entrenados: {len(self.gestor_perfiles.perfiles)}")
         self.lbl_perfiles.pack(side="right", padx=10)
 
@@ -754,7 +1038,6 @@ class UnificadorApp(ctk.CTk):
 
         # Hojas Excel Panel (Fila 2)
         self.panel_hojas = ctk.CTkFrame(self)
-        # Oculto inicialmente
 
         # Auditoria (Fila 3 y 4)
         panel_auditoria = ctk.CTkFrame(self)
